@@ -1,0 +1,9 @@
+node_modules
+dist
+.tsc-out
+.turbo
+packages/fetchium/*.js
+packages/fetchium/*.d.ts
+__screenshots__/
+.next
+out

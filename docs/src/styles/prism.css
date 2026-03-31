@@ -1,0 +1,87 @@
+pre[class*='language-'] {
+  color: #E8E8EC;
+}
+
+.token.tag,
+.token.class-name,
+.token.selector,
+.token.selector .class,
+.token.selector.class,
+.token.function {
+  color: #A8E848;
+}
+
+.token.attr-name,
+.token.keyword,
+.token.rule,
+.token.pseudo-class,
+.token.important,
+.token.builtin {
+  color: #F050A0;
+}
+
+.token.module {
+  color: #A8E848;
+}
+
+.token.string,
+.token.template-string,
+.token.attr-value {
+  color: #88D038;
+}
+
+.token.property,
+.token.property-access {
+  color: #D0D0D6;
+}
+
+.token.number,
+.token.boolean {
+  color: #F8A0C8;
+}
+
+.token.punctuation,
+.token.attr-equals {
+  color: #909098;
+}
+
+.token.operator,
+.token.spread {
+  color: #D8408A;
+}
+
+.token.method,
+.token.function-variable {
+  color: #C8F068;
+}
+
+.token.unit,
+.language-css .token.function {
+  color: #C8F068;
+}
+
+.token.comment {
+  color: #585860;
+  font-style: italic;
+}
+
+.token.combinator {
+  color: #707078;
+}
+
+.token.constant,
+.token.symbol {
+  color: #F8A0C8;
+}
+
+.token.regex {
+  color: #88D038;
+}
+
+.token.template-punctuation {
+  color: #D8408A;
+}
+
+.token.parameter {
+  color: #E8E8EC;
+}

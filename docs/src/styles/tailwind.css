@@ -1,0 +1,123 @@
+@import 'tailwindcss';
+@import './prism.css';
+
+@config "../../tailwind.config.js";
+@plugin '@tailwindcss/typography';
+
+@theme {
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1rem;
+  --text-base--line-height: 2rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 2rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2.5rem;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.5rem;
+  --text-4xl: 2.5rem;
+  --text-4xl--line-height: 3rem;
+  --text-5xl: 3rem;
+  --text-5xl--line-height: 3.5rem;
+  --text-6xl: 3.75rem;
+  --text-6xl--line-height: 1;
+  --text-7xl: 4.5rem;
+  --text-7xl--line-height: 1;
+  --text-8xl: 6rem;
+  --text-8xl--line-height: 1;
+  --text-9xl: 8rem;
+  --text-9xl--line-height: 1;
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-lexend);
+  --font-display--font-feature-settings: 'ss01';
+
+  --container-8xl: 88rem;
+
+  /* Neutral near-black base */
+  --color-primary-50: #E8E8EC;
+  --color-primary-100: #D0D0D6;
+  --color-primary-200: #B0B0B8;
+  --color-primary-300: #909098;
+  --color-primary-400: #707078;
+  --color-primary-500: #585860;
+  --color-primary-600: #4A4A52;
+  --color-primary-700: #3A3A42;
+  --color-primary-800: #2C2C32;
+  --color-primary-900: #1A1A1E;
+  --color-primary-950: #131315;
+  --color-primary-1000: #0C0C0E;
+
+  /* Green / lime accent */
+  --color-secondary-50: #F4FCE0;
+  --color-secondary-100: #E4F8B0;
+  --color-secondary-200: #C8F068;
+  --color-secondary-300: #A8E848;
+  --color-secondary-400: #88D038;
+  --color-secondary-500: #70B830;
+  --color-secondary-600: #60A028;
+  --color-secondary-700: #4A8020;
+  --color-secondary-800: #386018;
+  --color-secondary-900: #1A2C08;
+  --color-secondary-950: #0E1A04;
+
+  /* Pink accent */
+  --color-tertiary-50: #FFF0F6;
+  --color-tertiary-100: #FFD0E4;
+  --color-tertiary-200: #F8A0C8;
+  --color-tertiary-300: #F050A0;
+  --color-tertiary-400: #D8408A;
+  --color-tertiary-500: #C03078;
+  --color-tertiary-600: #A03068;
+  --color-tertiary-700: #802858;
+  --color-tertiary-800: #601848;
+  --color-tertiary-900: #300C22;
+  --color-tertiary-950: #1A0614;
+
+  --color-divider: color-mix(
+    in oklab,
+    var(--color-primary-800) 80%,
+    transparent
+  );
+}
+
+@layer base {
+  [inert] ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+table {
+  @apply border-separate border-spacing-0 rounded-xl border border-primary-800 bg-primary-1000;
+}
+
+table code {
+  @apply border-none bg-transparent;
+}
+
+table th {
+  @apply border-b-2 border-primary-800 px-4 py-2;
+}
+
+table td {
+  @apply px-4 py-2;
+}
+
+table tr:not(:last-child) > td {
+  @apply border-b border-primary-800;
+}
+
+code {
+  white-space: nowrap;
+  display: inline-block;
+}
+
+pre > code {
+  white-space: unset;
+  display: block;
+}
