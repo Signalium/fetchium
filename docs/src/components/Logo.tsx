@@ -1,63 +1,43 @@
 import clsx from 'clsx';
 
+export function FcTile({ className, size = 'sm' }: { className?: string; size?: 'sm' | 'md' }) {
+  const ismd = size === 'md';
+
+  return (
+    <div
+      className={clsx(
+        'flex flex-col items-center justify-center rounded-md border border-primary-800 bg-primary-900',
+        ismd ? 'h-11 w-11' : 'h-9 w-9',
+        className,
+      )}
+    >
+      <span className={clsx('font-mono font-bold leading-none text-tertiary-300', ismd ? 'text-lg' : 'text-base')}>
+        Fc
+      </span>
+      <span className={clsx('font-display text-secondary-300/70', ismd ? 'text-[6px]' : 'text-[5px]')}>
+        200
+      </span>
+    </div>
+  );
+}
+
 export function Logomark({
   className,
   ...props
-}: React.ComponentPropsWithoutRef<'svg'>) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 36 36"
-      className={clsx('inline-block', className)}
-      {...props}
-    >
-      <rect width="36" height="36" rx="8" fill="#1A1A1E" stroke="#2C2C32" strokeWidth="1" />
-      <text
-        x="5"
-        y="25"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontWeight="700"
-        fontSize="18"
-      >
-        <tspan fill="#F050A0">F</tspan>
-        <tspan fill="#A8E848">c</tspan>
-      </text>
-    </svg>
-  );
+}: React.ComponentPropsWithoutRef<'div'>) {
+  return <FcTile className={className} size="sm" {...props} />;
 }
 
 export function Logo({
   className,
   ...props
-}: React.ComponentPropsWithoutRef<'svg'>) {
+}: React.ComponentPropsWithoutRef<'div'>) {
   return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 180 36"
-      className={clsx('inline-block', className)}
-      {...props}
-    >
-      <rect width="36" height="36" rx="8" fill="#1A1A1E" stroke="#2C2C32" strokeWidth="1" />
-      <text
-        x="5"
-        y="25"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontWeight="700"
-        fontSize="18"
-      >
-        <tspan fill="#F050A0">F</tspan>
-        <tspan fill="#A8E848">c</tspan>
-      </text>
-      <text
-        x="46"
-        y="25"
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontWeight="500"
-        fontSize="18"
-        fill="currentColor"
-      >
-        Fetchium
-      </text>
-    </svg>
+    <div className={clsx('flex items-center gap-2.5', className)} {...props}>
+      <FcTile size="sm" />
+      <span className="font-display text-[16px] font-medium text-white">
+        fetchium
+      </span>
+    </div>
   );
 }

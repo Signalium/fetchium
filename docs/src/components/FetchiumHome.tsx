@@ -2,11 +2,12 @@
 
 import { useState, useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
+import { FcTile } from '@/components/Logo';
 
 const F = {
-  code: "'JetBrains Mono', monospace",
-  label: "'DM Mono', monospace",
-  body: "'Instrument Sans', sans-serif",
+  code: "var(--font-jetbrains), 'JetBrains Mono', monospace",
+  label: "var(--font-dm-mono), 'DM Mono', monospace",
+  body: "var(--font-instrument), 'Instrument Sans', sans-serif",
 };
 
 const C = {
@@ -247,28 +248,13 @@ export function FetchiumHome() {
         transition: 'opacity 0.5s',
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-        rel="stylesheet"
-      />
-
       {/* Header */}
       <header
         className="flex items-center justify-between px-8 h-14 sticky top-0 z-10"
         style={{ borderBottom: `1px solid ${C.border}`, background: C.bg0 + 'ee', backdropFilter: 'blur(12px)' }}
       >
         <Link href="/" className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-md flex flex-col items-center justify-center"
-            style={{ background: C.bg2, border: `1px solid ${C.border}` }}
-          >
-            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: F.code, lineHeight: 1 }}>
-              <span style={{ color: C.pink }}>F</span>
-              <span style={{ color: C.green }}>c</span>
-            </span>
-            <span style={{ fontSize: 5, fontFamily: F.label, color: C.green, opacity: 0.7 }}>200</span>
-          </div>
+          <FcTile size="sm" />
           <span style={{ fontFamily: F.label, fontWeight: 500, fontSize: 15, color: C.text0 }}>
             fetchium
           </span>
@@ -531,7 +517,7 @@ export function FetchiumHome() {
       <section className="px-10 py-16 max-w-6xl mx-auto" style={{ borderTop: `1px solid ${C.border}` }}>
         <div className="flex flex-col lg:flex-row gap-12 items-start">
           <div className="shrink-0 lg:max-w-[340px]">
-            <h2 className="mb-3 font-mono" style={{ fontSize: 22, fontWeight: 500 }}>
+            <h2 className="mb-3" style={{ fontSize: 22, fontWeight: 500, fontFamily: F.label }}>
               Entities that stay in sync
             </h2>
             <p className="text-sm leading-relaxed mb-4" style={{ color: C.text1 }}>
@@ -539,7 +525,7 @@ export function FetchiumHome() {
               Update it anywhere, see it everywhere — no manual cache invalidation.
             </p>
             <div className="rounded-lg p-3 mb-3" style={{ background: C.greenBg, borderLeft: `3px solid ${C.green}` }}>
-              <span className="text-xs font-medium font-mono" style={{ color: C.green }}>
+              <span className="text-xs font-medium" style={{ color: C.green, fontFamily: F.label }}>
                 Identity stable
               </span>
               <p className="text-xs m-0 mt-1 leading-relaxed" style={{ color: C.text1 }}>
@@ -547,7 +533,7 @@ export function FetchiumHome() {
               </p>
             </div>
             <div className="rounded-lg p-3" style={{ background: C.pinkBg, borderLeft: `3px solid ${C.pink}` }}>
-              <span className="text-xs font-medium font-mono" style={{ color: C.pink }}>
+              <span className="text-xs font-medium" style={{ color: C.pink, fontFamily: F.label }}>
                 Works with React
               </span>
               <p className="text-xs m-0 mt-1 leading-relaxed" style={{ color: C.text1 }}>
@@ -580,7 +566,7 @@ export function FetchiumHome() {
             />
           </div>
           <div className="shrink-0 lg:max-w-[340px]">
-            <h2 className="mb-3 font-mono" style={{ fontSize: 22, fontWeight: 500 }}>
+            <h2 className="mb-3" style={{ fontSize: 22, fontWeight: 500, fontFamily: F.label }}>
               APIs change. Your app shouldn&apos;t break.
             </h2>
             <p className="text-sm leading-relaxed mb-4" style={{ color: C.text1 }}>
@@ -590,8 +576,8 @@ export function FetchiumHome() {
             <p className="text-sm leading-relaxed" style={{ color: C.text2 }}>
               The type DSL uses number masks under the hood — not objects. A type like{' '}
               <code
-                className="text-xs px-1.5 py-0.5 rounded font-mono"
-                style={{ background: C.bg3, color: C.amber }}
+                className="text-xs px-1.5 py-0.5 rounded"
+                style={{ background: C.bg3, color: C.amber, fontFamily: F.code }}
               >
                 t.optional(t.string)
               </code>{' '}
@@ -604,7 +590,7 @@ export function FetchiumHome() {
       {/* Comparison */}
       <section className="px-10 py-12" style={{ borderTop: `1px solid ${C.border}`, background: C.bg0 }}>
         <div className="max-w-4xl mx-auto">
-          <h2 className="text-center mb-6 font-mono" style={{ fontSize: 20, fontWeight: 500 }}>
+          <h2 className="text-center mb-6" style={{ fontSize: 20, fontWeight: 500, fontFamily: F.label }}>
             What you get
           </h2>
           <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
@@ -614,7 +600,7 @@ export function FetchiumHome() {
                   {['', 'Fetchium', 'TanStack Query', 'Apollo Client'].map((h, i) => (
                     <th
                       key={h || 'e'}
-                      className="text-left px-4 py-2.5 font-mono"
+                      className="text-left px-4 py-2.5"
                       style={{
                         background: C.bg3,
                         fontSize: 12,
@@ -622,6 +608,7 @@ export function FetchiumHome() {
                         color: i === 1 ? C.pink : C.text2,
                         textAlign: i > 0 ? 'center' : 'left',
                         borderBottom: `1px solid ${C.border}`,
+                        fontFamily: F.label,
                       }}
                     >
                       {h}
@@ -644,13 +631,14 @@ export function FetchiumHome() {
                     {[label, fc, tq, ap].map((val, i) => (
                       <td
                         key={`${String(label)}-${i}`}
-                        className={i === 0 ? 'px-4 py-2' : 'px-4 py-2 font-mono'}
+                        className="px-4 py-2"
                         style={{
                           background: C.bg2,
                           fontSize: 12,
                           color: val === true ? C.green : val === false ? C.text3 : i === 1 ? C.text0 : C.text2,
                           textAlign: i > 0 ? 'center' : 'left',
                           borderBottom: ri < 7 ? `1px solid ${C.border}` : 'none',
+                          ...(i > 0 ? { fontFamily: F.label } : {}),
                         }}
                       >
                         {val === true ? '✓' : val === false ? '—' : String(val)}
@@ -666,7 +654,7 @@ export function FetchiumHome() {
 
       {/* Get started */}
       <section className="px-10 py-16 text-center">
-        <h2 className="mb-3 font-mono" style={{ fontSize: 28, fontWeight: 500 }}>
+        <h2 className="mb-3" style={{ fontSize: 28, fontWeight: 500, fontFamily: F.label }}>
           Start fetching
         </h2>
         <p className="mb-7" style={{ fontSize: 15, color: C.text2 }}>
@@ -674,15 +662,15 @@ export function FetchiumHome() {
         </p>
         <div className="inline-flex gap-3">
           <div
-            className="flex items-center gap-2 px-5 py-3 rounded-lg text-sm font-mono"
-            style={{ background: C.bg0, border: `1px solid ${C.border}`, color: C.text1 }}
+            className="flex items-center gap-2 px-5 py-3 rounded-lg text-sm"
+            style={{ background: C.bg0, border: `1px solid ${C.border}`, color: C.text1, fontFamily: F.code }}
           >
             <span style={{ color: C.text3 }}>$</span> npm install fetchium
           </div>
           <Link
             href="/quickstart"
-            className="px-6 py-3 rounded-lg text-sm font-medium font-mono border-none text-white"
-            style={{ background: C.pink }}
+            className="px-6 py-3 rounded-lg text-sm font-medium border-none text-white"
+            style={{ background: C.pink, fontFamily: F.label }}
           >
             Read the docs
           </Link>
@@ -699,11 +687,11 @@ export function FetchiumHome() {
                 className="w-7 h-7 rounded flex items-center justify-center"
                 style={{ background: C.bg2, border: `1px solid ${C.border}` }}
               >
-                <span className="font-mono" style={{ fontSize: 11, fontWeight: 700, color: colorMap[c].fg }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: colorMap[c].fg, fontFamily: F.code }}>
                   {s}
                 </span>
               </div>
-              <span className="font-mono" style={{ fontSize: 13, color: C.text2 }}>{n}</span>
+              <span style={{ fontSize: 13, color: C.text2, fontFamily: F.label }}>{n}</span>
             </Link>
           ))}
         </div>
@@ -712,7 +700,7 @@ export function FetchiumHome() {
       {/* Footer */}
       <footer className="flex items-center justify-between px-10 py-6" style={{ borderTop: `1px solid ${C.border}` }}>
         <div className="flex items-center gap-2">
-          <span className="font-mono" style={{ fontSize: 13, color: C.text3 }}>fetchium</span>
+          <span style={{ fontSize: 13, color: C.text3, fontFamily: F.label }}>fetchium</span>
           <span style={{ color: C.text3 }}>—</span>
           <span style={{ fontSize: 11, color: C.text3 }}>The HTTP element</span>
         </div>

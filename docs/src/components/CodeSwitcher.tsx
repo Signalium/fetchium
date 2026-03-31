@@ -54,27 +54,27 @@ export function ModeToggle({ className }: { className?: string }) {
   return (
     <div
       className={clsx(
-        'flex items-center gap-0.5 rounded-full bg-primary-800/60 p-0.5 text-xs ring-1 ring-primary-700/50 ring-inset',
+        'flex border-b border-primary-800 text-xs',
         className,
       )}
     >
       <button
         onClick={() => setMode('react')}
         className={clsx(
-          'rounded-full px-2.5 py-1 transition-colors',
+          'flex-1 py-2 text-center transition-colors',
           mode === 'react'
-            ? 'bg-secondary-400/15 font-medium text-secondary-300'
+            ? 'bg-tertiary-300/10 font-medium text-tertiary-300'
             : 'text-primary-400 hover:text-white',
         )}
       >
-        React
+        React + Hooks
       </button>
       <button
         onClick={() => setMode('signalium')}
         className={clsx(
-          'rounded-full px-2.5 py-1 transition-colors',
+          'flex-1 py-2 text-center transition-colors',
           mode === 'signalium'
-            ? 'bg-secondary-400/15 font-medium text-secondary-300'
+            ? 'bg-tertiary-300/10 font-medium text-tertiary-300'
             : 'text-primary-400 hover:text-white',
         )}
       >
@@ -119,22 +119,22 @@ function ModeTabs() {
         className={clsx(
           'rounded px-2 py-1 transition-colors',
           mode === 'react'
-            ? 'bg-secondary-400/15 text-secondary-300'
+            ? 'bg-tertiary-300/10 text-tertiary-300'
             : 'text-primary-400 hover:text-white',
         )}
       >
-        React
+        React + Hooks
       </button>
       <button
         onClick={() => setMode('signalium')}
         className={clsx(
           'rounded px-2 py-1 transition-colors',
           mode === 'signalium'
-            ? 'bg-secondary-400/15 text-secondary-300'
+            ? 'bg-tertiary-300/10 text-tertiary-300'
             : 'text-primary-400 hover:text-white',
         )}
       >
-        Signalium + React
+        React + Signalium
       </button>
     </div>
   );

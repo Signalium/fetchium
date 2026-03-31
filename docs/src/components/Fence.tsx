@@ -15,28 +15,44 @@ export function CodeFence({
   className?: string;
 }) {
   return (
-    <Highlight
-      code={children.trimEnd()}
-      language={language || 'text'}
-      theme={{ plain: {}, styles: [] }}
-    >
-      {({ className, style, tokens, getTokenProps }) => (
-        <pre className={clsx(className, customClassName)} style={style}>
-          <code>
-            {tokens.map((line, lineIndex) => (
-              <Fragment key={lineIndex}>
-                {line
-                  .filter((token) => !token.empty)
-                  .map((token, tokenIndex) => (
-                    <span key={tokenIndex} {...getTokenProps({ token })} />
-                  ))}
-                {'\n'}
-              </Fragment>
-            ))}
-          </code>
-        </pre>
-      )}
-    </Highlight>
+    <div className="relative">
+      <div className="flex items-center gap-1.5 rounded-t-xl border border-b-0 border-primary-800 bg-primary-1000 px-4 py-2">
+        <span className="h-2 w-2 rounded-full bg-tertiary-300/50" />
+        <span className="h-2 w-2 rounded-full bg-secondary-300/50" />
+        {language && language !== 'text' && (
+          <span className="ml-2 text-xs text-primary-500">{language}</span>
+        )}
+      </div>
+      <Highlight
+        code={children.trimEnd()}
+        language={language || 'text'}
+        theme={{ plain: {}, styles: [] }}
+      >
+        {({ className, style, tokens, getTokenProps }) => (
+          <pre
+            className={clsx(
+              className,
+              customClassName,
+              'rounded-t-none! border-t-0! mt-0!',
+            )}
+            style={style}
+          >
+            <code>
+              {tokens.map((line, lineIndex) => (
+                <Fragment key={lineIndex}>
+                  {line
+                    .filter((token) => !token.empty)
+                    .map((token, tokenIndex) => (
+                      <span key={tokenIndex} {...getTokenProps({ token })} />
+                    ))}
+                  {'\n'}
+                </Fragment>
+              ))}
+            </code>
+          </pre>
+        )}
+      </Highlight>
+    </div>
   );
 }
 

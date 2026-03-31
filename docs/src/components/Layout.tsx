@@ -1,11 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import clsx from 'clsx';
 
-import { Logo, Logomark } from '@/components/Logo';
+import { Logo } from '@/components/Logo';
 import { MobileNavigation } from '@/components/MobileNavigation';
 import { Navigation } from '@/components/Navigation';
 import { Search } from '@/components/Search';
@@ -20,54 +18,41 @@ function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
 }
 
 function Header() {
-  let [isScrolled, setIsScrolled] = useState(false);
-
-  useEffect(() => {
-    function onScroll() {
-      setIsScrolled(window.scrollY > 0);
-    }
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, []);
-
   return (
-    <header
-      className={clsx(
-        'sticky top-0 z-50 flex flex-none flex-wrap items-center justify-between px-4 py-5 shadow-none shadow-slate-900/5 transition duration-500 sm:px-6 lg:px-8',
-        isScrolled
-          ? 'bg-primary-950/95 backdrop-blur-sm [@supports(backdrop-filter:blur(0))]:bg-primary-950/80'
-          : 'bg-transparent',
-      )}
-    >
-      <div className="mr-12 flex lg:hidden">
-        <MobileNavigation />
-      </div>
-      <div className="relative flex grow basis-0 items-center justify-center">
+    <header className="sticky top-0 z-50 flex h-14 flex-none items-center justify-between border-b border-primary-800 bg-primary-1000 px-4 sm:px-6 lg:px-8">
+      <div className="flex items-center gap-3">
+        <div className="mr-4 flex lg:hidden">
+          <MobileNavigation />
+        </div>
         <Link href="/" aria-label="Home page">
-          <Logomark
-            className={clsx(
-              isScrolled ? 'h-12' : 'h-16',
-              'transition-all lg:hidden',
-            )}
-          />
-          <Logo className="hidden h-16 w-auto fill-primary-100 lg:block" />
+          <Logo />
         </Link>
+        <span className="hidden rounded bg-primary-800/60 px-1.5 py-0.5 font-mono text-[10px] font-medium text-primary-400 ring-1 ring-primary-700 ring-inset sm:block">
+          v0.1.0
+        </span>
       </div>
-      <div className="-my-5 mr-6 sm:mr-8 md:mr-0">
+
+      <div className="flex flex-1 justify-center px-4">
         <Search />
       </div>
-      <div className="relative flex basis-0 justify-end gap-6 sm:gap-8 md:grow">
+
+      <nav className="flex items-center gap-5 text-sm">
+        <Link href="/quickstart" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+          Docs
+        </Link>
+        <Link href="/core/queries" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+          Examples
+        </Link>
+        <Link href="/api/fetchium" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+          API
+        </Link>
         <Link
           href="https://github.com/Signalium/fetchium"
-          className="group"
-          aria-label="GitHub"
+          className="text-primary-300 transition-colors hover:text-white"
         >
-          <GitHubIcon className="h-6 w-6 fill-primary-400 group-hover:fill-primary-300" />
+          GitHub
         </Link>
-      </div>
+      </nav>
     </header>
   );
 }
@@ -84,16 +69,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
     <div className="flex w-full flex-col">
       <Header />
 
-      <div className="relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12">
-        <div className="hidden lg:relative lg:block lg:flex-none">
-          <div className="absolute top-16 right-0 bottom-0 h-12 w-px bg-linear-to-t from-divider" />
-          <div className="absolute top-28 right-0 bottom-0 w-px bg-divider" />
-          <div className="sticky top-[4.75rem] -ml-0.5 h-[calc(100vh-4.75rem)] w-64 overflow-x-hidden overflow-y-auto py-16 pr-8 pl-0.5 xl:w-72 xl:pr-16">
-            <ModeToggle className="mb-8" />
+      <div className="flex w-full flex-auto">
+        {/* Sidebar — flush to the left edge */}
+        <div className="hidden lg:block lg:flex-none">
+          <div className="sticky top-14 h-[calc(100vh-3.5rem)] w-64 overflow-y-auto border-r border-primary-800 bg-primary-1000 pb-6 xl:w-72">
+            <ModeToggle className="mb-6" />
             <Navigation />
           </div>
         </div>
-        {children}
+
+        {/* Main content area — centered with max-width */}
+        <div className="flex min-w-0 flex-1 justify-center">
+          <div className="flex w-full max-w-5xl">
+            {children}
+          </div>
+        </div>
       </div>
     </div>
   );

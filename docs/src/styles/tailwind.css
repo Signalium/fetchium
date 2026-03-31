@@ -34,8 +34,8 @@
   --text-9xl--line-height: 1;
 
   --font-sans: var(--font-inter);
-  --font-display: var(--font-lexend);
-  --font-display--font-feature-settings: 'ss01';
+  --font-display: var(--font-dm-mono), ui-monospace, monospace;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 
   --container-8xl: 88rem;
 
