@@ -75,7 +75,7 @@ export const navigation: GroupNavigationItem[] = [
     title: 'Introduction',
     type: 'group',
     items: [
-      { type: 'link', title: 'Getting started', href: '/#getting-started' },
+      { type: 'link', title: 'Getting started', href: '/quickstart' },
     ],
   },
   {

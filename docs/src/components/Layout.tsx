@@ -5,12 +5,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 
-import { Hero } from '@/components/Hero';
 import { Logo, Logomark } from '@/components/Logo';
 import { MobileNavigation } from '@/components/MobileNavigation';
 import { Navigation } from '@/components/Navigation';
 import { Search } from '@/components/Search';
-import { ThemeSelector } from '@/components/ThemeSelector';
 import { ModeToggle } from '@/components/CodeSwitcher';
 
 function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
@@ -21,7 +19,7 @@ function GitHubIcon(props: React.ComponentPropsWithoutRef<'svg'>) {
   );
 }
 
-function Header({ isHomePage }: { isHomePage: boolean }) {
+function Header() {
   let [isScrolled, setIsScrolled] = useState(false);
 
   useEffect(() => {
@@ -63,7 +61,7 @@ function Header({ isHomePage }: { isHomePage: boolean }) {
       </div>
       <div className="relative flex basis-0 justify-end gap-6 sm:gap-8 md:grow">
         <Link
-          href="https://github.com/Signalium/signalium"
+          href="https://github.com/Signalium/fetchium"
           className="group"
           aria-label="GitHub"
         >
@@ -78,11 +76,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
   let pathname = usePathname();
   let isHomePage = pathname === '/';
 
+  if (isHomePage) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="flex w-full flex-col">
-      <Header isHomePage={isHomePage} />
-
-      {isHomePage && <Hero />}
+      <Header />
 
       <div className="relative mx-auto flex w-full max-w-8xl flex-auto justify-center sm:px-2 lg:px-8 xl:px-12">
         <div className="hidden lg:relative lg:block lg:flex-none">
