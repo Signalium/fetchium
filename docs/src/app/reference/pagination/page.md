@@ -487,7 +487,7 @@ function UserPosts({ userId }: { userId: number }) {
 
 {% quick-links %}
 
-{% quick-link title="Live Data" icon="installation" href="/core/live-data" description="Learn how live arrays and live values keep your UI in sync" /%}
+{% quick-link title="Live Data" icon="installation" href="/data/live-data" description="Learn how live arrays and live values keep your UI in sync" /%}
 
 {% quick-link title="Queries" icon="presets" href="/core/queries" description="Full reference for query definitions, caching, and configuration" /%}
 

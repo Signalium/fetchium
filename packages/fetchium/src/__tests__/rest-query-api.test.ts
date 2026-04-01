@@ -1100,13 +1100,13 @@ describe('Query definition getter methods', () => {
       expect(resolveOpts(ConfigurableDebounce).config?.debounce).toBe(350);
     });
 
-    it('should resolve getStorageKey() referencing a custom field', () => {
+    it('should resolve getIdentityKey() referencing a custom field', () => {
       class VersionedQuery extends RESTQuery {
         apiVersion = 'v2';
         path = '/users';
         result = { id: t.number };
 
-        getStorageKey() {
+        getIdentityKey() {
           return `${this.apiVersion}:${this.method}:${this.path}`;
         }
       }
@@ -1144,7 +1144,7 @@ describe('Query definition getter methods', () => {
         path = '/items';
         result = { items: t.array(t.object({ id: t.number })) };
 
-        getStorageKey() {
+        getIdentityKey() {
           return `${this.apiVersion}:${this.method}:${this.path}`;
         }
 
@@ -1180,7 +1180,7 @@ describe('Query definition getter methods', () => {
         path = '/posts';
         result = { posts: t.array(t.entity(Post)) };
 
-        getStorageKey() {
+        getIdentityKey() {
           return `custom:${this.method}:${this.path}`;
         }
 
@@ -1217,7 +1217,7 @@ describe('Query definition getter methods', () => {
         path = '/items';
         result = { items: t.array(t.object({ id: t.number })) };
 
-        getStorageKey() {
+        getIdentityKey() {
           return `items:${this.method}:${this.path}`;
         }
 

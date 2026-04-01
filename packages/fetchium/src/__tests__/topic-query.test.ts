@@ -133,7 +133,7 @@ abstract class TopicQuery extends Query {
 
   getLoadNext?(): LoadNextConfig | undefined;
 
-  getStorageKey(): string {
+  getIdentityKey(): string {
     return `topic:${this.topic}`;
   }
 

@@ -72,45 +72,47 @@ export const flattenNavigation = (
 
 export const navigation: GroupNavigationItem[] = [
   {
-    title: 'Introduction',
+    title: 'Getting started',
     type: 'group',
     items: [
-      { type: 'link', title: 'Getting started', href: '/quickstart' },
+      { type: 'link', title: 'Quick start', href: '/quickstart' },
+      { type: 'link', title: 'Project Setup', href: '/setup/project-setup' },
     ],
   },
   {
     title: 'Core concepts',
     type: 'group',
     items: [
-      {
-        type: 'link',
-        title: 'Queries',
-        href: '/core/queries',
-      },
-      {
-        type: 'link',
-        title: 'Types',
-        href: '/core/types',
-      },
-      {
-        type: 'link',
-        title: 'Entities',
-        href: '/core/entities',
-      },
-      {
-        type: 'link',
-        title: 'Live Data',
-        href: '/core/live-data',
-      },
-      {
-        type: 'link',
-        title: 'Mutations',
-        href: '/core/mutations',
-      },
+      { type: 'link', title: 'Queries', href: '/core/queries' },
+      { type: 'link', title: 'Types', href: '/core/types' },
+      { type: 'link', title: 'Entities', href: '/core/entities' },
+    ],
+  },
+  {
+    title: 'Data management',
+    type: 'group',
+    items: [
+      { type: 'link', title: 'Mutations', href: '/data/mutations' },
+      { type: 'link', title: 'Live Data', href: '/data/live-data' },
+      { type: 'link', title: 'Caching & Refetching', href: '/data/caching' },
+    ],
+  },
+  {
+    title: 'Guides',
+    type: 'group',
+    items: [
+      { type: 'link', title: 'Auth & Headers', href: '/guides/auth' },
+      { type: 'link', title: 'Error Handling', href: '/guides/error-handling' },
       {
         type: 'link',
         title: 'Offline & Persistence',
-        href: '/core/offline-and-persistence',
+        href: '/guides/offline',
+      },
+      { type: 'link', title: 'Testing', href: '/guides/testing' },
+      {
+        type: 'link',
+        title: 'Server-Side Rendering',
+        href: '/guides/ssr',
       },
     ],
   },
@@ -118,11 +120,7 @@ export const navigation: GroupNavigationItem[] = [
     title: 'Reference',
     type: 'group',
     items: [
-      {
-        type: 'link',
-        title: 'REST Queries',
-        href: '/reference/rest-queries',
-      },
+      { type: 'link', title: 'REST Queries', href: '/reference/rest-queries' },
       {
         type: 'link',
         title: 'Pagination & Infinite Queries',
@@ -133,11 +131,7 @@ export const navigation: GroupNavigationItem[] = [
         title: 'Streaming & Subscriptions',
         href: '/reference/streaming',
       },
-      {
-        type: 'link',
-        title: 'Why Signalium?',
-        href: '/reference/why-signalium',
-      },
+      { type: 'link', title: 'Why Signalium?', href: '/reference/why-signalium' },
     ],
   },
   {
@@ -145,21 +139,9 @@ export const navigation: GroupNavigationItem[] = [
     type: 'group',
     items: [
       { type: 'link', title: 'fetchium', href: '/api/fetchium' },
-      {
-        type: 'link',
-        title: 'fetchium/react',
-        href: '/api/fetchium-react',
-      },
-      {
-        type: 'link',
-        title: 'fetchium/stores/sync',
-        href: '/api/stores-sync',
-      },
-      {
-        type: 'link',
-        title: 'fetchium/stores/async',
-        href: '/api/stores-async',
-      },
+      { type: 'link', title: 'fetchium/react', href: '/api/fetchium-react' },
+      { type: 'link', title: 'fetchium/stores/sync', href: '/api/stores-sync' },
+      { type: 'link', title: 'fetchium/stores/async', href: '/api/stores-async' },
     ],
   },
 ];

@@ -164,6 +164,26 @@ describe('Mutations', () => {
       });
     });
 
+    it('should not send a body when body is omitted', async () => {
+      mockFetch.delete('/items/[id]', { ok: true });
+
+      class DeleteItem extends RESTMutation {
+        readonly path = `/items/${this.params.id}`;
+        readonly method = 'DELETE' as const;
+        readonly params = { id: t.id };
+        readonly result = { ok: t.boolean };
+      }
+
+      await testWithClient(client, async () => {
+        const mut = getMutation(DeleteItem);
+        await mut.run({ id: '42' });
+
+        expect(mut.isResolved).toBe(true);
+        expect(mockFetch.calls[0].options.body).toBeUndefined();
+        expect(mockFetch.calls[0].options.headers?.['Content-Type']).toBeUndefined();
+      });
+    });
+
     it('should support getBody() override for dynamic body computation', async () => {
       mockFetch.post('/users', { id: 1 });
 

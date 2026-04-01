@@ -438,6 +438,94 @@ For a more in depth guide to query configuration, see the [REST Queries referenc
 
 ---
 
+## Custom Queries
+
+`RESTQuery` is an adapter for JSON REST APIs. But queries as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, gRPC, local databases, file systems, or any other data source --- you extend the base `Query` class directly and implement the `send()` and `getIdentityKey()` methods.
+
+This is _not_ an escape hatch or a workaround. It is the intended way to support any protocol. `RESTQuery` is itself just one implementation of `Query` with `send()` pre-built for HTTP/JSON. You can build your own adapters the same way.
+
+```tsx
+import { Query, t } from 'fetchium';
+
+class GetUserFromDB extends Query {
+  params = { id: t.number };
+  result = { name: t.string, email: t.string };
+
+  getIdentityKey() {
+    return `db:users:${this.params.id}`;
+  }
+
+  async send() {
+    const db = await openDatabase();
+    return db.get('users', this.params.id);
+  }
+}
+```
+
+Inside `send()`, you have access to:
+
+- **`this.params`** --- the resolved parameter values (not references --- `send()` runs against a real instance)
+- **`this.context`** --- the `QueryContext` with `fetch`, `log`, and `baseUrl`
+- **`this.signal`** --- an `AbortSignal` for cancellation
+- **`this.response`** --- set this to a raw `Response` object if you want to access it in `getConfig()`
+
+### Building a protocol adapter
+
+For a more complete example, here is a sketch of how you might build a GraphQL adapter:
+
+```tsx
+import { Query, t } from 'fetchium';
+
+abstract class GraphQLQuery extends Query {
+  abstract query: string;
+  abstract variables?: Record<string, unknown>;
+
+  getIdentityKey() {
+    return `graphql:${this.query}:${JSON.stringify(this.variables)}`;
+  }
+
+  async send() {
+    const response = await this.context.fetch('/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: this.query,
+        variables: this.variables,
+      }),
+      signal: this.signal,
+    });
+
+    this.response = response;
+    const json = await response.json();
+
+    if (json.errors?.length) {
+      throw new Error(json.errors[0].message);
+    }
+
+    return json.data;
+  }
+}
+```
+
+Then individual queries extend _your_ adapter, not `RESTQuery`:
+
+```tsx
+class GetUser extends GraphQLQuery {
+  params = { id: t.number };
+  query = `query GetUser($id: Int!) { user(id: $id) { name email } }`;
+  variables = { id: this.params.id };
+  result = { user: t.object({ name: t.string, email: t.string }) };
+}
+```
+
+Custom queries participate in all the same systems as `RESTQuery` --- caching, entity normalization, live data, refetching, and pagination (via `sendNext()` and `hasNext()`). The `Query` base class provides the full reactive lifecycle; your adapter only needs to implement the transport.
+
+{% callout title="The identity key" type="note" %}
+`getIdentityKey()` returns a value that uniquely identifies this query's _definition_. Two query instances with the same identity key and the same params share the same cache entry and are deduplicated. For `RESTQuery`, the default is `${method}:${path}`. For custom adapters, choose a key that captures all the inputs that make a query unique.
+{% /callout %}
+
+---
+
 Now that you understand the basics of defining and using Queries, let's dive into _query types_ and _parsing_.
 
 ## Next Steps
@@ -448,8 +536,8 @@ Now that you understand the basics of defining and using Queries, let's dive int
 
 {% quick-link title="Entities" icon="plugins" href="/core/entities" description="Normalized entity caching and identity-stable proxies" /%}
 
-{% quick-link title="Mutations" icon="theming" href="/core/mutations" description="Create, update, and delete data with optimistic updates" /%}
+{% quick-link title="Mutations" icon="theming" href="/data/mutations" description="Create, update, and delete data with optimistic updates" /%}
 
-{% quick-link title="REST Queries Reference" icon="installation" href="/reference/rest-queries" description="Override methods, storage keys, network modes, and retry config" /%}
+{% quick-link title="REST Queries Reference" icon="installation" href="/reference/rest-queries" description="Override methods, identity keys, and dynamic configuration" /%}
 
 {% /quick-links %}

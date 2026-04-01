@@ -357,6 +357,14 @@ export class QueryInstance<T extends Query> {
     return this.relay;
   };
 
+  markStale(): void {
+    this.updatedAt = 0;
+  }
+
+  get resolvedParams(): QueryParams | undefined {
+    return this.currentParams;
+  }
+
   /** In-flight loadNext promise for deduplication. */
   private _loadNextPromise: Promise<QueryResult<T>> | undefined = undefined;
 

@@ -42,9 +42,9 @@ class GetUserPosts extends RESTQuery {
 
 ---
 
-## Storage Keys
+## Identity Keys
 
-Each query instance is identified by a storage key, which determines its cache identity. Two query instances with the same storage key share the same cache entry and are deduplicated --- only one network request is made at a time.
+Each query instance is identified by a identity key, which determines its cache identity. Two query instances with the same identity key share the same cache entry and are deduplicated --- only one network request is made at a time.
 
 By default, `RESTQuery` computes the key as:
 
@@ -54,9 +54,9 @@ ${method}:${interpolatedPath}
 
 For example, `GetUser` with `{ id: 42 }` produces the key `GET:/users/42`.
 
-### Custom storage keys
+### Custom identity keys
 
-Override `getStorageKey()` when the default key doesn't capture all the inputs that make a query unique:
+Override `getIdentityKey()` when the default key doesn't capture all the inputs that make a query unique:
 
 ```tsx
 class SearchUsers extends RESTQuery {
@@ -70,7 +70,7 @@ class SearchUsers extends RESTQuery {
     total: t.number,
   };
 
-  getStorageKey() {
+  getIdentityKey() {
     return `search:${this.params.query}:${this.params.filters?.role ?? 'all'}`;
   }
 }
@@ -80,65 +80,9 @@ This is useful when search params or body fields affect the response but don't a
 
 ---
 
-## Network Modes
-
-The `networkMode` config option controls when Fetchium fires requests relative to network connectivity.
-
-| Mode                       | Description                                                                           |
-| -------------------------- | ------------------------------------------------------------------------------------- |
-| `NetworkMode.Online`       | (default) Only fetch when the browser is online. Pauses when offline, resumes on reconnect. |
-| `NetworkMode.Always`       | Fetch regardless of network status. Useful for local APIs or service workers.         |
-| `NetworkMode.OfflineFirst` | Serve cached data immediately, then refetch in the background when online.            |
-
-```tsx
-import { RESTQuery, t, NetworkMode } from 'fetchium';
-
-class GetDashboard extends RESTQuery {
-  path = '/dashboard';
-  result = { stats: t.object({ visits: t.number }) };
-
-  config = {
-    networkMode: NetworkMode.OfflineFirst,
-  };
-}
-```
-
-The `refreshStaleOnReconnect` option (default `true`) controls whether stale queries are automatically refetched when connectivity returns.
-
----
-
-## Retry Configuration
-
-By default, queries retry 3 times on the client and 0 times on the server. You can customize this with the `retry` config option.
-
-### Simple retry count
-
-```tsx
-config = {
-  retry: 5, // retry up to 5 times
-};
-```
-
-Set `retry: false` or `retry: 0` to disable retries entirely.
-
-### Detailed retry config
-
-For control over delay strategy, pass a config object:
-
-```tsx
-config = {
-  retry: {
-    retries: 3,
-    retryDelay: (attempt) => 1000 * Math.pow(2, attempt), // exponential backoff
-  },
-};
-```
-
----
-
 ## Dynamic Config with getConfig()
 
-For runtime-dependent configuration, override `getConfig()`. This is useful when caching or network behavior should vary based on the query's params or other runtime state:
+For runtime-dependent configuration, override `getConfig()`. This is useful when caching, network behavior, or retry logic should vary based on the query's params or other runtime state:
 
 ```tsx
 class GetDashboard extends RESTQuery {
@@ -155,4 +99,4 @@ class GetDashboard extends RESTQuery {
 }
 ```
 
-When both a static `config` field and `getConfig()` are defined, the method takes priority.
+When both a static `config` field and `getConfig()` are defined, the method takes priority. See the [Caching & Refetching](/data/caching) guide for details on `staleTime` and `gcTime`, the [Offline & Persistence](/guides/offline) guide for network modes, and the [Error Handling](/guides/error-handling) guide for retry configuration.

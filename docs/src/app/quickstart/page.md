@@ -81,8 +81,8 @@ function App() {
 }
 ```
 
-{% callout title="Store choices" type="note" %}
-`MemoryPersistentStore` keeps cached data in memory only --- it is great for getting started and for tests. For production apps that need offline persistence, use `IndexedDBPersistentStore` from `fetchium/stores/async` instead.
+{% callout title="Want to go deeper?" type="note" %}
+This minimal setup is enough to get started. For a complete guide to configuring `baseUrl`, auth headers, persistent stores, and project structure, see [Project Setup](/setup/project-setup).
 {% /callout %}
 
 ### 4. Define an Entity and a Query
@@ -151,26 +151,16 @@ Both approaches return a `ReactivePromise` with properties like `value`, `error`
 
 ---
 
-## Learn More
+## Next Steps
 
 {% quick-links %}
 
-{% quick-link title="Queries" icon="presets" href="/core/queries" description="Learn how to define queries, configure caching, and fetch data" /%}
+{% quick-link title="Project Setup" icon="installation" href="/setup/project-setup" description="Configure baseUrl, auth, stores, and project structure for production" /%}
+
+{% quick-link title="Queries" icon="presets" href="/core/queries" description="Deep dive into query definitions, the template system, and usage patterns" /%}
 
 {% quick-link title="Entities" icon="plugins" href="/core/entities" description="Understand normalized entity caching and identity-stable proxies" /%}
 
-{% quick-link title="Live Data" icon="installation" href="/core/live-data" description="Keep your UI in sync with live arrays and real-time updates" /%}
-
-{% quick-link title="Mutations" icon="theming" href="/core/mutations" description="Create, update, and delete data with optimistic updates" /%}
+{% quick-link title="Auth & Headers" icon="theming" href="/guides/auth" description="Add authentication tokens and custom headers to your requests" /%}
 
 {% /quick-links %}
-
-## Key Features
-
-- **Class-based query definitions** --- Describe your API as plain TypeScript classes with full type inference
-- **Automatic entity normalization** --- Entities with the same type and ID share a single cache entry, so updates propagate everywhere
-- **Type DSL** --- `t.string`, `t.entity(User)`, `t.array(...)` and more for declaring params, results, and entity shapes
-- **Fine-grained reactivity** --- Built on Signalium, so only the components that depend on changed data re-render
-- **Caching and staleness** --- Configurable `staleTime`, `gcTime`, retry logic, and network modes per query class
-- **Offline support** --- Persistent stores and offline-first network modes keep your app working without a connection
-- **React integration** --- `useQuery` hook or Signalium's `component()` wrapper --- your choice

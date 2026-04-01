@@ -93,6 +93,10 @@ export class MutationResultImpl<Request, Result> {
     applyEffects(effects.creates, 'create', qc);
     applyEffects(effects.updates, 'update', qc);
     applyEffects(effects.deletes, 'delete', qc);
+
+    if (effects.invalidates) {
+      qc.invalidateQueries(effects.invalidates);
+    }
   }
 
   // ======================================================

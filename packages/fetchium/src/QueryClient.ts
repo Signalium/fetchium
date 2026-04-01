@@ -1,6 +1,6 @@
 import { context, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
-import { EntityDef, MutationEvent, QueryPromise, ComplexTypeDef, InternalTypeDef, QUERY_ID } from './types.js';
+import { EntityDef, MutationEvent, QueryPromise, ComplexTypeDef, InternalTypeDef, QUERY_ID, InvalidateTarget } from './types.js';
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
 import { EntityInstance } from './EntityInstance.js';
@@ -311,6 +311,29 @@ export class QueryClient {
   }
 
   // ======================================================
+  // Query Invalidation
+  // ======================================================
+
+  invalidateQueries(targets: ReadonlyArray<InvalidateTarget>): void {
+    for (const target of targets) {
+      const isArray = Array.isArray(target);
+      const QueryClass = (isArray ? target[0] : target) as new () => Query;
+      const paramSubset = isArray ? (target[1] as Record<string, unknown>) : undefined;
+
+      const queryDef = QueryDefinition.for(QueryClass);
+      const defId = queryDef.statics.id;
+
+      for (const [, instance] of this.queryInstances) {
+        if (instance.def.statics.id !== defId) continue;
+
+        if (paramSubset === undefined || paramsMatch(instance.resolvedParams, paramSubset)) {
+          instance.markStale();
+        }
+      }
+    }
+  }
+
+  // ======================================================
   // In-Memory GC
   // ======================================================
 
@@ -383,3 +406,14 @@ export class QueryClient {
 }
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
+
+function paramsMatch(
+  instanceParams: Record<string, unknown> | undefined,
+  subset: Record<string, unknown>,
+): boolean {
+  if (instanceParams === undefined) return false;
+  for (const key in subset) {
+    if (instanceParams[key] !== subset[key]) return false;
+  }
+  return true;
+}

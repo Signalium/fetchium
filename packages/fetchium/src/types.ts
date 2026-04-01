@@ -436,8 +436,13 @@ export class LiveFieldConfig {
 
 export type EntityClassOrTypename = string | (new () => import('./proxy.js').Entity);
 
+export type InvalidateTarget =
+  | (new () => import('./query.js').Query)
+  | readonly [(new () => import('./query.js').Query), Record<string, unknown>];
+
 export interface MutationEffects {
   readonly creates?: ReadonlyArray<readonly [EntityClassOrTypename, unknown]>;
   readonly updates?: ReadonlyArray<readonly [EntityClassOrTypename, unknown]>;
   readonly deletes?: ReadonlyArray<readonly [EntityClassOrTypename, unknown]>;
+  readonly invalidates?: ReadonlyArray<InvalidateTarget>;
 }

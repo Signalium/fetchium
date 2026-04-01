@@ -60,7 +60,7 @@ Base class for all query definitions. Extend this to define custom data-fetching
 
 | Method          | Signature                                | Description                                                                                |
 | --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `getStorageKey` | `(): unknown`                            | **(abstract)** Returns a value used to compute the cache/storage key for this query class. |
+| `getIdentityKey` | `(): unknown`                            | **(abstract)** Returns a value used to compute the cache/identity key for this query class. |
 | `send`          | `(): Promise<unknown>`                   | **(abstract)** Executes the network request and returns the raw response data.             |
 | `refetch`       | `(): void`                               | Triggers a refetch of this query, bypassing staleTime.                                     |
 | `getConfig`     | `(): QueryConfigOptions \| undefined`    | Optional override. Dynamically compute config at execution time.                           |
@@ -85,7 +85,7 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 | `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                       |
 | `loadNext`       | `LoadNextConfig \| undefined`                     | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`). |
 
-#### `getStorageKey()` default
+#### `getIdentityKey()` default
 
 Returns `"${method}:${path}"`.
 
@@ -161,7 +161,7 @@ Base class for mutation definitions.
 | `result`            | `TypeDefShape \| undefined`          | Shape definition for the mutation response.                             |
 | `optimisticUpdates` | `boolean \| undefined`               | When `true`, applies effects optimistically before the server responds. |
 | `config`            | `MutationConfigOptions \| undefined` | Mutation configuration (retry settings).                                |
-| `effects`           | `MutationEffects \| undefined`       | Static entity effects (creates, updates, deletes).                      |
+| `effects`           | `MutationEffects \| undefined`       | Static entity effects (creates, updates, deletes) and query invalidation. |
 | `context`           | `QueryContext`                       | The query context. Available during `send()`.                           |
 | `response`          | `Response \| undefined`              | Raw fetch response after `send()` completes.                            |
 | `signal`            | `AbortSignal`                        | Abort signal for the request.                                           |
@@ -171,7 +171,7 @@ Base class for mutation definitions.
 | Method          | Signature              | Description                                                               |
 | --------------- | ---------------------- | ------------------------------------------------------------------------- |
 | `send`          | `(): Promise<unknown>` | **(abstract)** Executes the mutation request.                             |
-| `getStorageKey` | `(): unknown`          | **(abstract)** Returns a value used to compute the mutation identity key. |
+| `getIdentityKey` | `(): unknown`          | **(abstract)** Returns a value used to compute the mutation identity key. |
 | `getEffects`    | `(): MutationEffects`  | Optional. Dynamically compute entity effects at execution time.           |
 
 ---
@@ -186,11 +186,11 @@ Convenience base class for REST/JSON mutations.
 | ---------------- | ---------------------------------------- | -------- | ------------------------------------------------------ |
 | `path`           | `string \| undefined`                    | —        | URL path.                                              |
 | `method`         | `'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'POST'` | HTTP method.                                           |
-| `body`           | `Record<string, unknown> \| undefined`   | —        | Request body shape. Falls back to `params` if not set. |
+| `body`           | `Record<string, unknown> \| undefined`   | —        | Request body shape. No body is sent if omitted.        |
 | `headers`        | `HeadersInit \| undefined`               | —        | Custom HTTP headers.                                   |
 | `requestOptions` | `QueryRequestOptions \| undefined`       | —        | Additional fetch options.                              |
 
-#### `getStorageKey()` default
+#### `getIdentityKey()` default
 
 Returns `"${method}:${path}"`.
 
@@ -232,8 +232,9 @@ new QueryClient(
 | Method               | Signature                      | Description                                                                    |
 | -------------------- | ------------------------------ | ------------------------------------------------------------------------------ |
 | `getContext`         | `(): QueryContext`             | Returns the `QueryContext` passed at construction.                             |
-| `applyMutationEvent` | `(event: MutationEvent): void` | Applies an external mutation event (create/update/delete) to the entity store. |
-| `destroy`            | `(): void`                     | Tears down the GC manager, network manager, and all caches.                    |
+| `applyMutationEvent` | `(event: MutationEvent): void`                      | Applies an external mutation event (create/update/delete) to the entity store.                           |
+| `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void`  | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering. |
+| `destroy`            | `(): void`                                          | Tears down the GC manager, network manager, and all caches.                                             |
 
 ---
 
@@ -373,7 +374,7 @@ Computes the numeric cache key for a query class and params combination. Useful 
 function mutationKeyForClass(cls: new () => Mutation): string;
 ```
 
-Returns the string identity key for a mutation class. Derived from the mutation's `getStorageKey()`.
+Returns the string identity key for a mutation class. Derived from the mutation's `getIdentityKey()`.
 
 ---
 
@@ -548,7 +549,8 @@ The `t` object provides a declarative type definition DSL for describing query p
 | Type                    | Definition                                                                                              | Description                                                                                              |
 | ----------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `MutationConfigOptions` | `{ retry?: RetryConfig \| number \| false }`                                                            | Mutation retry configuration.                                                                            |
-| `MutationEffects`       | `{ creates?, updates?, deletes? }`                                                                      | Entity side effects of a mutation. Each is a `ReadonlyArray<readonly [EntityClassOrTypename, unknown]>`. |
+| `MutationEffects`       | `{ creates?, updates?, deletes?, invalidates? }`                                                        | Mutation side effects. Entity effects are `ReadonlyArray<readonly [EntityClassOrTypename, unknown]>`. `invalidates` is `ReadonlyArray<InvalidateTarget>`. |
+| `InvalidateTarget`      | `QueryClass \| readonly [QueryClass, Record<string, unknown>]`                                          | Target for query invalidation. Class alone matches all instances; tuple with param subset matches only instances whose params contain those values. |
 | `MutationEvent`         | `CreateEvent \| UpdateEvent \| DeleteEvent`                                                             | Union of mutation event types.                                                                           |
 | `CreateEvent`           | `{ type: 'create'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity creation event.                                                                                   |
 | `UpdateEvent`           | `{ type: 'update'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity update event.                                                                                     |

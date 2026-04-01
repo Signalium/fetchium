@@ -89,7 +89,7 @@ export abstract class Query {
   declare resultData: Record<string, unknown>;
   declare rawLoadNext: LoadNextConfig | undefined;
 
-  abstract getStorageKey(): unknown;
+  abstract getIdentityKey(): unknown;
   abstract send(): Promise<unknown>;
 
   getConfig?(): QueryConfigOptions | undefined;
@@ -114,7 +114,7 @@ export abstract class RESTQuery extends Query {
   requestOptions?: QueryRequestOptions;
   loadNext?: LoadNextConfig;
 
-  getStorageKey(): string {
+  getIdentityKey(): string {
     return `${this.method ?? 'GET'}:${this.path ?? ''}`;
   }
 
@@ -292,7 +292,7 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
     const instance = new QueryClass();
     const captured = extractDefinition(instance);
 
-    const id = String(captured.methods.getStorageKey.call(captured.fields));
+    const id = String(captured.methods.getIdentityKey.call(captured.fields));
     const resultDef = captured.fields.result;
     const shape =
       resultDef instanceof ValidatorDef

@@ -47,7 +47,7 @@ export abstract class Mutation {
   declare signal: AbortSignal;
 
   abstract send(): Promise<unknown>;
-  abstract getStorageKey(): unknown;
+  abstract getIdentityKey(): unknown;
 
   getEffects?(): MutationEffects;
 
@@ -67,7 +67,7 @@ export abstract class RESTMutation extends Mutation {
   headers?: HeadersInit;
   requestOptions?: QueryRequestOptions;
 
-  getStorageKey(): string {
+  getIdentityKey(): string {
     return `${this.method ?? 'POST'}:${this.path ?? ''}`;
   }
 
@@ -86,22 +86,20 @@ export abstract class RESTMutation extends Mutation {
       throw new Error('RESTMutation requires a path. Define `path` as a field or override `getPath()`.');
     }
 
-    const bodyData = body ?? (this.params as Record<string, unknown>);
-
     const baseUrl = resolveBaseUrl(requestOptions?.baseUrl) ?? resolveBaseUrl(this.context.baseUrl);
     const fullUrl = baseUrl ? `${baseUrl}${path}` : path;
 
     const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } = requestOptions ?? ({} as Record<string, unknown>);
 
     const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(this.headers as Record<string, string>),
     };
 
     const fetchResponse = await this.context.fetch(fullUrl, {
       method,
       headers,
-      body: JSON.stringify(bodyData),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: this.signal,
       ...fetchOptions,
     });
@@ -149,7 +147,7 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
     const captured = extractDefinition(instance);
     const { fields } = captured;
 
-    const id = `mutation:${String(captured.methods.getStorageKey.call(fields))}`;
+    const id = `mutation:${String(captured.methods.getIdentityKey.call(fields))}`;
 
     const requestDef = fields.params ?? {};
     const requestShape = (requestDef instanceof ValidatorDef
