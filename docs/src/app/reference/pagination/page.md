@@ -434,7 +434,7 @@ class Post extends Entity {
 // Query with pagination
 class GetPosts extends RESTQuery {
   params = { userId: t.number };
-  path = '/users/[userId]/posts';
+  path = `/users/${this.params.userId}/posts`;
   result = {
     posts: t.liveArray(Post),
     nextCursor: t.nullish(t.string),
@@ -491,7 +491,7 @@ function UserPosts({ userId }: { userId: number }) {
 
 {% quick-link title="Queries" icon="presets" href="/core/queries" description="Full reference for query definitions, caching, and configuration" /%}
 
-{% quick-link title="Type DSL Deep Dive" icon="plugins" href="/core/type-dsl" description="Complete reference for the t type system" /%}
+{% quick-link title="Types" icon="plugins" href="/core/types" description="The full type system for params, results, and entity fields" /%}
 
 {% quick-link title="Entities" icon="theming" href="/core/entities" description="Normalized entity caching and identity-stable proxies" /%}
 

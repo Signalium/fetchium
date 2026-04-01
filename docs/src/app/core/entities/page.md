@@ -246,11 +246,13 @@ class GetUser extends RESTQuery {
 
 ```tsx {% mode="react" %}
 function Feed() {
-  const { posts } = useQuery(GetFeed);
+  const result = useQuery(GetFeed);
+
+  if (!result.isReady) return <div>Loading...</div>;
 
   return (
     <div>
-      {posts.map((post) => (
+      {result.value.posts.map((post) => (
         <PostCard key={post.id} post={post} />
       ))}
     </div>
@@ -258,11 +260,13 @@ function Feed() {
 }
 
 function UserProfile() {
-  const { user } = useQuery(GetUser, { id: '1' });
+  const result = useQuery(GetUser, { id: '1' });
+
+  if (!result.isReady) return <div>Loading...</div>;
 
   // If user #1 also authored a post in the feed, this is the SAME proxy.
   // Updating the user's name here updates it in the feed too.
-  return <h1>{user.name}</h1>;
+  return <h1>{result.value.user.name}</h1>;
 }
 ```
 

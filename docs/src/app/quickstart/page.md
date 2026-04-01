@@ -93,6 +93,7 @@ Entities describe the shape of your API resources. Queries describe how to fetch
 import { RESTQuery, t, Entity } from 'fetchium';
 
 class User extends Entity {
+  __typename = t.typename('User');
   id = t.id;
   name = t.string;
   email = t.string;
@@ -100,12 +101,12 @@ class User extends Entity {
 
 class GetUser extends RESTQuery {
   params = { id: t.number };
-  path = '/users/[id]';
-  result = User;
+  path = `/users/${this.params.id}`;
+  result = { user: t.entity(User) };
 }
 ```
 
-`t.id` marks the identity field used for entity normalization. `path` supports bracket-based interpolation --- `[id]` is replaced with the `id` param at fetch time.
+`t.typename` and `t.id` identify the entity for normalization and deduplication. `path` uses template literal interpolation with `this.params` to embed parameter values. `t.entity(User)` tells Fetchium to parse and normalize the response as a `User` entity.
 
 ### 5. Use the query in a component
 
@@ -113,15 +114,15 @@ class GetUser extends RESTQuery {
 import { useQuery } from 'fetchium/react';
 
 function UserProfile({ userId }: { userId: number }) {
-  const user = useQuery(GetUser, { id: userId });
+  const result = useQuery(GetUser, { id: userId });
 
-  if (!user.isReady) return <div>Loading...</div>;
-  if (user.isRejected) return <div>Error: {user.error.message}</div>;
+  if (!result.isReady) return <div>Loading...</div>;
+  if (result.isRejected) return <div>Error: {result.error.message}</div>;
 
   return (
     <div>
-      <h1>{user.value.name}</h1>
-      <p>{user.value.email}</p>
+      <h1>{result.value.user.name}</h1>
+      <p>{result.value.user.email}</p>
     </div>
   );
 }
@@ -132,21 +133,21 @@ import { fetchQuery } from 'fetchium';
 import { component } from 'signalium/react';
 
 const UserProfile = component(({ userId }: { userId: number }) => {
-  const user = fetchQuery(GetUser, { id: userId });
+  const result = fetchQuery(GetUser, { id: userId });
 
-  if (!user.isReady) return <div>Loading...</div>;
-  if (user.isRejected) return <div>Error: {user.error.message}</div>;
+  if (!result.isReady) return <div>Loading...</div>;
+  if (result.isRejected) return <div>Error: {result.error.message}</div>;
 
   return (
     <div>
-      <h1>{user.value.name}</h1>
-      <p>{user.value.email}</p>
+      <h1>{result.value.user.name}</h1>
+      <p>{result.value.user.email}</p>
     </div>
   );
 });
 ```
 
-Both approaches return a `QueryPromise` with reactive properties like `value`, `error`, `isPending`, `isReady`, `isResolved`, and `isRejected`. The component re-renders automatically when the query state changes.
+Both approaches return a `ReactivePromise` with properties like `value`, `error`, `isPending`, `isReady`, `isResolved`, and `isRejected`. The component re-renders automatically when the query state changes.
 
 ---
 

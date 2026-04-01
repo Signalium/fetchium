@@ -116,7 +116,7 @@ class ChatMessage extends Entity {
 
 class GetMessages extends RESTQuery {
   params = { channelId: t.string };
-  path = '/channels/[channelId]/messages';
+  path = `/channels/${this.params.channelId}/messages`;
   result = {
     messages: t.liveArray(ChatMessage, {
       constraints: { channelId: this.params.channelId },

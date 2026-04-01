@@ -84,19 +84,21 @@ This is useful when search params or body fields affect the response but don't a
 
 The `networkMode` config option controls when Fetchium fires requests relative to network connectivity.
 
-| Mode             | Description                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------- |
-| `'online'`       | (default) Only fetch when the browser is online. Pauses when offline, resumes on reconnect. |
-| `'always'`       | Fetch regardless of network status. Useful for local APIs or service workers.         |
-| `'offlineFirst'` | Serve cached data immediately, then refetch in the background when online.            |
+| Mode                       | Description                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| `NetworkMode.Online`       | (default) Only fetch when the browser is online. Pauses when offline, resumes on reconnect. |
+| `NetworkMode.Always`       | Fetch regardless of network status. Useful for local APIs or service workers.         |
+| `NetworkMode.OfflineFirst` | Serve cached data immediately, then refetch in the background when online.            |
 
 ```tsx
+import { RESTQuery, t, NetworkMode } from 'fetchium';
+
 class GetDashboard extends RESTQuery {
   path = '/dashboard';
   result = { stats: t.object({ visits: t.number }) };
 
   config = {
-    networkMode: 'offlineFirst',
+    networkMode: NetworkMode.OfflineFirst,
   };
 }
 ```
@@ -147,7 +149,7 @@ class GetDashboard extends RESTQuery {
     return {
       staleTime: 60_000,
       gcTime: 30,
-      networkMode: 'offlineFirst',
+      networkMode: NetworkMode.OfflineFirst,
     };
   }
 }

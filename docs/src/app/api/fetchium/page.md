@@ -78,7 +78,7 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 | Property         | Type                                              | Default | Description                                                                        |
 | ---------------- | ------------------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
 | `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                       |
-| `path`           | `string \| undefined`                             | —       | URL path. Supports `[param]` interpolation via the type DSL.                       |
+| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.        |
 | `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                           |
 | `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                    |
 | `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                               |
@@ -105,13 +105,14 @@ Returns `"${method}:${path}"`.
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.string };
+
+  path = `/api/users/${this.params.id}`;
+
   result = {
     id: t.id,
     name: t.string,
     email: t.string,
   };
-
-  path = '/api/users/[id]';
 }
 ```
 
@@ -139,8 +140,8 @@ Base class for entity definitions. Entities are normalized, identity-stable prox
 class User extends Entity {
   static cache = { gcTime: 10 };
 
+  __typename = t.typename('User');
   id = t.id;
-  __typename = 'User';
   name = t.string;
   email = t.optional(t.string);
 }

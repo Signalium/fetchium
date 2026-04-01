@@ -20,12 +20,15 @@ Use `useQuery` inside regular function components. This is the simplest approach
 import { useQuery } from 'fetchium/react';
 
 function UserProfile({ userId }: { userId: number }) {
-  const user = useQuery(GetUser, { id: userId });
+  const result = useQuery(GetUser, { id: userId });
+
+  if (!result.isReady) return <div>Loading...</div>;
+  if (result.isRejected) return <div>Error: {result.error.message}</div>;
 
   return (
     <div>
-      <h1>{user.name}</h1>
-      <p>{user.email}</p>
+      <h1>{result.value.name}</h1>
+      <p>{result.value.email}</p>
     </div>
   );
 }

@@ -42,9 +42,10 @@ The returned promise object has the following properties:
 | Property     | Type             | Description                                                                                                                                          |
 | ------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `value`      | `QueryResult<T>` | The resolved query result. Reading this while pending triggers React Suspense. Returns a deep clone to avoid accidental mutation of cached entities. |
-| `isPending`  | `boolean`        | `true` while the query is loading (no cached data).                                                                                                  |
-| `isResolved` | `boolean`        | `true` when the query has successfully resolved.                                                                                                     |
-| `isRejected` | `boolean`        | `true` when the query has failed.                                                                                                                    |
+| `isReady`    | `boolean`        | `true` once the query has loaded a value at least once. Use for type narrowing on `value`.                                                           |
+| `isPending`  | `boolean`        | `true` while the query is loading. Also true during refetches, even if a value already exists.                                                       |
+| `isResolved` | `boolean`        | `true` when the most recent execution resolved successfully.                                                                                         |
+| `isRejected` | `boolean`        | `true` when the most recent execution failed.                                                                                                        |
 | `error`      | `unknown`        | The error if `isRejected` is `true`.                                                                                                                 |
 
 The resolved `QueryResult<T>` includes pagination helpers:

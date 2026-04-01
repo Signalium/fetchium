@@ -312,7 +312,7 @@ class GetUser extends RESTQuery {
   path = `/users/${this.params.id}`;
   result = { id: t.id, name: t.string };
 
-  cache = {
+  config = {
     gcTime: 5, // evict after 5-10 minutes of being unwatched
   };
 }

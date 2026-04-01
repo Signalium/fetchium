@@ -92,7 +92,7 @@ This brings us to the next topic: Using Queries.
 
 ## Query Usage
 
-Fetchium is built on [Signalium](), which is a framework-agnostic signal-based reactivity framework. As such, it supports usage with _any_ JavaScript framework and in any context. Fetchium can be used on clients and servers, in Vue or Svelte or Angular, and so on.
+Fetchium is built on [Signalium](/reference/why-signalium), which is a framework-agnostic signal-based reactivity framework. As such, it supports usage with _any_ JavaScript framework and in any context. Fetchium can be used on clients and servers, in Vue or Svelte or Angular, and so on.
 
 That said, Fetchium is primarily focused on _client-side_ data fetching, and **React** support is built-in as it is the most commonly used JavaScript framework today. There are two main ways that Fetchium can be used in React: With Hooks, or with Signalium.
 
@@ -260,7 +260,7 @@ export const UserProfile = component(async () => {
 }
 ```
 
-If you are interested in the benefits of using Signalium as a replacement for Hooks in your codebase, read the [Signalium]() docs for more information. The remainder of this guide will show examples in both Hooks and Signalium formats based on the toggle at the top of the left-side navigation menu.
+If you are interested in the benefits of using Signalium as a replacement for Hooks in your codebase, read the [Signalium](/reference/why-signalium) docs for more information. The remainder of this guide will show examples in both Hooks and Signalium formats based on the toggle at the top of the left-side navigation menu.
 
 ## Query Class Rules
 
@@ -369,7 +369,7 @@ class Example extends RESTQuery {
 
 All of the APIs for Fetchium have been defined with this in mind, including more advanced and nesting configurations. When in doubt, and when you need dynamic logic, simply switch to the `get*` method at the top level.
 
-For instance, let's say we wanted to add an optional polling refresh to a query. The `subscribe` option on config normally allows us to add a subscription configuration (of which polling is one option, more on that in the [Query Configuration]() reference section). We can pass in an exact polling time by reference like so:
+For instance, let's say we wanted to add an optional polling refresh to a query. The `subscribe` option on config normally allows us to add a subscription configuration (of which polling is one option, more on that in the [REST Queries reference](/reference/rest-queries)). We can pass in an exact polling time by reference like so:
 
 ```ts
 class GetUser extends RESTQuery {

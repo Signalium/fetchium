@@ -168,7 +168,7 @@ Define effects directly on the mutation class using the `effects` property. Each
 import { Entity } from 'fetchium';
 
 class User extends Entity {
-  typename = 'User';
+  __typename = t.typename('User');
   id = t.id;
   name = t.string;
   email = t.string;
@@ -298,7 +298,7 @@ Every mutation has a storage key that uniquely identifies it. For `RESTMutation`
 
 ```
 POST:/users
-PUT:/users/[id]
+PUT:/users/42
 ```
 
 You can override this by implementing `getStorageKey()`:
