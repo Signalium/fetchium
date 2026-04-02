@@ -4,7 +4,7 @@ title: Offline & Persistence
 
 Fetchium has built-in support for offline operation and query persistence. It can detect network status, pause queries when the device goes offline, and persist query results across sessions so your application works even without a connection.
 
-This guide covers the offline and persistence-specific pieces of Fetchium's infrastructure. For the caching time knobs (`staleTime`, `gcTime`, `cacheTime`) and cache invalidation patterns, see [Caching & Refetching](/data/caching). For server-side rendering setup, see [Server-Side Rendering](/guides/ssr).
+This guide covers the offline and persistence-specific pieces of Fetchium's infrastructure. For the caching time knobs (`staleTime`, `gcTime`, `cacheTime`) and cache invalidation patterns, see [Caching & Refetching](/data/caching).
 
 ---
 
@@ -257,8 +257,6 @@ class GetDashboard extends RESTQuery {
 {% quick-links %}
 
 {% quick-link title="Caching & Refetching" icon="presets" href="/data/caching" description="Understand staleTime, gcTime, cacheTime, and cache invalidation patterns" /%}
-
-{% quick-link title="Server-Side Rendering" icon="installation" href="/guides/ssr" description="Configure Fetchium for SSR with NoOp managers and hydration" /%}
 
 {% quick-link title="stores/sync API" icon="plugins" href="/api/stores-sync" description="Full API reference for the synchronous query store" /%}
 

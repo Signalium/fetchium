@@ -109,11 +109,6 @@ export const navigation: GroupNavigationItem[] = [
         href: '/guides/offline',
       },
       { type: 'link', title: 'Testing', href: '/guides/testing' },
-      {
-        type: 'link',
-        title: 'Server-Side Rendering',
-        href: '/guides/ssr',
-      },
     ],
   },
   {
