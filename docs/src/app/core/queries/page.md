@@ -153,7 +153,7 @@ interface ReactivePromise<T> {
 ```ts
 type QueryResult<Q extends Query> = Q['result'] & {
   __refetch(): Promise<Q['result']>;
-  __fetchMore(): Promise<Q['result']>;
+  __fetchNext(): Promise<Q['result']>;
 };
 
 declare function useQuery<Q extends Query>(
@@ -165,7 +165,7 @@ declare function useQuery<Q extends Query>(
 ): ReactivePromise<QueryResult<Q>>;
 ```
 
-The reason `__refetch` and `__fetchMore` are defined on the _result_ of the query and not the `ReactivePromise` is about composability, which leads us into usage within Signalium.
+The reason `__refetch` and `__fetchNext` are defined on the _result_ of the query and not the `ReactivePromise` is about composability, which leads us into usage within Signalium.
 
 ### Usage with React + Signalium
 
@@ -449,6 +449,7 @@ import { Query, t } from 'fetchium';
 
 class GetUserFromDB extends Query {
   params = { id: t.number };
+
   result = { name: t.string, email: t.string };
 
   getIdentityKey() {
@@ -512,8 +513,10 @@ Then individual queries extend _your_ adapter, not `RESTQuery`:
 ```tsx
 class GetUser extends GraphQLQuery {
   params = { id: t.number };
+
   query = `query GetUser($id: Int!) { user(id: $id) { name email } }`;
   variables = { id: this.params.id };
+
   result = { user: t.object({ name: t.string, email: t.string }) };
 }
 ```

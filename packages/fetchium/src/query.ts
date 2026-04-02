@@ -12,7 +12,7 @@ import {
 import {
   QueryCacheOptions,
   QueryConfigOptions,
-  LoadNextConfig,
+  FetchNextConfig,
   QueryClientContext,
   QueryContext,
   QueryParams,
@@ -30,10 +30,10 @@ import {
 } from './fieldRef.js';
 
 // ================================
-// LoadNext types
+// FetchNext types
 // ================================
 
-export interface ResolvedLoadNext {
+export interface ResolvedFetchNext {
   url?: string;
   searchParams?: Record<string, unknown>;
 }
@@ -87,7 +87,7 @@ export abstract class Query {
   declare signal: AbortSignal;
   declare refetch: () => void;
   declare resultData: Record<string, unknown>;
-  declare rawLoadNext: LoadNextConfig | undefined;
+  declare rawFetchNext: FetchNextConfig | undefined;
 
   abstract getIdentityKey(): unknown;
   abstract send(): Promise<unknown>;
@@ -112,7 +112,7 @@ export abstract class RESTQuery extends Query {
   body?: Record<string, unknown>;
   headers?: HeadersInit;
   requestOptions?: QueryRequestOptions;
-  loadNext?: LoadNextConfig;
+  fetchNext?: FetchNextConfig;
 
   getIdentityKey(): string {
     return `${this.method ?? 'GET'}:${this.path ?? ''}`;
@@ -123,16 +123,16 @@ export abstract class RESTQuery extends Query {
   getSearchParams?(): Record<string, unknown> | undefined;
   getBody?(): Record<string, unknown> | undefined;
   getRequestOptions?(): QueryRequestOptions | undefined;
-  getLoadNext?(): LoadNextConfig | undefined;
+  getFetchNext?(): FetchNextConfig | undefined;
 
   async send(): Promise<unknown> {
     return this.executeRequest();
   }
 
-  private resolveLoadNext(): ResolvedLoadNext | undefined {
-    const dynamicConfig = this.getLoadNext ? this.getLoadNext() : undefined;
-    const loadNextConfig = dynamicConfig ?? this.rawLoadNext;
-    if (loadNextConfig === undefined) return undefined;
+  private resolveFetchNext(): ResolvedFetchNext | undefined {
+    const dynamicConfig = this.getFetchNext ? this.getFetchNext() : undefined;
+    const fetchNextConfig = dynamicConfig ?? this.rawFetchNext;
+    if (fetchNextConfig === undefined) return undefined;
 
     const resolveRoot: Record<string, unknown> = {
       params: this.params ?? {},
@@ -140,16 +140,16 @@ export abstract class RESTQuery extends Query {
     };
 
     return {
-      url: loadNextConfig.url !== undefined ? (reifyValue(loadNextConfig.url, resolveRoot) as string) : undefined,
+      url: fetchNextConfig.url !== undefined ? (reifyValue(fetchNextConfig.url, resolveRoot) as string) : undefined,
       searchParams:
-        loadNextConfig.searchParams !== undefined
-          ? (reifyValue(loadNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
+        fetchNextConfig.searchParams !== undefined
+          ? (reifyValue(fetchNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
           : undefined,
     };
   }
 
   hasNext(): boolean {
-    const resolved = this.resolveLoadNext();
+    const resolved = this.resolveFetchNext();
     if (resolved === undefined) return false;
 
     if (resolved.url !== undefined && resolved.url !== null) {
@@ -171,9 +171,9 @@ export abstract class RESTQuery extends Query {
   }
 
   async sendNext(): Promise<unknown> {
-    const resolved = this.resolveLoadNext();
+    const resolved = this.resolveFetchNext();
     if (resolved === undefined) {
-      throw new Error('loadNext is not configured for this query');
+      throw new Error('fetchNext is not configured for this query');
     }
 
     return this.executeRequest(resolved);
@@ -251,8 +251,8 @@ export interface QueryDefinitionStatics {
    *  ValidatorDef. */
   readonly shape: ValidatorDef<unknown>;
   readonly cache: QueryCacheOptions | undefined;
-  /** Raw loadNext config with unresolved FieldRefs, extracted before reification. */
-  readonly rawLoadNext: LoadNextConfig | undefined;
+  /** Raw fetchNext config with unresolved FieldRefs, extracted before reification. */
+  readonly rawFetchNext: FetchNextConfig | undefined;
   /** Whether the query class implements sendNext(). */
   readonly hasSendNext: boolean;
   /** Whether the result shape is already an entity (vs synthetic wrapper). */
@@ -301,8 +301,8 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
     const isEntityResult = (shape.mask & Mask.ENTITY) !== 0;
     const cache = (QueryClass as typeof Query).cache;
 
-    // Extract raw loadNext config before reification so FieldRefs survive
-    const rawLoadNext = (captured.fields as unknown as Record<string, unknown>).loadNext as LoadNextConfig | undefined;
+    // Extract raw fetchNext config before reification so FieldRefs survive
+    const rawFetchNext = (captured.fields as unknown as Record<string, unknown>).fetchNext as FetchNextConfig | undefined;
     const hasSendNext = typeof captured.methods.sendNext === 'function';
 
     // For entity results, the root entity IS the result entity.
@@ -319,7 +319,7 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
         );
 
     queryDefinition = new QueryDefinition(
-      { id, shape: rootEntityShape, cache, rawLoadNext, hasSendNext, isEntityResult },
+      { id, shape: rootEntityShape, cache, rawFetchNext, hasSendNext, isEntityResult },
       captured,
     );
 

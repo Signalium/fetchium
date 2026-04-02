@@ -9,7 +9,7 @@ import { RESTMutation, getMutation } from '../mutation.js';
 import { reifyValue } from '../fieldRef.js';
 import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
 import type { MutationEvent } from '../types.js';
-import type { LoadNextConfig } from '../query-types.js';
+import type { FetchNextConfig } from '../query-types.js';
 
 // ============================================================
 // StreamAPI interface
@@ -17,8 +17,8 @@ import type { LoadNextConfig } from '../query-types.js';
 
 interface StreamAPI {
   waitForSubscription(signal?: AbortSignal): Promise<{ topics: string[] }>;
-  waitForTopicData(topic: string, signal?: AbortSignal): Promise<{ data: unknown; loadNextUrl?: string }>;
-  getTopicMeta(topic: string): { loadNextUrl?: string } | undefined;
+  waitForTopicData(topic: string, signal?: AbortSignal): Promise<{ data: unknown; fetchNextUrl?: string }>;
+  getTopicMeta(topic: string): { fetchNextUrl?: string } | undefined;
   onTopicUpdate(topic: string, callback: (event: MutationEvent) => void): () => void;
 }
 
@@ -29,9 +29,9 @@ interface StreamAPI {
 class MockStream implements StreamAPI {
   private _subscribedTopics: string[] | undefined = undefined;
   private _subscriptionResolvers: Array<(result: { topics: string[] }) => void> = [];
-  private _topicDataBuffer = new Map<string, Array<{ data: unknown; loadNextUrl?: string }>>();
-  private _topicDataResolvers = new Map<string, Array<(result: { data: unknown; loadNextUrl?: string }) => void>>();
-  private _topicMeta = new Map<string, { loadNextUrl?: string }>();
+  private _topicDataBuffer = new Map<string, Array<{ data: unknown; fetchNextUrl?: string }>>();
+  private _topicDataResolvers = new Map<string, Array<(result: { data: unknown; fetchNextUrl?: string }) => void>>();
+  private _topicMeta = new Map<string, { fetchNextUrl?: string }>();
   private _updateListeners = new Map<string, Set<(event: MutationEvent) => void>>();
 
   pushSubscribed(topics: string[]): void {
@@ -42,18 +42,18 @@ class MockStream implements StreamAPI {
     this._subscriptionResolvers = [];
   }
 
-  pushTopicData(topic: string, data: unknown, meta?: { loadNextUrl?: string }): void {
+  pushTopicData(topic: string, data: unknown, meta?: { fetchNextUrl?: string }): void {
     if (meta) this._topicMeta.set(topic, meta);
 
     const resolvers = this._topicDataResolvers.get(topic);
     if (resolvers && resolvers.length > 0) {
       const resolve = resolvers.shift()!;
-      resolve({ data, loadNextUrl: meta?.loadNextUrl });
+      resolve({ data, fetchNextUrl: meta?.fetchNextUrl });
     } else {
       if (!this._topicDataBuffer.has(topic)) {
         this._topicDataBuffer.set(topic, []);
       }
-      this._topicDataBuffer.get(topic)!.push({ data, loadNextUrl: meta?.loadNextUrl });
+      this._topicDataBuffer.get(topic)!.push({ data, fetchNextUrl: meta?.fetchNextUrl });
     }
   }
 
@@ -75,7 +75,7 @@ class MockStream implements StreamAPI {
     });
   }
 
-  waitForTopicData(topic: string, _signal?: AbortSignal): Promise<{ data: unknown; loadNextUrl?: string }> {
+  waitForTopicData(topic: string, _signal?: AbortSignal): Promise<{ data: unknown; fetchNextUrl?: string }> {
     const buffered = this._topicDataBuffer.get(topic);
     if (buffered && buffered.length > 0) {
       return Promise.resolve(buffered.shift()!);
@@ -88,7 +88,7 @@ class MockStream implements StreamAPI {
     });
   }
 
-  getTopicMeta(topic: string): { loadNextUrl?: string } | undefined {
+  getTopicMeta(topic: string): { fetchNextUrl?: string } | undefined {
     return this._topicMeta.get(topic);
   }
 
@@ -129,9 +129,9 @@ class TopicNotFoundError extends Error {
 
 abstract class TopicQuery extends Query {
   declare topic: string;
-  loadNext?: LoadNextConfig;
+  fetchNext?: FetchNextConfig;
 
-  getLoadNext?(): LoadNextConfig | undefined;
+  getFetchNext?(): FetchNextConfig | undefined;
 
   getIdentityKey(): string {
     return `topic:${this.topic}`;
@@ -153,10 +153,10 @@ abstract class TopicQuery extends Query {
     return result.data;
   }
 
-  private resolveLoadNext(): { url?: string; searchParams?: Record<string, unknown> } | undefined {
-    const dynamicConfig = this.getLoadNext ? this.getLoadNext() : undefined;
-    const loadNextConfig = dynamicConfig ?? this.rawLoadNext;
-    if (loadNextConfig === undefined) return undefined;
+  private resolveFetchNext(): { url?: string; searchParams?: Record<string, unknown> } | undefined {
+    const dynamicConfig = this.getFetchNext ? this.getFetchNext() : undefined;
+    const fetchNextConfig = dynamicConfig ?? this.rawFetchNext;
+    if (fetchNextConfig === undefined) return undefined;
 
     const resolveRoot: Record<string, unknown> = {
       params: this.params ?? {},
@@ -164,10 +164,10 @@ abstract class TopicQuery extends Query {
     };
 
     return {
-      url: loadNextConfig.url !== undefined ? (reifyValue(loadNextConfig.url, resolveRoot) as string) : undefined,
+      url: fetchNextConfig.url !== undefined ? (reifyValue(fetchNextConfig.url, resolveRoot) as string) : undefined,
       searchParams:
-        loadNextConfig.searchParams !== undefined
-          ? (reifyValue(loadNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
+        fetchNextConfig.searchParams !== undefined
+          ? (reifyValue(fetchNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
           : undefined,
     };
   }
@@ -175,9 +175,9 @@ abstract class TopicQuery extends Query {
   hasNext(): boolean {
     const stream = (this.context as any)?.stream as StreamAPI | undefined;
     const meta = stream?.getTopicMeta?.(this.topic);
-    if (!meta?.loadNextUrl) return false;
+    if (!meta?.fetchNextUrl) return false;
 
-    const resolved = this.resolveLoadNext();
+    const resolved = this.resolveFetchNext();
     if (resolved === undefined) return false;
 
     if (resolved.searchParams !== undefined) {
@@ -195,16 +195,16 @@ abstract class TopicQuery extends Query {
     const stream = (this.context as any).stream as StreamAPI;
     const meta = stream.getTopicMeta(this.topic);
 
-    if (!meta?.loadNextUrl) {
-      throw new Error('No loadNextUrl available for topic');
+    if (!meta?.fetchNextUrl) {
+      throw new Error('No fetchNextUrl available for topic');
     }
 
-    const resolved = this.resolveLoadNext();
+    const resolved = this.resolveFetchNext();
     if (resolved === undefined) {
-      throw new Error('loadNext is not configured for this query');
+      throw new Error('fetchNext is not configured for this query');
     }
 
-    let url = meta.loadNextUrl;
+    let url = meta.fetchNextUrl;
 
     if (resolved.searchParams) {
       const sp = new URLSearchParams();
@@ -1406,24 +1406,24 @@ describe('TopicQuery', () => {
   });
 
   // ============================================================
-  // Section 4: loadNext with TopicQuery
+  // Section 4: fetchNext with TopicQuery
   // ============================================================
 
-  describe('loadNext with TopicQuery', () => {
+  describe('fetchNext with TopicQuery', () => {
     class TopicItem extends Entity {
       __typename = t.typename('TopicItem');
       id = t.id;
       name = t.string;
     }
 
-    it('should fetch next page using loadNextUrl and cursor', async () => {
+    it('should fetch next page using fetchNextUrl and cursor', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: {
             cursor: this.result.cursor,
           },
@@ -1440,7 +1440,7 @@ describe('TopicQuery', () => {
           ],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       mockFetch.get('/api/items/next', {
@@ -1455,7 +1455,7 @@ describe('TopicQuery', () => {
         expect(relay.value!.items).toHaveLength(2);
         expect(relay.value!.cursor).toBe('c1');
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('/api/items/next');
@@ -1467,14 +1467,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should accumulate live array items across loadNext calls', async () => {
+    it('should accumulate live array items across fetchNext calls', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1486,7 +1486,7 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '1', name: 'first' }],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       await testWithClient(client, async () => {
@@ -1498,7 +1498,7 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '2', name: 'second' }],
           cursor: 'c2',
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(relay.value!.items).toHaveLength(2);
 
         mockFetch.get('/api/items/next', {
@@ -1508,21 +1508,21 @@ describe('TopicQuery', () => {
           ],
           cursor: undefined,
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(relay.value!.items).toHaveLength(4);
         expect(relay.value!.items[0].name).toBe('first');
         expect(relay.value!.items[3].name).toBe('fourth');
       });
     });
 
-    it('should advance cursor with each loadNext response', async () => {
+    it('should advance cursor with each fetchNext response', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1534,7 +1534,7 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '1', name: 'first' }],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       await testWithClient(client, async () => {
@@ -1545,26 +1545,26 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '2', name: 'second' }],
           cursor: 'c2',
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(mockFetch.calls[0].url).toContain('cursor=c1');
 
         mockFetch.get('/api/items/next', {
           items: [{ __typename: 'TopicItem', id: '3', name: 'third' }],
           cursor: 'c3',
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(mockFetch.calls[1].url).toContain('cursor=c2');
       });
     });
 
-    it('should deduplicate entities in live array on loadNext', async () => {
+    it('should deduplicate entities in live array on fetchNext', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1579,7 +1579,7 @@ describe('TopicQuery', () => {
           ],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       mockFetch.get('/api/items/next', {
@@ -1594,7 +1594,7 @@ describe('TopicQuery', () => {
         const relay = fetchQuery(GetItems);
         await relay;
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.items).toHaveLength(3);
         expect(relay.value!.items[1].name).toBe('second-updated');
@@ -1609,7 +1609,7 @@ describe('TopicQuery', () => {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1621,7 +1621,7 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '1', name: 'first' }],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       await testWithClient(client, async () => {
@@ -1633,20 +1633,20 @@ describe('TopicQuery', () => {
         mockFetch.get('/api/items/next', {
           items: [{ __typename: 'TopicItem', id: '2', name: 'second' }],
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.__hasNext).toBe(false);
       });
     });
 
-    it('should show correct __isLoadingNext states', async () => {
+    it('should show correct __isFetchingNext states', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1658,33 +1658,33 @@ describe('TopicQuery', () => {
           items: [{ __typename: 'TopicItem', id: '1', name: 'first' }],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetItems);
         await relay;
 
-        expect(relay.value!.__isLoadingNext).toBe(false);
+        expect(relay.value!.__isFetchingNext).toBe(false);
 
         mockFetch.get('/api/items/next', {
           items: [{ __typename: 'TopicItem', id: '2', name: 'second' }],
           cursor: undefined,
         });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
-        expect(relay.value!.__isLoadingNext).toBe(false);
+        expect(relay.value!.__isFetchingNext).toBe(false);
       });
     });
 
-    it('should preserve prior state on loadNext error', async () => {
+    it('should preserve prior state on fetchNext error', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1699,7 +1699,7 @@ describe('TopicQuery', () => {
           ],
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/items/next' },
+        { fetchNextUrl: '/api/items/next' },
       );
 
       mockFetch.get('/api/items/next', null, { error: new Error('Network error') });
@@ -1710,14 +1710,14 @@ describe('TopicQuery', () => {
 
         expect(relay.value!.items).toHaveLength(2);
 
-        await expect(relay.value!.__loadNext()).rejects.toThrow('Network error');
+        await expect(relay.value!.__fetchNext()).rejects.toThrow('Network error');
 
         expect(relay.value!.items).toHaveLength(2);
         expect(relay.value!.cursor).toBe('c1');
       });
     });
 
-    it('should return false for __hasNext when no loadNext is configured', async () => {
+    it('should return false for __hasNext when no fetchNext is configured', async () => {
       class GetItems extends TopicQuery {
         topic = 'items:list';
         result = {
@@ -1757,14 +1757,14 @@ describe('TopicQuery', () => {
       items = t.liveArray(TopicItem, { constraints: { listId: (this as any).id } });
     }
 
-    it('should reflect both loadNext and stream update in final state', async () => {
+    it('should reflect both fetchNext and stream update in final state', async () => {
       class GetList extends TopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1780,7 +1780,7 @@ describe('TopicQuery', () => {
           },
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/list/next' },
+        { fetchNextUrl: '/api/list/next' },
       );
 
       mockFetch.get('/api/list/next', {
@@ -1798,7 +1798,7 @@ describe('TopicQuery', () => {
 
         expect(relay.value!.list.items).toHaveLength(1);
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(relay.value!.list.items).toHaveLength(2);
 
         await applyEventOutsideReactiveContext(client, {
@@ -1813,14 +1813,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should handle stream update then loadNext correctly', async () => {
+    it('should handle stream update then fetchNext correctly', async () => {
       class GetList extends TopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1836,7 +1836,7 @@ describe('TopicQuery', () => {
           },
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/list/next' },
+        { fetchNextUrl: '/api/list/next' },
       );
 
       await testWithClient(client, async () => {
@@ -1862,7 +1862,7 @@ describe('TopicQuery', () => {
           cursor: undefined,
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(items()).toHaveLength(3);
       });
@@ -1917,14 +1917,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should handle loadNext + mutation + stream update in sequence', async () => {
+    it('should handle fetchNext + mutation + stream update in sequence', async () => {
       class GetList extends TopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -1950,7 +1950,7 @@ describe('TopicQuery', () => {
           },
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/list/next' },
+        { fetchNextUrl: '/api/list/next' },
       );
 
       mockFetch.get('/api/list/next', {
@@ -1970,7 +1970,7 @@ describe('TopicQuery', () => {
         const items = reactive(() => relay.value!.list.items);
         expect(items()).toHaveLength(1);
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(items()).toHaveLength(2);
 
         const mut = getMutation(AddItem);
@@ -1991,14 +1991,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should deduplicate when stream creates entity then loadNext returns it', async () => {
+    it('should deduplicate when stream creates entity then fetchNext returns it', async () => {
       class GetList extends TopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -2014,7 +2014,7 @@ describe('TopicQuery', () => {
           },
           cursor: 'c1',
         },
-        { loadNextUrl: '/api/list/next' },
+        { fetchNextUrl: '/api/list/next' },
       );
 
       await testWithClient(client, async () => {
@@ -2040,21 +2040,21 @@ describe('TopicQuery', () => {
           cursor: undefined,
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(items()).toHaveLength(2);
         expect(items()[1].name).toBe('B-server');
       });
     });
 
-    it('full lifecycle: subscribe → data → loadNext → stream updates → mutation', async () => {
+    it('full lifecycle: subscribe → data → fetchNext → stream updates → mutation', async () => {
       class GetList extends TopicQuery {
         topic = 'list:full';
         result = {
           list: t.entity(TopicCombinedList),
           cursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -2092,7 +2092,7 @@ describe('TopicQuery', () => {
             },
             cursor: 'page-2',
           },
-          { loadNextUrl: '/api/list/next' },
+          { fetchNextUrl: '/api/list/next' },
         );
 
         await relay;
@@ -2109,7 +2109,7 @@ describe('TopicQuery', () => {
           cursor: undefined,
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(items()).toHaveLength(3);
         expect(items()[2].name).toBe('Gamma');
 

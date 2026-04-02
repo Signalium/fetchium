@@ -6,7 +6,7 @@ import { createMockFetch, testWithClient, sleep } from './utils.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
 
-describe('__loadNext', () => {
+describe('__fetchNext', () => {
   let client: QueryClient;
   let mockFetch: ReturnType<typeof createMockFetch>;
 
@@ -21,14 +21,14 @@ describe('__loadNext', () => {
     client?.destroy();
   });
 
-  describe('Basic pagination with static loadNext', () => {
+  describe('Basic pagination with static fetchNext', () => {
     it('should fetch next page using FieldRef search params', async () => {
       mockFetch.get('/items', { items: ['a', 'b'], nextPage: 2, limit: 2 });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextPage: t.optional(t.number), limit: t.number };
-        loadNext = {
+        fetchNext = {
           searchParams: {
             page: this.result.nextPage,
             limit: this.result.limit,
@@ -44,7 +44,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', { items: ['c', 'd'], nextPage: 3, limit: 2 });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('page=2');
@@ -63,7 +63,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextCursor: t.optional(t.string) };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.nextCursor },
         };
       }
@@ -75,7 +75,7 @@ describe('__loadNext', () => {
 
         // Field omitted — server intended undefined (e.g. JSON drops undefined values)
         mockFetch.get('/items', { items: ['c'] });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.nextCursor).toBeUndefined();
       });
@@ -87,7 +87,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextCursor: t.nullish(t.string) };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.nextCursor },
         };
       }
@@ -99,7 +99,7 @@ describe('__loadNext', () => {
 
         // Explicit null — server sent null to clear the value
         mockFetch.get('/items', { items: ['c'], nextCursor: null });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.nextCursor).toBeNull();
       });
@@ -113,7 +113,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextCursor: t.optional(t.string) };
-        loadNext = {
+        fetchNext = {
           searchParams: {
             cursor: this.result.nextCursor,
           },
@@ -128,7 +128,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', { items: ['c'], nextCursor: 'cursor-2' });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         // Verify the fetch was called with the resolved cursor
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
@@ -145,7 +145,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextUrl: t.optional(t.string) };
-        loadNext = {
+        fetchNext = {
           url: this.result.nextUrl,
         };
       }
@@ -156,7 +156,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items?page=2', { items: ['b'], nextUrl: '/items?page=3' });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('/items?page=2');
@@ -165,13 +165,13 @@ describe('__loadNext', () => {
       });
     });
 
-    it('should advance cursor across multiple loadNext calls', async () => {
+    it('should advance cursor across multiple fetchNext calls', async () => {
       mockFetch.get('/items', { items: ['a'], cursor: 'c1' });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), cursor: t.optional(t.string) };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.cursor },
         };
       }
@@ -180,14 +180,14 @@ describe('__loadNext', () => {
         const relay = fetchQuery(GetItems);
         await relay;
 
-        // First loadNext: cursor=c1
+        // First fetchNext: cursor=c1
         mockFetch.get('/items', { items: ['b'], cursor: 'c2' });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(mockFetch.calls[1].url).toContain('cursor=c1');
 
-        // Second loadNext: cursor should now be c2 (from previous response)
+        // Second fetchNext: cursor should now be c2 (from previous response)
         mockFetch.get('/items', { items: ['c'], cursor: 'c3' });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
         expect(mockFetch.calls[2].url).toContain('cursor=c2');
       });
     });
@@ -200,7 +200,7 @@ describe('__loadNext', () => {
       name = t.string;
     }
 
-    it('should append entities to live array across loadNext calls', async () => {
+    it('should append entities to live array across fetchNext calls', async () => {
       mockFetch.get('/items', {
         items: [
           { __typename: 'Item', id: '1', name: 'first' },
@@ -215,7 +215,7 @@ describe('__loadNext', () => {
           items: t.liveArray(Item),
           nextCursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: {
             cursor: this.result.nextCursor,
           },
@@ -236,7 +236,7 @@ describe('__loadNext', () => {
           nextCursor: 'c2',
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         // Live array should have accumulated all 3 items
         expect(relay.value!.items).toHaveLength(3);
@@ -256,7 +256,7 @@ describe('__loadNext', () => {
           nextCursor: undefined,
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.items).toHaveLength(5);
         expect(relay.value!.nextCursor).toBeUndefined();
@@ -278,7 +278,7 @@ describe('__loadNext', () => {
           items: t.liveArray(Item),
           nextCursor: t.optional(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.nextCursor },
         };
       }
@@ -296,7 +296,7 @@ describe('__loadNext', () => {
           nextCursor: 'c2',
         });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         // Should have 3 items (not 4), id:'2' deduplicated
         expect(relay.value!.items).toHaveLength(3);
@@ -307,15 +307,15 @@ describe('__loadNext', () => {
     });
   });
 
-  describe('Dynamic loadNext via getLoadNext()', () => {
-    it('should use loadNext from getLoadNext() with literal values', async () => {
+  describe('Dynamic fetchNext via getFetchNext()', () => {
+    it('should use fetchNext from getFetchNext() with literal values', async () => {
       mockFetch.get('/items', { items: ['a', 'b'], page: 1 });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), page: t.number };
 
-        getLoadNext() {
+        getFetchNext() {
           return {
             searchParams: { page: 2, limit: 10 },
           };
@@ -328,7 +328,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', { items: ['c'], page: 2 });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('page=2');
@@ -336,7 +336,7 @@ describe('__loadNext', () => {
       });
     });
 
-    it('should support conditional loadNext based on response', async () => {
+    it('should support conditional fetchNext based on response', async () => {
       let fetchCount = 0;
 
       mockFetch.get('/items', () => {
@@ -351,7 +351,7 @@ describe('__loadNext', () => {
         path = '/items';
         result = { items: t.array(t.string), hasMore: t.boolean, nextPage: t.optional(t.number) };
 
-        getLoadNext() {
+        getFetchNext() {
           const status = this.response?.status;
           if (status !== undefined && status !== 200) {
             return undefined;
@@ -368,7 +368,7 @@ describe('__loadNext', () => {
 
         expect(relay.value!.hasMore).toBe(true);
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.hasMore).toBe(false);
         expect(relay.value!.nextPage).toBeUndefined();
@@ -382,7 +382,7 @@ describe('__loadNext', () => {
         path = '/items';
         result = { items: t.array(t.string), total: t.number };
 
-        getLoadNext() {
+        getFetchNext() {
           const pageToken = this.response?.headers?.get?.('X-Next-Page-Token');
           return {
             searchParams: pageToken ? { pageToken } : { offset: 1 },
@@ -396,25 +396,25 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', { items: ['b'], total: 5 });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('offset=1');
       });
     });
 
-    it('getLoadNext overrides static loadNext', async () => {
+    it('getFetchNext overrides static fetchNext', async () => {
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string) };
 
-        loadNext = {
+        fetchNext = {
           searchParams: { page: 99 },
         };
 
-        getLoadNext() {
+        getFetchNext() {
           return {
             searchParams: { page: 2 },
           };
@@ -427,7 +427,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', { items: ['b'] });
 
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         const lastCall = mockFetch.calls[mockFetch.calls.length - 1];
         expect(lastCall.url).toContain('page=2');
@@ -443,7 +443,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextCursor: t.optional(t.string) };
-        loadNext = { searchParams: { cursor: this.result.nextCursor } };
+        fetchNext = { searchParams: { cursor: this.result.nextCursor } };
       }
 
       await testWithClient(client, async () => {
@@ -452,9 +452,9 @@ describe('__loadNext', () => {
 
         expect(relay.value!.__hasNext).toBe(true);
 
-        // Load next page — cursor becomes undefined (last page)
+        // Fetch next page — cursor becomes undefined (last page)
         mockFetch.get('/items', { items: ['b'] });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.__hasNext).toBe(false);
       });
@@ -466,7 +466,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextUrl: t.optional(t.string) };
-        loadNext = { url: this.result.nextUrl };
+        fetchNext = { url: this.result.nextUrl };
       }
 
       await testWithClient(client, async () => {
@@ -476,13 +476,13 @@ describe('__loadNext', () => {
         expect(relay.value!.__hasNext).toBe(true);
 
         mockFetch.get('/items?page=2', { items: ['b'], nextUrl: undefined });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
         expect(relay.value!.__hasNext).toBe(false);
       });
     });
 
-    it('should be false when no loadNext is configured', async () => {
+    it('should be false when no fetchNext is configured', async () => {
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -498,14 +498,14 @@ describe('__loadNext', () => {
       });
     });
 
-    it('should be true with getLoadNext() returning a config', async () => {
+    it('should be true with getFetchNext() returning a config', async () => {
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string) };
 
-        getLoadNext() {
+        getFetchNext() {
           return { searchParams: { page: 2 } };
         }
       }
@@ -518,14 +518,14 @@ describe('__loadNext', () => {
       });
     });
 
-    it('should be false with getLoadNext() returning undefined', async () => {
+    it('should be false with getFetchNext() returning undefined', async () => {
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string) };
 
-        getLoadNext() {
+        getFetchNext() {
           return undefined;
         }
       }
@@ -539,30 +539,30 @@ describe('__loadNext', () => {
     });
   });
 
-  describe('__isLoadingNext', () => {
-    it('should be false initially and after loadNext completes', async () => {
+  describe('__isFetchingNext', () => {
+    it('should be false initially and after fetchNext completes', async () => {
       mockFetch.get('/items', { items: ['a'], cursor: 'c1' });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), cursor: t.optional(t.string) };
-        loadNext = { searchParams: { cursor: this.result.cursor } };
+        fetchNext = { searchParams: { cursor: this.result.cursor } };
       }
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetItems);
         await relay;
 
-        expect(relay.value!.__isLoadingNext).toBe(false);
+        expect(relay.value!.__isFetchingNext).toBe(false);
 
         mockFetch.get('/items', { items: ['b'], cursor: undefined });
-        await relay.value!.__loadNext();
+        await relay.value!.__fetchNext();
 
-        expect(relay.value!.__isLoadingNext).toBe(false);
+        expect(relay.value!.__isFetchingNext).toBe(false);
       });
     });
 
-    it('should be false when no loadNext is configured', async () => {
+    it('should be false when no fetchNext is configured', async () => {
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -574,32 +574,32 @@ describe('__loadNext', () => {
         const relay = fetchQuery(GetItems);
         await relay;
 
-        expect(relay.value!.__isLoadingNext).toBe(false);
+        expect(relay.value!.__isFetchingNext).toBe(false);
       });
     });
   });
 
   describe('Edge cases', () => {
-    it('should throw if loadNext called before initial data loads', async () => {
+    it('should throw if fetchNext called before initial data loads', async () => {
       mockFetch.get('/items', { items: [] }, { delay: 100 });
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string) };
-        loadNext = { searchParams: { page: 1 } };
+        fetchNext = { searchParams: { page: 1 } };
       }
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetItems);
 
         const instance = client.queryInstances.values().next().value!;
-        expect(() => instance.loadNext()).toThrow('Cannot call __loadNext before initial data has loaded');
+        expect(() => instance.fetchNext()).toThrow('Cannot call __fetchNext before initial data has loaded');
 
         await relay;
       });
     });
 
-    it('should throw if loadNext is not configured', async () => {
+    it('should throw if fetchNext is not configured', async () => {
       mockFetch.get('/items', { items: [] });
 
       class GetItems extends RESTQuery {
@@ -612,18 +612,18 @@ describe('__loadNext', () => {
         await relay;
 
         const instance = client.queryInstances.values().next().value!;
-        await expect(instance.loadNext()).rejects.toThrow('loadNext is not configured');
+        await expect(instance.fetchNext()).rejects.toThrow('fetchNext is not configured');
       });
     });
 
-    it('should deduplicate concurrent loadNext calls', async () => {
+    it('should deduplicate concurrent fetchNext calls', async () => {
       let fetchCount = 0;
       mockFetch.get('/items', () => ({ items: [String(++fetchCount)], next: fetchCount }));
 
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), next: t.number };
-        loadNext = { searchParams: { page: 1 } };
+        fetchNext = { searchParams: { page: 1 } };
       }
 
       await testWithClient(client, async () => {
@@ -632,8 +632,8 @@ describe('__loadNext', () => {
 
         const countBefore = fetchCount;
 
-        const p1 = relay.value!.__loadNext();
-        const p2 = relay.value!.__loadNext();
+        const p1 = relay.value!.__fetchNext();
+        const p2 = relay.value!.__fetchNext();
 
         expect(p1).toBe(p2);
 
@@ -648,7 +648,7 @@ describe('__loadNext', () => {
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), cursor: t.optional(t.string) };
-        loadNext = { searchParams: { cursor: this.result.cursor } };
+        fetchNext = { searchParams: { cursor: this.result.cursor } };
       }
 
       await testWithClient(client, async () => {
@@ -659,7 +659,7 @@ describe('__loadNext', () => {
 
         mockFetch.get('/items', null, { error: new Error('Network error') });
 
-        await expect(relay.value!.__loadNext()).rejects.toThrow('Network error');
+        await expect(relay.value!.__fetchNext()).rejects.toThrow('Network error');
 
         expect(relay.value!.items).toEqual(['a', 'b']);
         expect(relay.value!.cursor).toBe('c1');

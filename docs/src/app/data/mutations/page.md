@@ -45,9 +45,11 @@ import { RESTMutation, t } from 'fetchium';
 
 class CreateUser extends RESTMutation {
   params = { name: t.string, email: t.string };
+
   path = '/users';
   method = 'POST';
   body = { name: this.params.name, email: this.params.email };
+
   result = { id: t.number, name: t.string, email: t.string };
 }
 ```
@@ -65,9 +67,11 @@ Path interpolation works the same as queries --- use template literal syntax wit
 ```tsx
 class UpdateUser extends RESTMutation {
   params = { id: t.id, name: t.string };
+
   path = `/users/${this.params.id}`;
   method = 'PUT';
   body = { name: this.params.name };
+
   result = { id: t.number, name: t.string };
 }
 ```
@@ -150,9 +154,11 @@ Define effects directly on the mutation class using the `effects` property. Each
 ```tsx
 class UpdateUserName extends RESTMutation {
   params = { id: t.id, name: t.string };
+
   path = `/users/${this.params.id}`;
   method = 'PUT';
   body = { name: this.params.name };
+
   result = User;
 
   effects = {
@@ -170,8 +176,10 @@ For effects that depend on the _server response_ (not just the input params), ov
 ```tsx
 class CreatePost extends RESTMutation {
   params = { title: t.string, body: t.string };
+
   path = '/posts';
   method = 'POST';
+
   result = Post;
 
   getEffects() {
@@ -205,7 +213,7 @@ When a mutation fires an `updates` event:
 When a mutation fires a `deletes` event:
 
 1. The entity is removed from the entity store
-2. Any live array containing that entity removes it
+2. Any constrained live array containing that entity removes it
 3. Any live value watching that entity type fires its `onDelete` reducer
 
 This is what makes Fetchium's mutation system _declarative_ rather than _imperative_. You declare the effects once, and the propagation is automatic.
@@ -219,9 +227,11 @@ That's what `invalidates` does. It marks matching query instances as _stale_, so
 ```tsx
 class ReorderItems extends RESTMutation {
   params = { listId: t.id, order: t.array(t.id) };
+
   path = `/lists/${this.params.listId}/reorder`;
   method = 'PUT';
   body = { order: this.params.order };
+
   result = { success: t.boolean };
 
   effects = {
@@ -237,9 +247,11 @@ You can also target specific instances by providing a _param subset_ --- a parti
 ```tsx
 class BulkUpdateUserPosts extends RESTMutation {
   params = { userId: t.id, status: t.string };
+
   path = `/users/${this.params.userId}/posts/bulk-update`;
   method = 'POST';
   body = { status: this.params.status };
+
   result = { count: t.number };
 
   effects = {
@@ -276,9 +288,11 @@ Set `optimisticUpdates = true` on the mutation class:
 ```tsx
 class ToggleLike extends RESTMutation {
   params = { postId: t.id, liked: t.boolean };
+
   path = `/posts/${this.params.postId}/like`;
   method = 'PUT';
   body = { liked: this.params.liked };
+
   result = Post;
   optimisticUpdates = true;
 
@@ -318,6 +332,7 @@ import { Mutation, t } from 'fetchium';
 
 class UploadAvatar extends Mutation {
   params = { userId: t.id, file: t.any };
+
   result = { url: t.string };
 
   getIdentityKey() {
@@ -363,9 +378,11 @@ If you have an idempotent mutation where retries are safe, you can configure ret
 ```tsx
 class UpdateUserName extends RESTMutation {
   params = { id: t.id, name: t.string };
+
   path = `/users/${this.params.id}`;
   method = 'PUT';
   body = { name: this.params.name };
+
   result = User;
 
   config = {
@@ -403,8 +420,10 @@ You can override this by implementing `getIdentityKey()`:
 ```tsx
 class CreateUser extends RESTMutation {
   params = { name: t.string, email: t.string };
+
   path = '/users';
   method = 'POST';
+
   result = { id: t.number, name: t.string, email: t.string };
 
   getIdentityKey() {

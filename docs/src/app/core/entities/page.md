@@ -32,12 +32,14 @@ Entities can be referenced using `t.entity` in queries or in other entities:
 class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
 }
 
 class Post extends Entity {
   __typename = t.typename('Post');
   id = t.id;
+
   title = t.string;
   author = t.entity(User);
 }
@@ -112,6 +114,7 @@ Entities can reference other entities using `t.entity(EntityClass)`. Nested enti
 class Comment extends Entity {
   __typename = t.typename('Comment');
   id = t.id;
+
   body = t.string;
   author = t.entity(User);
 }
@@ -119,6 +122,7 @@ class Comment extends Entity {
 class Post extends Entity {
   __typename = t.typename('Post');
   id = t.id;
+
   title = t.string;
   body = t.string;
   author = t.entity(User);
@@ -131,7 +135,9 @@ In this example, if a `Post` and one of its `Comment`s reference the same `User`
 ```tsx
 class GetPost extends RESTQuery {
   params = { id: t.id };
+
   path = `/posts/${this.params.id}`;
+
   result = { post: t.entity(Post) };
 }
 
@@ -155,6 +161,7 @@ You can define methods directly on entity classes. Methods have access to the en
 class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   firstName = t.string;
   lastName = t.string;
   age = t.number;
@@ -194,6 +201,7 @@ class User extends Entity {
 
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
 }
 ```
@@ -221,6 +229,7 @@ Consider a social feed where you fetch a list of posts and also fetch individual
 class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
   avatar = t.string;
 }
@@ -228,18 +237,22 @@ class User extends Entity {
 class Post extends Entity {
   __typename = t.typename('Post');
   id = t.id;
+
   title = t.string;
   author = t.entity(User);
 }
 
 class GetFeed extends RESTQuery {
   path = '/feed';
+
   result = { posts: t.array(t.entity(Post)) };
 }
 
 class GetUser extends RESTQuery {
   params = { id: t.id };
+
   path = `/users/${this.params.id}`;
+
   result = { user: t.entity(User) };
 }
 ```
@@ -304,6 +317,7 @@ Entities can subscribe to real-time updates by defining a `__subscribe` method. 
 class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
   email = t.string;
 

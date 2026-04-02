@@ -184,6 +184,7 @@ import { Entity, t } from 'fetchium';
 export class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
   email = t.string;
   avatar = t.optional(t.string);
@@ -201,7 +202,9 @@ import { User } from '../entities/User';
 
 export class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { user: t.entity(User) };
 }
 ```

@@ -35,7 +35,7 @@ export interface QueryCacheOptions {
   cacheTime?: number; // minutes - on-disk/persistent storage expiration. Default: 1440 (24 hours)
 }
 
-export interface LoadNextConfig {
+export interface FetchNextConfig {
   /** Override the URL/path for the next page request. Can be a FieldRef (e.g. this.result.nextUrl). */
   url?: unknown;
   /** Search params for the next page. Values can be FieldRefs (e.g. this.result.nextCursor). */

@@ -57,7 +57,7 @@ export class QueryInstance<T extends Query> {
    *  For entity results, this is undefined until the first apply discovers it. */
   rootEntity: EntityInstance | undefined;
 
-  /** Extra methods (__refetch, __loadNext) attached to the root entity proxy. */
+  /** Extra methods (__refetch, __fetchNext) attached to the root entity proxy. */
   private _extraMethods: Record<string, (...args: unknown[]) => unknown> = {};
 
   /** Query id injected as QUERY_ID on non-entity payloads. */
@@ -87,7 +87,7 @@ export class QueryInstance<T extends Query> {
 
     this._extraMethods = { __refetch: this.refetch };
     if (def.statics.hasSendNext) {
-      this._extraMethods.__loadNext = this.loadNext;
+      this._extraMethods.__fetchNext = this.fetchNext;
     }
 
     // Compute the query id used for QUERY_ID injection on non-entity results.
@@ -106,9 +106,9 @@ export class QueryInstance<T extends Query> {
           this._abortController?.abort();
           this._abortController = undefined;
 
-          this._loadNextAbort?.abort();
-          this._loadNextAbort = undefined;
-          this._loadNextPromise = undefined;
+          this._fetchNextAbort?.abort();
+          this._fetchNextAbort = undefined;
+          this._fetchNextPromise = undefined;
 
           this.unsubscribe?.();
           this.unsubscribe = undefined;
@@ -191,7 +191,7 @@ export class QueryInstance<T extends Query> {
       this.rootEntity._extraMethods = this._extraMethods;
       this.rootEntity._extraGetters = {
         __hasNext: () => this.hasNext,
-        __isLoadingNext: () => this._loadNextPromise !== undefined,
+        __isFetchingNext: () => this._fetchNextPromise !== undefined,
       };
     }
 
@@ -273,7 +273,7 @@ export class QueryInstance<T extends Query> {
         this.queryClient.getContext(),
       );
       this._executionCtx.refetch = () => this.refetch();
-      this._executionCtx.rawLoadNext = this.def.statics.rawLoadNext;
+      this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
     }
 
     this._executionCtx.response = this._lastResponse;
@@ -328,9 +328,9 @@ export class QueryInstance<T extends Query> {
   private runQueryImmediately(): void {
     this._abortController?.abort();
     this._abortController = new AbortController();
-    this._loadNextAbort?.abort();
-    this._loadNextAbort = undefined;
-    this._loadNextPromise = undefined;
+    this._fetchNextAbort?.abort();
+    this._fetchNextAbort = undefined;
+    this._fetchNextPromise = undefined;
     this.relayState.setPromise(this.runQuery());
   }
 
@@ -365,40 +365,40 @@ export class QueryInstance<T extends Query> {
     return this.currentParams;
   }
 
-  /** In-flight loadNext promise for deduplication. */
-  private _loadNextPromise: Promise<QueryResult<T>> | undefined = undefined;
+  /** In-flight fetchNext promise for deduplication. */
+  private _fetchNextPromise: Promise<QueryResult<T>> | undefined = undefined;
 
-  /** Controller for aborting in-flight loadNext requests. */
-  private _loadNextAbort: AbortController | undefined = undefined;
+  /** Controller for aborting in-flight fetchNext requests. */
+  private _fetchNextAbort: AbortController | undefined = undefined;
 
-  loadNext = (): Promise<QueryResult<T>> => {
+  fetchNext = (): Promise<QueryResult<T>> => {
     if (this.updatedAt === undefined) {
-      throw new Error('Cannot call __loadNext before initial data has loaded');
+      throw new Error('Cannot call __fetchNext before initial data has loaded');
     }
-    if (this._loadNextPromise !== undefined) {
-      return this._loadNextPromise;
+    if (this._fetchNextPromise !== undefined) {
+      return this._fetchNextPromise;
     }
-    // Schedule notification so __isLoadingNext becomes true reactively.
+    // Schedule notification so __isFetchingNext becomes true reactively.
     // Must be async to avoid "dirtied after consumed" when called from
     // within a reactive context (the proxy consumes the notifier on access).
     queueMicrotask(() => this.rootEntity?.notify());
-    this._loadNextPromise = this.runLoadNext().then(
+    this._fetchNextPromise = this.runFetchNext().then(
       result => {
-        this._loadNextPromise = undefined;
-        // Notify so __isLoadingNext transitions to false.
+        this._fetchNextPromise = undefined;
+        // Notify so __isFetchingNext transitions to false.
         // applyData already notified for the data change; this second
-        // notify is needed because _loadNextPromise was still set at
+        // notify is needed because _fetchNextPromise was still set at
         // that point and is only cleared here.
         this.rootEntity?.notify();
         return result;
       },
       error => {
-        this._loadNextPromise = undefined;
+        this._fetchNextPromise = undefined;
         this.rootEntity?.notify();
         throw error;
       },
     );
-    return this._loadNextPromise;
+    return this._fetchNextPromise;
   };
 
   private get hasNext(): boolean {
@@ -409,10 +409,10 @@ export class QueryInstance<T extends Query> {
     return hasNextFn.call(this._executionCtx);
   }
 
-  private async runLoadNext(): Promise<QueryResult<T>> {
+  private async runFetchNext(): Promise<QueryResult<T>> {
     const def = this.def;
-    this._loadNextAbort = new AbortController();
-    const signal = this._loadNextAbort.signal;
+    this._fetchNextAbort = new AbortController();
+    const signal = this._fetchNextAbort.signal;
     const ctx = this.getOrCreateExecutionContext();
     ctx.signal = signal;
     ctx.resultData = this.rootEntity!.data;

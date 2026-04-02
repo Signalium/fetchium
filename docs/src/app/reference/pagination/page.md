@@ -2,7 +2,7 @@
 title: Pagination & Infinite Queries
 ---
 
-Fetchium supports cursor-based, offset-based, and URL-based pagination through the `loadNext` configuration on queries. When `loadNext` is configured, the query result exposes `__loadNext()`, `__hasNext`, and `__isLoadingNext` --- giving you everything you need to build infinite scroll, "load more" buttons, and paginated lists.
+Fetchium supports cursor-based, offset-based, and URL-based pagination through the `fetchNext` configuration on queries. When `fetchNext` is configured, the query result exposes `__fetchNext()`, `__hasNext`, and `__isFetchingNext` --- giving you everything you need to build infinite scroll, "load more" buttons, and paginated lists.
 
 ---
 
@@ -14,15 +14,15 @@ The flow is:
 
 1. Initial query fetches the first page.
 2. The response includes pagination metadata (a cursor, an offset, or a next URL).
-3. `__loadNext()` reads the pagination metadata from the current result, constructs the next request, and fetches it.
+3. `__fetchNext()` reads the pagination metadata from the current result, constructs the next request, and fetches it.
 4. Results are merged --- live arrays **append** new entities, while plain arrays are **replaced**.
-5. The pagination metadata is updated to reflect the new response, so the next `__loadNext()` call fetches the correct page.
+5. The pagination metadata is updated to reflect the new response, so the next `__fetchNext()` call fetches the correct page.
 
 ---
 
 ## Configuring Pagination
 
-Add a `loadNext` field to your `RESTQuery` class. It accepts two optional properties:
+Add a `fetchNext` field to your `RESTQuery` class. It accepts two optional properties:
 
 | Property       | Type                      | Description                                           |
 | -------------- | ------------------------- | ----------------------------------------------------- |
@@ -39,16 +39,19 @@ import { RESTQuery, t, Entity } from 'fetchium';
 class Item extends Entity {
   __typename = t.typename('Item');
   id = t.id;
+
   name = t.string;
 }
 
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.liveArray(Item),
     nextCursor: t.optional(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: {
       cursor: this.result.nextCursor,
     },
@@ -56,7 +59,7 @@ class GetItems extends RESTQuery {
 }
 ```
 
-The value `this.result.nextCursor` is a **field reference** (FieldRef). At runtime, when `__loadNext()` is called, Fetchium resolves the FieldRef against the current result data. If the first response returned `{ nextCursor: 'abc123' }`, the next request will include `?cursor=abc123`.
+The value `this.result.nextCursor` is a **field reference** (FieldRef). At runtime, when `__fetchNext()` is called, Fetchium resolves the FieldRef against the current result data. If the first response returned `{ nextCursor: 'abc123' }`, the next request will include `?cursor=abc123`.
 
 ### Offset-based pagination
 
@@ -65,12 +68,14 @@ For APIs that use page numbers or offsets:
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.array(t.string),
     nextPage: t.optional(t.number),
     limit: t.number,
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: {
       page: this.result.nextPage,
       limit: this.result.limit,
@@ -88,30 +93,33 @@ Some APIs return a full URL for the next page. Use the `url` property instead of
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.array(t.string),
     nextUrl: t.optional(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     url: this.result.nextUrl,
   };
 }
 ```
 
-When `__loadNext()` is called, Fetchium fetches the resolved URL directly instead of constructing one from the original path and search params.
+When `__fetchNext()` is called, Fetchium fetches the resolved URL directly instead of constructing one from the original path and search params.
 
 ---
 
-## Dynamic Pagination with `getLoadNext()`
+## Dynamic Pagination with `getFetchNext()`
 
-For cases where the pagination logic depends on runtime conditions --- response headers, error codes, or computed values --- override `getLoadNext()` instead of using the static `loadNext` field.
+For cases where the pagination logic depends on runtime conditions --- response headers, error codes, or computed values --- override `getFetchNext()` instead of using the static `fetchNext` field.
 
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = { items: t.array(t.string), total: t.number };
 
-  getLoadNext() {
+  getFetchNext() {
     // Use a page token from response headers if available
     const pageToken = this.response?.headers?.get?.('X-Next-Page-Token');
 
@@ -125,22 +133,23 @@ class GetItems extends RESTQuery {
 }
 ```
 
-`getLoadNext()` has access to `this.response` (the raw `Response` object from the previous fetch) and `this.params` (the query params). It should return a `LoadNextConfig` object or `undefined`.
+`getFetchNext()` has access to `this.response` (the raw `Response` object from the previous fetch) and `this.params` (the query params). It should return a `FetchNextConfig` object or `undefined`.
 
 ### Return `undefined` to disable pagination
 
-If `getLoadNext()` returns `undefined`, `__hasNext` will be `false` and `__loadNext()` will throw. Use this to conditionally disable pagination:
+If `getFetchNext()` returns `undefined`, `__hasNext` will be `false` and `__fetchNext()` will throw. Use this to conditionally disable pagination:
 
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.array(t.string),
     hasMore: t.boolean,
     nextPage: t.optional(t.number),
   };
 
-  getLoadNext() {
+  getFetchNext() {
     // Only allow pagination on successful responses
     if (this.response?.status !== 200) {
       return undefined;
@@ -150,9 +159,9 @@ class GetItems extends RESTQuery {
 }
 ```
 
-### Priority: `getLoadNext()` overrides `loadNext`
+### Priority: `getFetchNext()` overrides `fetchNext`
 
-When both a static `loadNext` field and a `getLoadNext()` method are defined, the method takes priority. The static field is ignored.
+When both a static `fetchNext` field and a `getFetchNext()` method are defined, the method takes priority. The static field is ignored.
 
 ---
 
@@ -178,10 +187,10 @@ function ItemList() {
 
       {result.__hasNext && (
         <button
-          onClick={() => result.__loadNext()}
-          disabled={result.__isLoadingNext}
+          onClick={() => result.__fetchNext()}
+          disabled={result.__isFetchingNext}
         >
-          {result.__isLoadingNext ? 'Loading...' : 'Load More'}
+          {result.__isFetchingNext ? 'Loading...' : 'Load More'}
         </button>
       )}
     </div>
@@ -210,10 +219,10 @@ const ItemList = component(() => {
 
       {result.__hasNext && (
         <button
-          onClick={() => result.__loadNext()}
-          disabled={result.__isLoadingNext}
+          onClick={() => result.__fetchNext()}
+          disabled={result.__isFetchingNext}
         >
-          {result.__isLoadingNext ? 'Loading...' : 'Load More'}
+          {result.__isFetchingNext ? 'Loading...' : 'Load More'}
         </button>
       )}
     </div>
@@ -232,7 +241,7 @@ await relay;
 console.log(relay.value.items); // First page items
 
 if (relay.value.__hasNext) {
-  await relay.value.__loadNext();
+  await relay.value.__fetchNext();
   console.log(relay.value.items); // Updated items (appended for live arrays)
 }
 ```
@@ -241,30 +250,30 @@ if (relay.value.__hasNext) {
 
 ## QueryResult Pagination Properties
 
-When `loadNext` is configured on a query, the query result object gains three additional properties:
+When `fetchNext` is configured on a query, the query result object gains three additional properties:
 
 | Property          | Type            | Description                                                                     |
 | ----------------- | --------------- | ------------------------------------------------------------------------------- |
-| `__loadNext()`    | `() => Promise` | Fetches the next page. Returns a promise that resolves when the page is loaded. |
+| `__fetchNext()`    | `() => Promise` | Fetches the next page. Returns a promise that resolves when the page is loaded. |
 | `__hasNext`       | `boolean`       | Whether more pages are available.                                               |
-| `__isLoadingNext` | `boolean`       | Whether a next-page request is currently in flight.                             |
+| `__isFetchingNext` | `boolean`       | Whether a next-page request is currently in flight.                             |
 
 All three properties are **reactive** --- reading them inside a Signalium reactive function or a `component()` establishes a dependency, so your UI updates automatically when the values change.
 
 ### How `__hasNext` is determined
 
-For **static `loadNext`** (with FieldRefs), `__hasNext` is `true` when all FieldRef values in the `searchParams` (or `url`) resolve to non-null, non-undefined values. When the API returns `nextCursor: undefined` or `nextCursor: null`, `__hasNext` becomes `false`.
+For **static `fetchNext`** (with FieldRefs), `__hasNext` is `true` when all FieldRef values in the `searchParams` (or `url`) resolve to non-null, non-undefined values. When the API returns `nextCursor: undefined` or `nextCursor: null`, `__hasNext` becomes `false`.
 
-For **`getLoadNext()`**, `__hasNext` is `true` when the method returns a non-undefined config object, and `false` when it returns `undefined`.
+For **`getFetchNext()`**, `__hasNext` is `true` when the method returns a non-undefined config object, and `false` when it returns `undefined`.
 
 ### Deduplication of concurrent calls
 
-Calling `__loadNext()` multiple times concurrently returns the same promise. Only one network request is made per page --- subsequent calls while a request is in flight are deduplicated.
+Calling `__fetchNext()` multiple times concurrently returns the same promise. Only one network request is made per page --- subsequent calls while a request is in flight are deduplicated.
 
 ```tsx
 // These are the same promise --- only one request is made
-const p1 = result.__loadNext();
-const p2 = result.__loadNext();
+const p1 = result.__fetchNext();
+const p2 = result.__fetchNext();
 p1 === p2; // true
 ```
 
@@ -281,11 +290,13 @@ New entities from the next page are **appended** to the existing array. The arra
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.liveArray(Item), // Entities accumulate across pages
     nextCursor: t.optional(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: { cursor: this.result.nextCursor },
   };
 }
@@ -300,11 +311,13 @@ Plain arrays are **replaced** with the new page's data. The previous page's item
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
-    items: t.array(t.string), // Replaced on each loadNext
+    items: t.array(t.string), // Replaced on each fetchNext
     nextPage: t.optional(t.number),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: { page: this.result.nextPage },
   };
 }
@@ -341,25 +354,27 @@ If the new response omits an optional field entirely, it becomes `undefined`. If
 
 ## Cursor Advancement
 
-FieldRefs automatically resolve to the **current** result data at the time `__loadNext()` is called. This means cursors advance naturally across multiple pages:
+FieldRefs automatically resolve to the **current** result data at the time `__fetchNext()` is called. This means cursors advance naturally across multiple pages:
 
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.liveArray(Item),
     cursor: t.optional(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: { cursor: this.result.cursor },
   };
 }
 ```
 
 1. Initial fetch returns `{ cursor: 'c1' }`.
-2. First `__loadNext()` sends `?cursor=c1`, response returns `{ cursor: 'c2' }`.
-3. Second `__loadNext()` sends `?cursor=c2`, response returns `{ cursor: 'c3' }`.
-4. Third `__loadNext()` sends `?cursor=c3`, response returns `{ cursor: undefined }`.
+2. First `__fetchNext()` sends `?cursor=c1`, response returns `{ cursor: 'c2' }`.
+3. Second `__fetchNext()` sends `?cursor=c2`, response returns `{ cursor: 'c3' }`.
+4. Third `__fetchNext()` sends `?cursor=c3`, response returns `{ cursor: undefined }`.
 5. `__hasNext` becomes `false`. No more pages.
 
 You do not need to manually track or update the cursor --- Fetchium handles it automatically through the FieldRef resolution mechanism.
@@ -368,48 +383,48 @@ You do not need to manually track or update the cursor --- Fetchium handles it a
 
 ## Error Handling
 
-If a `__loadNext()` request fails (network error, server error, etc.), the promise rejects and the existing data is preserved. The array is not corrupted, and the cursor is not advanced.
+If a `__fetchNext()` request fails (network error, server error, etc.), the promise rejects and the existing data is preserved. The array is not corrupted, and the cursor is not advanced.
 
 ```tsx
 try {
-  await result.__loadNext();
+  await result.__fetchNext();
 } catch (error) {
   // The error is from the failed fetch
-  console.error('Failed to load next page:', error);
+  console.error('Failed to fetch next page:', error);
   // result.items still contains the previous pages' data
   // result.__hasNext is still true (cursor was not advanced)
 }
 ```
 
-This means you can safely retry by calling `__loadNext()` again after a failure --- it will use the same cursor value since the result data was not updated.
+This means you can safely retry by calling `__fetchNext()` again after a failure --- it will use the same cursor value since the result data was not updated.
 
 ---
 
 ## Edge Cases
 
-### Calling `__loadNext()` before initial data loads
+### Calling `__fetchNext()` before initial data loads
 
-If you call `__loadNext()` before the initial query has resolved, it throws an error:
-
-```
-Cannot call __loadNext before initial data has loaded
-```
-
-Always check `query.isReady` or `query.isPending` before accessing `__loadNext()`.
-
-### Calling `__loadNext()` without pagination configured
-
-If neither `loadNext` nor `getLoadNext()` is defined on the query class, calling `__loadNext()` throws:
+If you call `__fetchNext()` before the initial query has resolved, it throws an error:
 
 ```
-loadNext is not configured
+Cannot call __fetchNext before initial data has loaded
 ```
 
-In this case, `__hasNext` is always `false` and `__isLoadingNext` is always `false`.
+Always check `query.isReady` or `query.isPending` before accessing `__fetchNext()`.
 
-### Combining `loadNext` with `searchParams`
+### Calling `__fetchNext()` without pagination configured
 
-When `loadNext` provides additional `searchParams`, they are **merged** with the query's base search params (from the `searchParams` field or `getSearchParams()` method). The `loadNext` params take priority for any overlapping keys.
+If neither `fetchNext` nor `getFetchNext()` is defined on the query class, calling `__fetchNext()` throws:
+
+```
+fetchNext is not configured
+```
+
+In this case, `__hasNext` is always `false` and `__isFetchingNext` is always `false`.
+
+### Combining `fetchNext` with `searchParams`
+
+When `fetchNext` provides additional `searchParams`, they are **merged** with the query's base search params (from the `searchParams` field or `getSearchParams()` method). The `fetchNext` params take priority for any overlapping keys.
 
 ---
 
@@ -425,6 +440,7 @@ import { useQuery } from 'fetchium/react';
 class Post extends Entity {
   __typename = t.typename('Post');
   id = t.id;
+
   title = t.string;
   body = t.string;
   author = t.entity(User);
@@ -434,12 +450,15 @@ class Post extends Entity {
 // Query with pagination
 class GetPosts extends RESTQuery {
   params = { userId: t.number };
+
   path = `/users/${this.params.userId}/posts`;
+
   result = {
     posts: t.liveArray(Post),
     nextCursor: t.nullish(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: {
       cursor: this.result.nextCursor,
     },
@@ -457,7 +476,7 @@ function UserPosts({ userId }: { userId: number }) {
   if (query.isPending) return <div>Loading posts...</div>;
   if (query.isRejected) return <div>Error: {query.error.message}</div>;
 
-  const { posts, __hasNext, __isLoadingNext, __loadNext } = query.value;
+  const { posts, __hasNext, __isFetchingNext, __fetchNext } = query.value;
 
   return (
     <div>
@@ -470,8 +489,8 @@ function UserPosts({ userId }: { userId: number }) {
       ))}
 
       {__hasNext && (
-        <button onClick={() => __loadNext()} disabled={__isLoadingNext}>
-          {__isLoadingNext ? 'Loading...' : 'Load More Posts'}
+        <button onClick={() => __fetchNext()} disabled={__isFetchingNext}>
+          {__isFetchingNext ? 'Loading...' : 'Load More Posts'}
         </button>
       )}
 

@@ -53,9 +53,9 @@ The resolved `QueryResult<T>` includes pagination helpers:
 | Property          | Type                            | Description                                         |
 | ----------------- | ------------------------------- | --------------------------------------------------- |
 | `__refetch()`     | `() => QueryPromise<T>`         | Triggers a refetch and returns a new promise.       |
-| `__loadNext()`    | `() => Promise<QueryResult<T>>` | Loads the next page (if configured via `loadNext`). |
+| `__fetchNext()`    | `() => Promise<QueryResult<T>>` | Fetches the next page (if configured via `fetchNext`). |
 | `__hasNext`       | `boolean`                       | Whether there is a next page available.             |
-| `__isLoadingNext` | `boolean`                       | Whether a next-page request is currently in flight. |
+| `__isFetchingNext` | `boolean`                       | Whether a next-page request is currently in flight. |
 
 #### Requirements
 
@@ -69,12 +69,12 @@ import { component } from 'signalium/react';
 import { useQuery } from 'fetchium/react';
 
 class GetUsers extends RESTQuery {
+  path = '/api/users';
+
   result = {
     users: t.array(t.entity(User)),
     total: t.number,
   };
-
-  path = '/api/users';
 }
 
 const UserList = component(() => {

@@ -16,7 +16,9 @@ class GetUserPosts extends RESTQuery {
     userId: t.number,
     status: t.optional(t.string),
   };
+
   path = `/users/${this.params.userId}/posts`;
+
   result = {
     posts: t.array(t.object({ title: t.string, body: t.string })),
   };
@@ -64,7 +66,9 @@ class SearchUsers extends RESTQuery {
     query: t.string,
     filters: t.optional(t.object({ role: t.string })),
   };
+
   path = '/users/search';
+
   result = {
     users: t.array(t.object({ name: t.string, email: t.string })),
     total: t.number,
@@ -87,6 +91,7 @@ For runtime-dependent configuration, override `getConfig()`. This is useful when
 ```tsx
 class GetDashboard extends RESTQuery {
   path = '/dashboard';
+
   result = { stats: t.object({ visits: t.number }) };
 
   getConfig() {

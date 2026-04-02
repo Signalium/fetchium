@@ -8,9 +8,11 @@ Fetchium can keep collections and values **automatically up-to-date** as entitie
 
 ## Live Arrays
 
-A LiveArray is a reactive list of entities that automatically updates when matching entities change. Instead of returning a static snapshot, the array stays in sync with the entity store.
+A LiveArray is a reactive list of entities that automatically updates when matching entities are created, updated, or deleted --- via mutations, streaming, or any other source of entity events. Instead of returning a static snapshot, the array stays in sync with the entity store.
 
-Define a live array using `t.liveArray(EntityClass)` in your entity or query result shape:
+The key to making a live array _reactive to external events_ is **constraints**. Constraints define _which_ entities belong in the array, and they are what enable Fetchium to route mutation and streaming events to the correct arrays.
+
+Here is a typical example --- a `List` entity whose `items` field is a live array of `Item` entities scoped by `listId`:
 
 ```tsx
 import { Entity, t, RESTQuery } from 'fetchium';
@@ -18,27 +20,42 @@ import { Entity, t, RESTQuery } from 'fetchium';
 class Item extends Entity {
   __typename = t.typename('Item');
   id = t.id;
+
+  listId = t.string;
   name = t.string;
 }
 
-class GetItems extends RESTQuery {
-  path = '/items';
-  result = { items: t.liveArray(Item) };
+class List extends Entity {
+  __typename = t.typename('List');
+  id = t.id;
+
+  items = t.liveArray(Item, {
+    constraints: { listId: this.id },
+  });
+}
+
+class GetList extends RESTQuery {
+  params = { id: t.id };
+
+  path = `/lists/${this.params.id}`;
+
+  result = { list: t.entity(List) };
 }
 ```
 
-When the query resolves, `result.items` is a reactive array. It starts with whatever the server returned, but as new `Item` entities are created (via mutations or streams), they are **automatically added** to the array. When an `Item` is deleted, it is **automatically removed**.
+When the query resolves, `list.items` is a reactive array. It starts with whatever the server returned, but when a mutation or stream creates a new `Item` whose `listId` matches this list's `id`, the item is **automatically added**. When an `Item` is deleted, it is **automatically removed**.
 
 ```tsx {% mode="react" %}
 import { useQuery } from 'fetchium/react';
 
-function ItemList() {
-  const { items } = useQuery(GetItems);
+function ItemList({ listId }: { listId: string }) {
+  const result = useQuery(GetList, { id: listId });
 
-  // `items` updates automatically when Items are created or deleted
+  if (!result.isReady) return <div>Loading...</div>;
+
   return (
     <ul>
-      {items.map((item) => (
+      {result.value.list.items.map((item) => (
         <li key={item.id}>{item.name}</li>
       ))}
     </ul>
@@ -50,13 +67,14 @@ function ItemList() {
 import { fetchQuery } from 'fetchium';
 import { component } from 'signalium/react';
 
-const ItemList = component(() => {
-  const { items } = fetchQuery(GetItems);
+const ItemList = component(({ listId }: { listId: string }) => {
+  const result = fetchQuery(GetList, { id: listId });
 
-  // `items` updates automatically when Items are created or deleted
+  if (!result.isReady) return <div>Loading...</div>;
+
   return (
     <ul>
-      {items.map((item) => (
+      {result.value.list.items.map((item) => (
         <li key={item.id}>{item.name}</li>
       ))}
     </ul>
@@ -64,17 +82,13 @@ const ItemList = component(() => {
 });
 ```
 
-{% callout %}
-A LiveArray without constraints (as shown above) will react to **all** entity events for the given entity type. Any newly created `Item` will be added, regardless of its field values. Use constraints to narrow which entities are included.
-{% /callout %}
-
 ---
 
 ## Constraints
 
-Constraints filter which entities get added to a live array. Only entities whose fields match the constraint values will be included.
+Constraints are what make live arrays _reactive to external events_. They filter which entities belong in the array, and they are what enable Fetchium to route mutation and streaming events to the correct live arrays.
 
-A common pattern is to scope a live array to a parent entity. For example, a `List` entity with items that belong to it:
+A common pattern is to scope a live array to a parent entity. For example, a `List` entity whose items are scoped by `listId`:
 
 ```tsx
 class Item extends Entity {
@@ -93,7 +107,7 @@ class List extends Entity {
 }
 ```
 
-In this example, `this.id` is a **field reference** -- it resolves to the current `List` entity's `id` value at runtime. When a new `Item` is created, Fetchium checks whether its `listId` matches this list's `id`. If it does, the item is added to the array. If not, it is ignored.
+In this example, `this.id` is a **field reference** --- it resolves to the current `List` entity's `id` value at runtime. When a new `Item` is created (via a mutation effect, streaming event, or `applyMutationEvent`), Fetchium checks whether its `listId` matches this list's `id`. If it does, the item is added to the array. If not, it is ignored.
 
 This means if you have two lists (List #1 and List #2), creating an Item with `listId: '1'` will only add it to List #1's `items` array.
 
@@ -104,7 +118,9 @@ You can also use literal values as constraints:
 ```tsx
 class GetActiveUsers extends RESTQuery {
   path = '/users';
+
   searchParams = { status: 'active' };
+
   result = {
     users: t.liveArray(User, {
       constraints: { status: 'active' },
@@ -117,28 +133,56 @@ Only `User` entities whose `status` field is `'active'` will be added to this li
 
 ### Multiple entity types
 
-You can pass an array of entity classes to `t.liveArray` to watch for multiple entity types:
+You can pass an array of entity classes to `t.liveArray` to watch for multiple entity types. Each entity type still needs constraints to react to external events:
 
 ```tsx
 class Notification extends Entity {
   __typename = t.typename('Notification');
   id = t.id;
+
+  userId = t.string;
   message = t.string;
 }
 
 class Alert extends Entity {
   __typename = t.typename('Alert');
   id = t.id;
+
+  userId = t.string;
   message = t.string;
 }
 
-// Reacts to both Notification and Alert entity events
-result = t.liveArray([Notification, Alert]);
+class UserInbox extends Entity {
+  __typename = t.typename('UserInbox');
+  id = t.id;
+
+  items = t.liveArray([Notification, Alert], {
+    constraints: { userId: this.id },
+  });
+}
 ```
+
+This live array reacts to both `Notification` and `Alert` entity events, but only when the entity's `userId` matches the inbox's `id`.
 
 {% callout type="warning" %}
 When using constraints with field references like `this.id`, the field reference captures the **parent entity's** value at the time the live array is initialized. Make sure the referenced field is part of the same entity definition.
 {% /callout %}
+
+### Unconstrained live arrays
+
+A LiveArray _without_ constraints is **local-only**. It accumulates items from the query's own fetches (including `__fetchNext` / pagination and subscription data), but does _not_ react to external mutation events or other queries' data.
+
+```tsx
+class GetItems extends RESTQuery {
+  path = '/items';
+
+  result = { items: t.liveArray(Item) };
+}
+```
+
+This is useful for pagination --- when you call `__fetchNext()`, new entities are appended to the live array. But a mutation with a `creates` effect for `Item` will _not_ add items to this array, because there are no constraints to match against.
+
+To make a live array react to creates and deletes from mutations, streaming, or `applyMutationEvent`, you must provide constraints.
 
 ---
 
@@ -149,10 +193,13 @@ Keep live arrays sorted by providing a `sort` function. The sort function follow
 ```tsx
 class GetActiveUsers extends RESTQuery {
   path = '/users';
+
   result = {
     users: t.liveArray(User, {
       constraints: { status: 'active' },
-      sort: (a, b) => a.name.localeCompare(b.name),
+      sort(a, b) {
+        return a.name.localeCompare(b.name);
+      },
     }),
   };
 }
@@ -172,6 +219,7 @@ Define a live value using `t.liveValue(valueType, EntityClass, options)`:
 class List extends Entity {
   __typename = t.typename('List');
   id = t.id;
+
   items = t.liveArray(Item, {
     constraints: { listId: this.id },
   });
@@ -204,6 +252,7 @@ The initial value of a live value comes from the server response. In the example
 class Order extends Entity {
   __typename = t.typename('Order');
   id = t.id;
+
   customerId = t.string;
   total = t.number;
 }
@@ -211,6 +260,7 @@ class Order extends Entity {
 class Customer extends Entity {
   __typename = t.typename('Customer');
   id = t.id;
+
   name = t.string;
   orderTotal = t.liveValue(t.number, Order, {
     constraints: { customerId: this.id },
@@ -264,30 +314,30 @@ LiveValue reducers are only triggered by **mutation events and streaming updates
 
 Under the hood, live data is powered by Fetchium's entity event system:
 
-1. **Event sources.** When a mutation completes or a stream delivers an update, Fetchium fires an entity event (`create`, `update`, or `delete`) with the typename and entity data.
+1. **An event fires.** When a mutation completes, a stream delivers an update, or you call `applyMutationEvent` manually, Fetchium fires an entity event (`create`, `update`, or `delete`) with the typename and entity data.
 
-2. **Binding registration.** Each `t.liveArray` or `t.liveValue` field creates a `LiveCollectionBinding` that registers itself with the `QueryClient`. The binding declares which entity typenames it watches and what constraints must be satisfied.
+2. **Constraints are checked.** Fetchium finds all live arrays and live values watching that typename, and checks whether the entity's data satisfies their constraints. Only matching collections receive the event.
 
-3. **Constraint matching.** When an entity event fires, Fetchium checks all registered bindings for that typename. For each binding, it computes a constraint hash from the entity's data and compares it against the binding's expected hash. Only matching bindings receive the event.
+3. **The UI updates.** Matching live arrays add or remove the entity. Matching live values run their reducer. Any component reading from those fields re-renders automatically.
 
-4. **Reactive notification.** When a binding processes an event (adding/removing from a LiveArray, or running a reducer for a LiveValue), it fires a reactive notification. Any component or reactive function reading from that live field will re-render or re-evaluate.
-
-This design means live data is **fully local** -- it does not require any special server protocol. Any operation that produces an entity event (mutations, streaming, or even `applyMutationEvent` called manually) will trigger live collection updates.
+This design means live data is **fully local** --- it does not require any special server protocol. Any source of entity events (mutations, streaming, polling, or manual `applyMutationEvent` calls) flows through the same pipeline.
 
 ---
 
 ## Pagination & Infinite Queries
 
-Fetchium supports cursor-based and offset-based pagination via the `loadNext` configuration on queries. Live arrays work seamlessly with pagination -- when you load additional pages, new entities are **appended** to the existing live array rather than replacing it.
+Fetchium supports cursor-based and offset-based pagination via the `fetchNext` configuration on queries. Live arrays work seamlessly with pagination -- when you load additional pages, new entities are **appended** to the existing live array rather than replacing it.
 
 ```tsx
 class GetItems extends RESTQuery {
   path = '/items';
+
   result = {
     items: t.liveArray(Item),
     nextCursor: t.optional(t.string),
   };
-  loadNext = {
+
+  fetchNext = {
     searchParams: {
       cursor: this.result.nextCursor,
     },
@@ -295,7 +345,7 @@ class GetItems extends RESTQuery {
 }
 ```
 
-After fetching, call `__loadNext()` on the query result to load the next page:
+After fetching, call `__fetchNext()` on the query result to fetch the next page:
 
 ```tsx {% mode="react" %}
 import { useQuery } from 'fetchium/react';
@@ -313,7 +363,7 @@ function ItemList() {
         ))}
       </ul>
       {result.__hasNext && (
-        <button onClick={() => result.__loadNext()}>Load more</button>
+        <button onClick={() => result.__fetchNext()}>Load more</button>
       )}
     </div>
   );
@@ -337,17 +387,17 @@ const ItemList = component(() => {
         ))}
       </ul>
       {result.__hasNext && (
-        <button onClick={() => result.__loadNext()}>Load more</button>
+        <button onClick={() => result.__fetchNext()}>Load more</button>
       )}
     </div>
   );
 });
 ```
 
-The `loadNext.searchParams` object uses **field references** (`this.result.nextCursor`) to automatically pull pagination cursors from the previous response. Each call to `__loadNext()` fetches the next page and appends entities to the live array.
+The `fetchNext.searchParams` object uses **field references** (`this.result.nextCursor`) to automatically pull pagination cursors from the previous response. Each call to `__fetchNext()` fetches the next page and appends entities to the live array.
 
 {% callout %}
-For non-live arrays (`t.array` instead of `t.liveArray`), `__loadNext()` **replaces** the array contents with the new page. Only `t.liveArray` accumulates across pages.
+For non-live arrays (`t.array` instead of `t.liveArray`), `__fetchNext()` **replaces** the array contents with the new page. Only `t.liveArray` accumulates across pages.
 {% /callout %}
 
 For full details on pagination patterns, including offset-based pagination and conditional loading, see the [Pagination reference](/reference/pagination).
@@ -362,6 +412,7 @@ Entities can subscribe to real-time updates by defining a `__subscribe` method o
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
   id = t.id;
+
   channelId = t.string;
   text = t.string;
   author = t.entity(User);
@@ -376,7 +427,7 @@ class ChatMessage extends Entity {
 }
 ```
 
-When the stream delivers a `create` event for a `ChatMessage`, any live array watching `ChatMessage` entities will automatically include it. When it delivers a `delete` event, the message is removed.
+When the stream delivers a `create` event for a `ChatMessage`, any constrained live array watching `ChatMessage` entities (whose constraints match the new message's data) will automatically include it. When it delivers a `delete` event, the message is removed from matching arrays.
 
 This makes it straightforward to build real-time features: define your entities with `__subscribe`, use `t.liveArray` or `t.liveValue` in your result shapes, and the UI updates automatically.
 

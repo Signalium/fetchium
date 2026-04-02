@@ -115,7 +115,9 @@ Retry behavior is controlled via the `config` field on your query class. The sim
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string };
 
   config = {
@@ -129,7 +131,9 @@ For more control, pass an object with `retries` and an optional `retryDelay` fun
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string };
 
   config = {

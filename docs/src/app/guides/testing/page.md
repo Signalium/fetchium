@@ -123,7 +123,9 @@ import { useQuery } from 'fetchium/react';
 
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 }
 
@@ -191,13 +193,17 @@ import { fetchQuery, RESTQuery, t } from 'fetchium';
 
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 }
 
 class GetPosts extends RESTQuery {
   params = { userId: t.number };
+
   path = `/users/${this.params.userId}/posts`;
+
   result = t.array({ id: t.number, title: t.string });
 }
 
@@ -241,10 +247,12 @@ Mutations are tested the same way as queries --- create a client with a mock fet
 import { RESTMutation, getMutation, t } from 'fetchium';
 
 class CreateUser extends RESTMutation {
+  readonly params = { name: t.string, email: t.string };
+
   readonly path = '/users';
   readonly method = 'POST' as const;
-  readonly params = { name: t.string, email: t.string };
   readonly body = { name: this.params.name, email: this.params.email };
+
   readonly result = { id: t.number, name: t.string, email: t.string };
 }
 
@@ -285,21 +293,26 @@ import { Entity, RESTQuery, RESTMutation, fetchQuery, getMutation, t } from 'fet
 class User extends Entity {
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
   email = t.string;
 }
 
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { user: t.entity(User) };
 }
 
 class UpdateUser extends RESTMutation {
   readonly params = { id: t.number, name: t.string };
+
   readonly path = `/users/${this.params.id}`;
   readonly method = 'PATCH' as const;
   readonly body = { name: this.params.name };
+
   readonly result = { user: t.entity(User) };
 }
 

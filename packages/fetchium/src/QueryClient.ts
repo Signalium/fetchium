@@ -28,7 +28,7 @@ export {
   type QueryContext,
   type QueryCacheOptions,
   type QueryConfigOptions,
-  type LoadNextConfig,
+  type FetchNextConfig,
   type QueryParams,
   type QueryStore,
   type CachedQuery,

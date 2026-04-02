@@ -4,7 +4,7 @@ export { QueryClient, QueryClientContext } from './QueryClient.js';
 export type { QueryContext } from './QueryClient.js';
 export { t, registerFormat } from './typeDefs.js';
 export { Query, RESTQuery, fetchQuery, queryKeyForClass } from './query.js';
-export type { ResolvedLoadNext } from './query.js';
+export type { ResolvedFetchNext } from './query.js';
 export { Mutation, RESTMutation, getMutation, mutationKeyForClass } from './mutation.js';
 export type { MutationDefinition } from './mutation.js';
 export { draft } from './utils.js';

@@ -10,7 +10,7 @@ import { RESTQuery, fetchQuery } from '../../query.js';
 import { useQuery } from '../use-query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 
-describe('__loadNext React Integration', () => {
+describe('__fetchNext React Integration', () => {
   let client: QueryClient;
   let mockFetch: ReturnType<typeof createMockFetch>;
 
@@ -29,7 +29,7 @@ describe('__loadNext React Integration', () => {
   });
 
   describe('useQuery', () => {
-    it('should reflect __hasNext and __isLoadingNext reactively', async () => {
+    it('should reflect __hasNext and __isFetchingNext reactively', async () => {
       mockFetch.get('/items', {
         items: [{ __typename: 'Item', id: '1', name: 'A' }],
         nextCursor: 'c1',
@@ -41,7 +41,7 @@ describe('__loadNext React Integration', () => {
           items: t.liveArray(Item),
           nextCursor: t.nullish(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.nextCursor },
         };
       }
@@ -59,9 +59,9 @@ describe('__loadNext React Integration', () => {
           <div>
             <div data-testid="count">{result.items.length}</div>
             <div data-testid="has-next">{String(result.__hasNext)}</div>
-            <div data-testid="is-loading-next">{String(result.__isLoadingNext)}</div>
+            <div data-testid="is-loading-next">{String(result.__isFetchingNext)}</div>
             {result.__hasNext && (
-              <button data-testid="load-more" onClick={() => result.__loadNext()}>
+              <button data-testid="load-more" onClick={() => result.__fetchNext()}>
                 Load More
               </button>
             )}
@@ -116,7 +116,7 @@ describe('__loadNext React Integration', () => {
   });
 
   describe('component()', () => {
-    it('should reflect __hasNext and __isLoadingNext reactively', async () => {
+    it('should reflect __hasNext and __isFetchingNext reactively', async () => {
       mockFetch.get('/items', {
         items: [{ __typename: 'Item', id: '1', name: 'A' }],
         nextCursor: 'c1',
@@ -128,7 +128,7 @@ describe('__loadNext React Integration', () => {
           items: t.liveArray(Item),
           nextCursor: t.nullish(t.string),
         };
-        loadNext = {
+        fetchNext = {
           searchParams: { cursor: this.result.nextCursor },
         };
       }
@@ -146,9 +146,9 @@ describe('__loadNext React Integration', () => {
           <div>
             <div data-testid="count">{result.items.length}</div>
             <div data-testid="has-next">{String(result.__hasNext)}</div>
-            <div data-testid="is-loading-next">{String(result.__isLoadingNext)}</div>
+            <div data-testid="is-loading-next">{String(result.__isFetchingNext)}</div>
             {result.__hasNext && (
-              <button data-testid="load-more" onClick={() => result.__loadNext()}>
+              <button data-testid="load-more" onClick={() => result.__fetchNext()}>
                 Load More
               </button>
             )}

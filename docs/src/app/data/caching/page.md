@@ -43,6 +43,7 @@ Increase `staleTime` when:
 ```ts
 class GetFeatureFlags extends RESTQuery {
   path = '/feature-flags';
+
   result = { flags: t.object({ darkMode: t.boolean, betaAccess: t.boolean }) };
 
   config = {
@@ -80,7 +81,9 @@ The default is `1440` minutes (24 hours). Unlike `gcTime`, which is set per-inst
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 
   config = {
@@ -95,7 +98,9 @@ For dynamic configuration based on runtime conditions, use the `getConfig()` met
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 
   getConfig() {
@@ -121,7 +126,9 @@ class GetUser extends RESTQuery {
   };
 
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 }
 ```
@@ -225,7 +232,9 @@ The `refreshStaleOnReconnect` option (default: `true`) controls whether stale qu
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.number };
+
   path = `/users/${this.params.id}`;
+
   result = { name: t.string, email: t.string };
 
   config = {
@@ -255,6 +264,7 @@ class User extends Entity {
 
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
 }
 ```

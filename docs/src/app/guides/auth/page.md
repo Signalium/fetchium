@@ -260,6 +260,7 @@ If you only need to override the URL for a few queries and the auth scheme is th
 ```ts
 class GetAnalytics extends RESTQuery {
   params = { eventType: t.string };
+
   path = `/events/${this.params.eventType}`;
 
   requestOptions = {

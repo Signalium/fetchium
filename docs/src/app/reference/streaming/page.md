@@ -16,6 +16,7 @@ import { Entity, t } from 'fetchium';
 class Message extends Entity {
   __typename = t.typename('Message');
   id = t.id;
+
   text = t.string;
   channelId = t.number;
 
@@ -32,7 +33,7 @@ class Message extends Entity {
 }
 ```
 
-The `onEvent` callback accepts a `MutationEvent` and routes it through Fetchium's entity event system. This means any live arrays or live values watching `Message` entities will react to the event automatically.
+The `onEvent` callback accepts a `MutationEvent` and routes it through Fetchium's entity event system. This means any constrained live arrays or live values watching `Message` entities (whose constraints match) will react to the event automatically.
 
 {% callout title="Subscription lifecycle" %}
 Subscriptions are **demand-driven**. Fetchium only calls `__subscribe` when at least one component or reactive function is reading the entity. When the last observer disconnects (e.g., a component unmounts), the cleanup function returned by `__subscribe` is called immediately. This prevents resource leaks from orphaned WebSocket connections or event listeners.
@@ -98,6 +99,7 @@ The real power of streaming comes from combining entity subscriptions with live 
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
   id = t.id;
+
   text = t.string;
   channelId = t.string;
   author = t.entity(User);
@@ -116,11 +118,13 @@ class ChatMessage extends Entity {
 
 class GetMessages extends RESTQuery {
   params = { channelId: t.string };
+
   path = `/channels/${this.params.channelId}/messages`;
+
   result = {
     messages: t.liveArray(ChatMessage, {
       constraints: { channelId: this.params.channelId },
-      sort: (a, b) => a.createdAt.localeCompare(b.createdAt),
+      sort(a, b) { return a.createdAt.localeCompare(b.createdAt); },
     }),
   };
 }
@@ -157,6 +161,7 @@ Live values also respond to streaming events. For example, tracking an unread co
 class Channel extends Entity {
   __typename = t.typename('Channel');
   id = t.id;
+
   name = t.string;
   unreadCount = t.liveValue(t.number, ChatMessage, {
     constraints: { channelId: this.id },
@@ -179,6 +184,7 @@ In many applications, you want to subscribe to events for an entire collection r
 class Channel extends Entity {
   __typename = t.typename('Channel');
   id = t.id;
+
   name = t.string;
 
   __subscribe(onEvent: (event: MutationEvent) => void) {
@@ -208,9 +214,11 @@ For simpler real-time needs --- or when WebSocket infrastructure is not availabl
 ```tsx
 class GetNotifications extends RESTQuery {
   path = '/notifications';
+
   result = {
     notifications: t.liveArray(Notification),
   };
+
   polling = {
     interval: 5000, // poll every 5 seconds
   };
@@ -340,6 +348,7 @@ In practice, most applications combine multiple real-time strategies:
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
   id = t.id;
+
   text = t.string;
   channelId = t.string;
 
@@ -367,7 +376,9 @@ class Channel extends Entity {
 // Polling for low-priority data
 class GetSystemStatus extends RESTQuery {
   path = '/status';
+
   result = t.object({ healthy: t.boolean, activeUsers: t.number });
+
   polling = { interval: 30000 };
 }
 ```

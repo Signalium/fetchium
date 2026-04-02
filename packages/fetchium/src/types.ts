@@ -300,9 +300,9 @@ export type TypeDefShape = Record<string, TypeDef> | TypeDef;
 
 export type QueryResult<T extends Query> = ExtractType<T['result']> & {
   __refetch(): DiscriminatedReactivePromise<QueryResult<T>>;
-  __loadNext(): Promise<QueryResult<T>>;
+  __fetchNext(): Promise<QueryResult<T>>;
   __hasNext: boolean;
-  __isLoadingNext: boolean;
+  __isFetchingNext: boolean;
 };
 
 export type QueryPromise<T extends Query> = DiscriminatedReactivePromise<QueryResult<T>>;

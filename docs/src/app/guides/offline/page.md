@@ -65,7 +65,9 @@ import { RESTQuery, t, NetworkMode } from 'fetchium';
 
 class GetUser extends RESTQuery {
   params = { id: t.id };
+
   path = `/users/${this.params.id}`;
+
   result = { id: t.id, name: t.string };
 
   config = {
@@ -238,6 +240,7 @@ Configure individual queries for offline behavior:
 ```tsx
 class GetDashboard extends RESTQuery {
   path = '/dashboard';
+
   result = { stats: t.object({ visits: t.number }) };
 
   config = {

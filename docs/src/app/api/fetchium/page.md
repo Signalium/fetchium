@@ -83,7 +83,7 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 | `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                    |
 | `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                               |
 | `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                       |
-| `loadNext`       | `LoadNextConfig \| undefined`                     | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`). |
+| `fetchNext`       | `FetchNextConfig \| undefined`                     | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`). |
 
 #### `getIdentityKey()` default
 
@@ -98,7 +98,7 @@ Returns `"${method}:${path}"`.
 | `getSearchParams`   | `(): Record<string, unknown> \| undefined` | Dynamically compute search params.                                                      |
 | `getBody`           | `(): Record<string, unknown> \| undefined` | Dynamically compute the request body.                                                   |
 | `getRequestOptions` | `(): QueryRequestOptions \| undefined`     | Dynamically compute fetch options.                                                      |
-| `getLoadNext`       | `(): LoadNextConfig \| undefined`          | Dynamically compute pagination config. Takes priority over the static `loadNext` field. |
+| `getFetchNext`       | `(): FetchNextConfig \| undefined`          | Dynamically compute pagination config. Takes priority over the static `fetchNext` field. |
 
 #### Example
 
@@ -142,6 +142,7 @@ class User extends Entity {
 
   __typename = t.typename('User');
   id = t.id;
+
   name = t.string;
   email = t.optional(t.string);
 }
@@ -524,13 +525,13 @@ The `t` object provides a declarative type definition DSL for describing query p
 | Type                            | Definition                                                                                                                | Description                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `QueryPromise<T extends Query>` | `DiscriminatedReactivePromise<QueryResult<T>>`                                                                            | The return type of `fetchQuery`. A reactive promise.                                                                       |
-| `QueryResult<T extends Query>`  | `ExtractType<T['result']> & { __refetch(), __loadNext(), __hasNext, __isLoadingNext }`                                    | The resolved value of a query. Includes pagination helpers.                                                                |
+| `QueryResult<T extends Query>`  | `ExtractType<T['result']> & { __refetch(), __fetchNext(), __hasNext, __isFetchingNext }`                                    | The resolved value of a query. Includes pagination helpers.                                                                |
 | `QueryCacheOptions`             | `{ maxCount?: number; cacheTime?: number }`                                                                               | Persistent storage cache settings. `cacheTime` is in minutes (default: 1440 / 24 hours). `maxCount` is the LRU queue size. |
 | `QueryConfigOptions`            | `{ gcTime?, staleTime?, debounce?, networkMode?, retry?, refreshStaleOnReconnect?, subscribe? }`                          | Instance-level query configuration. See property table below.                                                              |
 | `QueryRequestOptions`           | `{ baseUrl?, credentials?, mode?, cache?, redirect?, referrer?, referrerPolicy?, integrity?, keepalive?, signal? }`       | Extended fetch options for individual queries.                                                                             |
 | `QueryContext`                  | `{ fetch, baseUrl?, log?, evictionMultiplier? }`                                                                          | Context object provided to the `QueryClient`.                                                                              |
 | `QueryParams`                   | `Record<string, string \| number \| boolean \| undefined \| null \| Signal<...> \| unknown[] \| Record<string, unknown>>` | The shape of query parameters at runtime.                                                                                  |
-| `LoadNextConfig`                | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
+| `FetchNextConfig`                | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
 
 #### `QueryConfigOptions` properties
 
