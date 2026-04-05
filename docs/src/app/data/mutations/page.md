@@ -167,7 +167,7 @@ class UpdateUserName extends RESTMutation {
 }
 ```
 
-When this mutation succeeds, Fetchium fires an _update_ event for the `User` entity with the matching `id`. Every component displaying that user re-renders with the new name. Every live collection containing that user reflects the change. No manual intervention needed.
+When this mutation succeeds, Fetchium fires an _update_ event for the `User` entity with the matching `id`. Every component displaying that user re-renders with the new name. Every live array containing that user reflects the change. No manual intervention needed.
 
 ### Dynamic effects with `getEffects()`
 
@@ -274,7 +274,7 @@ effects = {
 Here, the entity effect surgically updates the user's name everywhere it appears, while `invalidates` handles the leaderboard --- whose rankings may shift in ways you can't predict from the input alone.
 
 {% callout title="invalidates is the escape hatch" type="note" %}
-Entity effects should be your _first choice_ for post-mutation updates. They are precise, efficient, and work with optimistic updates and live collections. Use `invalidates` when entity effects are not sufficient --- when the mutation's impact on the data model is too complex, too broad, or depends on server-side logic you don't want to replicate on the client.
+Entity effects should be your _first choice_ for post-mutation updates. They are precise, efficient, and work with optimistic updates and live data. Use `invalidates` when entity effects are not sufficient --- when the mutation's impact on the data model is too complex, too broad, or depends on server-side logic you don't want to replicate on the client.
 {% /callout %}
 
 ---
@@ -365,7 +365,7 @@ Inside `send()`, you have access to:
 - **`this.signal`** --- an `AbortSignal` for cancellation
 - **`this.response`** --- set this to the raw `Response` object if you want to access it in `getEffects()`
 
-Custom mutations participate in the same effects system as `RESTMutation`. You can define `effects` or `getEffects()` on any mutation class, and the entity store, live collections, and components will react to them identically.
+Custom mutations participate in the same effects system as `RESTMutation`. You can define `effects` or `getEffects()` on any mutation class, and the entity store, live data, and components will react to them identically.
 
 ---
 

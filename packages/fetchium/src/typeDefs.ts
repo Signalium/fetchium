@@ -201,7 +201,7 @@ export class ValidatorDef<T> {
   public _entityCache: { gcTime?: number } | undefined = undefined;
 
   /**
-   * Live collection configuration (shared by LiveArray and LiveValue).
+   * Live data configuration (shared by LiveArray and LiveValue).
    */
   public _liveConfig: LiveFieldConfig | undefined = undefined;
 

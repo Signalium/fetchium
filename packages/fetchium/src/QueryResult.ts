@@ -17,7 +17,7 @@ import { sleep, withRetry } from './retry.js';
 
 /**
  * Thin fetch/relay orchestrator. Data management (proxy, notifier, child refs,
- * live collections) is fully delegated to a root EntityInstance.
+ * live data) is fully delegated to a root EntityInstance.
  */
 export class QueryInstance<T extends Query> {
   def: QueryDefinition<any, any, any>;

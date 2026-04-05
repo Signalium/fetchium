@@ -81,17 +81,35 @@
       "require": "./dist/cjs/production/subscriptions/polling.js",
       "default": "./dist/esm/production/subscriptions/polling.js"
     },
+    "./testing": {
+      "types": "./dist/esm/testing/index.d.ts",
+      "development": {
+        "import": "./dist/esm/development/testing/index.js",
+        "require": "./dist/cjs/development/testing/index.js"
+      },
+      "production": {
+        "import": "./dist/esm/production/testing/index.js",
+        "require": "./dist/cjs/production/testing/index.js"
+      },
+      "import": "./dist/esm/production/testing/index.js",
+      "require": "./dist/cjs/production/testing/index.js",
+      "default": "./dist/esm/production/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist/esm/**",
     "dist/cjs/**",
     "stores/**",
+    "plugin/**",
     "index.d.ts",
     "README.md",
     "CHANGELOG.md",
     "LICENSE*"
   ],
+  "bin": {
+    "fetchium-agents": "./plugin/install.mjs"
+  },
   "peerDependencies": {
     "react": ">=18.3.1",
     "signalium": ">=2.1.7"
@@ -111,7 +129,8 @@
     "test:transform": "vitest run --project transform",
     "test:react": "vitest run --project react",
     "check-types": "tsc --noEmit",
-    "build": "npm run build:clean && npm run build:types && npm run build:dev && npm run build:prod && node scripts/generate-legacy-entries.cjs",
+    "copy-docs": "node scripts/copy-docs.mjs",
+    "build": "npm run copy-docs && npm run build:clean && npm run build:types && npm run build:dev && npm run build:prod && node scripts/generate-legacy-entries.cjs",
     "build:clean": "rm -rf dist",
     "build:types": "tsc --emitDeclarationOnly --outDir dist/esm --project tsconfig.esm.json",
     "build:dev": "BUILD_MODE=development vite build",
@@ -135,6 +154,7 @@
     "vite-plugin-dts": "^4.5.4",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4",
-    "vitest-browser-react": "^1.0.1"
+    "vitest-browser-react": "^1.0.1",
+    "vitest-vary": "*"
   }
 }

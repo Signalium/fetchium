@@ -370,7 +370,7 @@ describe('React AsyncQueryStore Integration', () => {
       );
 
       // Both should eventually show data
-      await expect.element(getByTestId('user-1')).toBeInTheDocument();
+      await expect.element(getByTestId('user-2')).toBeInTheDocument();
       await expect.element(getByTestId('post-100')).toBeInTheDocument();
 
       expect(getByTestId('user-1').element().textContent).toBe('Alice');

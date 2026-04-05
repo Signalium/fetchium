@@ -350,7 +350,7 @@ export class QueryClient {
   };
 
   // ======================================================
-  // Constraint Registry (Live Collections)
+  // Constraint Registry (Live Data)
   // ======================================================
 
   getOrCreateMatcher(typename: string): ConstraintMatcher {

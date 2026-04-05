@@ -648,7 +648,7 @@ describe('LiveCollection Event Parsing', () => {
   // ============================================================
 
   describe('No orphan creation', () => {
-    it('should not create orphan entity when no live collection matches', async () => {
+    it('should not create orphan entity when no live data matches', async () => {
       class Item extends Entity {
         __typename = t.typename('OrphanItem');
         id = t.id;

@@ -4,6 +4,7 @@ dist
 .turbo
 packages/fetchium/*.js
 packages/fetchium/*.d.ts
+packages/fetchium/plugin/docs/
 __screenshots__/
 .next
 out

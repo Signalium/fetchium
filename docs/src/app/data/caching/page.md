@@ -210,7 +210,7 @@ The mechanisms for keeping data fresh in Fetchium are, in order of preference:
 5. **`refreshStaleOnReconnect` for network recovery.** When the user's device comes back online, stale queries are automatically refetched.
 
 {% callout type="note" %}
-Entity effects should be your first choice. They are precise, efficient, and work with optimistic updates and live collections. Use `invalidates` when the mutation's impact is too broad to express as entity changes. Use `__refetch()` only for one-off imperative needs outside of the mutation system.
+Entity effects should be your first choice. They are precise, efficient, and work with optimistic updates and live data. Use `invalidates` when the mutation's impact is too broad to express as entity changes. Use `__refetch()` only for one-off imperative needs outside of the mutation system.
 {% /callout %}
 
 ---

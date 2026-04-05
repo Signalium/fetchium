@@ -186,7 +186,7 @@ describe('Mutation Events', () => {
   // ============================================================
 
   describe('Create Events', () => {
-    it('should NOT create an entity in the store without a live collection destination', async () => {
+    it('should NOT create an entity in the store without a live data destination', async () => {
       class MutCreateItem extends Entity {
         __typename = t.typename('MutCreateItem');
         id = t.id;
@@ -288,7 +288,7 @@ describe('Mutation Events', () => {
       });
     });
 
-    it('should NOT create entities without a live collection destination even with multiple views', async () => {
+    it('should NOT create entities without a live data destination even with multiple views', async () => {
       class MutCreatePartialBase extends Entity {
         __typename = t.typename('MutCreatePartial');
         id = t.id;
@@ -378,7 +378,7 @@ describe('Mutation Events', () => {
       });
     });
 
-    it('should route delete events (with string id) to live collections', async () => {
+    it('should route delete events (with string id) to live data', async () => {
       class MutDeleteStrId extends Entity {
         __typename = t.typename('MutDeleteStrId');
         id = t.id;

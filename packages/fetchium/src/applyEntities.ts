@@ -239,7 +239,7 @@ function mergeFields(
 }
 
 // ======================================================
-// Field init (new entity path) — reify + create live collections in one loop
+// Field init (new entity path) — reify + create live data in one loop
 // ======================================================
 
 function initFields(

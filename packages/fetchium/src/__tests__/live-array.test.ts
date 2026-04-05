@@ -729,7 +729,7 @@ describe('LiveArray', () => {
     });
   });
 
-  it('no orphan entity creation when no live collection matches', async () => {
+  it('no orphan entity creation when no live data matches', async () => {
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;

@@ -77,6 +77,7 @@ export const navigation: GroupNavigationItem[] = [
     items: [
       { type: 'link', title: 'Quick start', href: '/quickstart' },
       { type: 'link', title: 'Project Setup', href: '/setup/project-setup' },
+      { type: 'link', title: 'AI Agents', href: '/agents' },
     ],
   },
   {

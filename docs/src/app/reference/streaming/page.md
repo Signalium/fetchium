@@ -89,7 +89,7 @@ When a `delete` event fires, the entity is removed from any live arrays that con
 
 ---
 
-## Streaming with Live Collections
+## Streaming with Live Data
 
 The real power of streaming comes from combining entity subscriptions with live data primitives. Define your result shapes using `t.liveArray` or `t.liveValue`, add a `__subscribe` method to your entity, and the UI stays in sync automatically.
 
@@ -201,7 +201,7 @@ class Channel extends Entity {
 }
 ```
 
-The server can send events for any entity type through a single connection. For example, it might push `ChatMessage` create events, `User` update events (online/offline status), and `Reaction` events all through the same WebSocket. Each event is routed to the appropriate live collections based on its `typename`.
+The server can send events for any entity type through a single connection. For example, it might push `ChatMessage` create events, `User` update events (online/offline status), and `Reaction` events all through the same WebSocket. Each event is routed to the appropriate live data based on its `typename`.
 
 ---
 

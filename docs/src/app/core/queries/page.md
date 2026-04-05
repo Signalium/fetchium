@@ -7,15 +7,24 @@ Fetchium is founded on the well-established Query-Mutation split-paradigm of mod
 - **Queries** are parameterized requests to _read_ data without changing its state
 - **Mutations** are parameterized requests to _change the state_ of that data
 
-This pattern works across many different protocols and standards, including:
+This distinction is not about HTTP methods --- it's about _usage patterns_. From the frontend's perspective, the key differences are:
 
-- **REST APIs**, with GET requests as Queries and POST/PATCH/PUT/DELETE requests as Mutations
-- **GraphQL**, which has this exact split itself built into the types of the query language
-- **JSON-RPC** and **gRPC** have no _formal_ distinction between read and write RPCs - but these can layered on top manually and fit into this paradigm nicely
+1. **Queries are automatic and cached.** They run when you access them, their results are cached and deduplicated, and they refetch automatically when they become stale. If a user visits a page that needs data, a query fetches it.
+2. **Mutations are manual and ephemeral.** They only run when you explicitly call `.run()`, their results are not cached, and they never run automatically. A mutation fires in response to a _user action_ --- clicking a button, submitting a form, confirming a dialog.
 
-Fetchium currently supports JSON REST APIs as they are the lowest common denominator across the web ecosystem, but it is built from the ground up to support _any_ of them with a simple, easily expandable class-based adapter system.
+This is a more fundamental split than GET vs POST. In REST, a `POST` endpoint that returns data in a read-only, cacheable way (e.g. a complex search with a request body, or an endpoint that uses `POST` for legacy reasons) is still a _Query_ from Fetchium's perspective --- it should be modeled with `RESTQuery` and `method = 'POST'`, because you want caching, deduplication, and automatic refetching. Conversely, a `DELETE` that removes a resource is a _Mutation_, even though the endpoint might return the deleted resource.
 
-More importantly, Fetchium handles caching, deduplication, and refetching behind the scenes. And when your results include [Entities](/core/entities) and Live Collections, Fetchium also handles normalization and incremental streaming updates.
+The rule of thumb: **if a user visits a page and needs to see data, that's a query. If a user takes an action that changes data, that's a mutation.**
+
+This pattern works across many different protocols:
+
+- **REST APIs** --- most GET requests are queries, most POST/PUT/DELETE are mutations, but not always (complex searches via POST are queries)
+- **GraphQL** --- has this exact split built into the language (`query` vs `mutation`)
+- **JSON-RPC** and **gRPC** --- have no formal distinction, but the query/mutation pattern maps cleanly onto read vs write operations
+
+Fetchium currently ships a built-in adapter for JSON REST APIs (`RESTQuery` and `RESTMutation`) as they are the lowest common denominator across the web ecosystem. But it is built from the ground up to support _any_ protocol with a simple, easily expandable class-based adapter system --- see [Custom Queries](#custom-queries) and [Custom Mutations](/data/mutations#custom-mutations).
+
+More importantly, Fetchium handles caching, deduplication, and refetching behind the scenes. And when your results include [Entities](/core/entities) and [Live Data](/data/live-data), Fetchium also handles normalization and incremental streaming updates.
 
 ## Defining a Query
 

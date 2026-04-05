@@ -484,7 +484,7 @@ The `t` object provides a declarative type definition DSL for describing query p
 | ---------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `t.result` | `(type: TypeDef<T>) => TypeDef<ParseResult<T>>` | Wraps a type in a `ParseResult<T>` (`{ success: true, value: T } \| { success: false, error: Error }`). Individual fields that fail validation produce an error result instead of throwing. |
 
-### Live collections
+### Live data
 
 | Method        | Signature                                                                                        | Description                                                                                                                    |
 | ------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
