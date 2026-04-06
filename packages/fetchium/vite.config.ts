@@ -20,6 +20,7 @@ export default defineConfig({
         'stores/sync': resolve(__dirname, 'src/stores/sync.ts'),
         'subscriptions/polling': resolve(__dirname, 'src/subscriptions/polling.ts'),
         'topic/index': resolve(__dirname, 'src/topic/index.ts'),
+        'rest/index': resolve(__dirname, 'src/rest/index.ts'),
       },
       formats: ['es', 'cjs'],
     },

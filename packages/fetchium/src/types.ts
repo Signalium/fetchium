@@ -123,14 +123,16 @@ export interface CaseInsensitiveEnumSet<T extends string | boolean | number> ext
 // Public Branded TypeDef
 // ================================
 
-export declare const TypeDefSymbol: unique symbol;
-
 /**
  * Branded phantom type representing a type definition in the public API.
  * At runtime, values are Masks, Sets, ValidatorDefs, etc. but the type system
  * sees them as TypeDef<T> where T is the extracted TypeScript type.
+ *
+ * Uses a string brand instead of unique symbol to avoid TS4029 errors
+ * during declaration emit in downstream packages.
+ * See: https://github.com/microsoft/TypeScript/issues/56107
  */
-export type TypeDef<T = unknown> = T & { readonly [TypeDefSymbol]: T };
+export type TypeDef<T = unknown> = T & { readonly __fetchiumTypeDef: T };
 
 // ================================
 // Internal Type Definitions
