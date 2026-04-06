@@ -269,6 +269,7 @@ describe('REST Query API', () => {
 
   describe('Response Type Handling', () => {
     it.skip('should handle primitive response types', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/message', 'Hello, World!');
 
       class GetMessage extends RESTQuery {
@@ -285,6 +286,7 @@ describe('REST Query API', () => {
     });
 
     it.skip('should handle array responses', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/numbers', [1, 2, 3, 4, 5]);
 
       class GetNumbers extends RESTQuery {
