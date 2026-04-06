@@ -348,4 +348,4 @@ The cleanup function returned from `__subscribe` is called when the entity is no
 The `__subscribe` method is only called when the entity is being actively consumed in a reactive context. If no component or reactive function is reading the entity's properties, the subscription will not be established (or will be torn down if it was previously active).
 {% /callout %}
 
-For more details on real-time streaming patterns, see the [Streaming guide](/reference/streaming).
+For more details on real-time streaming patterns, see the [Streaming guide](/core/streaming).

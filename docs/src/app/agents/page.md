@@ -60,6 +60,10 @@ This creates symlinks in `.claude/` and `.cursor/` pointing into `node_modules/f
 
 All symlinks use relative paths, so they work on any machine after `npm install`. They can be committed to git for shared team setup, or gitignored if you prefer per-developer configuration.
 
+{% callout title="Why symlinks?" %}
+Agent definitions and docs are shipped inside the npm package and symlinked into your project. This means agents always see documentation matching your installed version --- they won't suggest APIs or patterns from a newer release that you don't have yet. Running `npm update fetchium` automatically updates the agent knowledge too.
+{% /callout %}
+
 You can also target a specific tool:
 
 ```bash

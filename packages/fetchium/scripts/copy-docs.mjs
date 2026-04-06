@@ -23,6 +23,7 @@ const docPages = [
   { src: 'core/queries/page.md', dest: 'core/queries.md' },
   { src: 'core/types/page.md', dest: 'core/types.md' },
   { src: 'core/entities/page.md', dest: 'core/entities.md' },
+  { src: 'core/streaming/page.md', dest: 'core/streaming.md' },
   { src: 'data/mutations/page.md', dest: 'data/mutations.md' },
   { src: 'data/live-data/page.md', dest: 'data/live-data.md' },
   { src: 'data/caching/page.md', dest: 'data/caching.md' },
@@ -32,7 +33,6 @@ const docPages = [
   { src: 'guides/testing/page.md', dest: 'guides/testing.md' },
   { src: 'reference/rest-queries/page.md', dest: 'reference/rest-queries.md' },
   { src: 'reference/pagination/page.md', dest: 'reference/pagination.md' },
-  { src: 'reference/streaming/page.md', dest: 'reference/streaming.md' },
   {
     src: 'reference/why-signalium/page.md',
     dest: 'reference/why-signalium.md',

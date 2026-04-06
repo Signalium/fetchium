@@ -680,7 +680,7 @@ export function FetchiumHome() {
             { s: 'Qr', n: 'Queries', c: 'pink' as const, href: '/core/queries' },
             { s: 'En', n: 'Entities', c: 'amber' as const, href: '/core/entities' },
             { s: 'Mu', n: 'Mutations', c: 'pink' as const, href: '/data/mutations' },
-            { s: 'St', n: 'Streaming', c: 'green' as const, href: '/reference/streaming' },
+            { s: 'St', n: 'Streaming', c: 'green' as const, href: '/core/streaming' },
           ].map(({ s, n, c, href }) => (
             <Link key={n} href={href} className="flex items-center gap-2 transition-opacity hover:opacity-80">
               <div

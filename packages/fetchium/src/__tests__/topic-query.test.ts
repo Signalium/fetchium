@@ -4,146 +4,128 @@ import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { Query, fetchQuery } from '../query.js';
+import { fetchQuery } from '../query.js';
 import { getMutation } from '../mutation.js';
 import { RESTMutation } from '../rest/index.js';
 import { reifyValue } from '../fieldRef.js';
 import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
-import type { MutationEvent } from '../types.js';
-import type { FetchNextConfig } from '../query-types.js';
-import { QueryController } from '../QueryController.js';
+import { TopicQuery } from '../topic/TopicQuery.js';
+import { TopicQueryController } from '../topic/TopicQueryController.js';
 import { RESTQueryController } from '../rest/RESTQueryController.js';
+import type { MutationEvent } from '../types.js';
+import type { Query } from '../query.js';
+import type { FetchNextConfig } from '../query-types.js';
 
 // ============================================================
-// StreamAPI interface
+// MockStream — simulates a message bus (WebSocket, SSE, etc.)
 // ============================================================
 
-interface StreamAPI {
-  waitForSubscription(signal?: AbortSignal): Promise<{ topics: string[] }>;
-  waitForTopicData(topic: string, signal?: AbortSignal): Promise<{ data: unknown; fetchNextUrl?: string }>;
-  getTopicMeta(topic: string): { fetchNextUrl?: string } | undefined;
-  onTopicUpdate(topic: string, callback: (event: MutationEvent) => void): () => void;
+interface StreamSubscription {
+  onData(data: unknown, meta?: { fetchNextUrl?: string }): void;
+  onError(error: unknown): void;
+  onEvent(event: MutationEvent): void;
 }
 
-// ============================================================
-// MockStream
-// ============================================================
+class MockStream {
+  private _bufferedData = new Map<string, { data: unknown; meta?: { fetchNextUrl?: string } }>();
+  private _bufferedErrors = new Map<string, unknown>();
+  private _subscriptions = new Map<string, StreamSubscription>();
 
-class MockStream implements StreamAPI {
-  private _subscribedTopics: string[] | undefined = undefined;
-  private _subscriptionResolvers: Array<(result: { topics: string[] }) => void> = [];
-  private _topicDataBuffer = new Map<string, Array<{ data: unknown; fetchNextUrl?: string }>>();
-  private _topicDataResolvers = new Map<string, Array<(result: { data: unknown; fetchNextUrl?: string }) => void>>();
-  private _topicMeta = new Map<string, { fetchNextUrl?: string }>();
-  private _updateListeners = new Map<string, Set<(event: MutationEvent) => void>>();
-
-  pushSubscribed(topics: string[]): void {
-    this._subscribedTopics = topics;
-    for (const resolve of this._subscriptionResolvers) {
-      resolve({ topics });
-    }
-    this._subscriptionResolvers = [];
-  }
-
+  /** Push initial/replacement data for a topic. */
   pushTopicData(topic: string, data: unknown, meta?: { fetchNextUrl?: string }): void {
-    if (meta) this._topicMeta.set(topic, meta);
-
-    const resolvers = this._topicDataResolvers.get(topic);
-    if (resolvers && resolvers.length > 0) {
-      const resolve = resolvers.shift()!;
-      resolve({ data, fetchNextUrl: meta?.fetchNextUrl });
+    const sub = this._subscriptions.get(topic);
+    if (sub) {
+      sub.onData(data, meta);
     } else {
-      if (!this._topicDataBuffer.has(topic)) {
-        this._topicDataBuffer.set(topic, []);
-      }
-      this._topicDataBuffer.get(topic)!.push({ data, fetchNextUrl: meta?.fetchNextUrl });
+      this._bufferedData.set(topic, { data, meta });
     }
   }
 
+  /** Reject a topic with an error. */
+  rejectTopic(topic: string, error: unknown): void {
+    const sub = this._subscriptions.get(topic);
+    if (sub) {
+      sub.onError(error);
+    } else {
+      this._bufferedErrors.set(topic, error);
+    }
+  }
+
+  /** Push a mutation event through the stream for a topic. */
   pushUpdate(topic: string, event: MutationEvent): void {
-    const listeners = this._updateListeners.get(topic);
-    if (listeners) {
-      for (const listener of listeners) {
-        listener(event);
+    this._subscriptions.get(topic)?.onEvent(event);
+  }
+
+  /**
+   * Register a subscription for a topic.
+   * If data or an error was buffered before subscribe, it's delivered immediately.
+   * Returns an unsubscribe function.
+   */
+  subscribe(topic: string, callbacks: StreamSubscription): () => void {
+    this._subscriptions.set(topic, callbacks);
+
+    // Deliver buffered state
+    const bufferedError = this._bufferedErrors.get(topic);
+    if (bufferedError !== undefined) {
+      this._bufferedErrors.delete(topic);
+      callbacks.onError(bufferedError);
+    } else {
+      const buffered = this._bufferedData.get(topic);
+      if (buffered !== undefined) {
+        this._bufferedData.delete(topic);
+        callbacks.onData(buffered.data, buffered.meta);
       }
     }
-  }
 
-  waitForSubscription(_signal?: AbortSignal): Promise<{ topics: string[] }> {
-    if (this._subscribedTopics !== undefined) {
-      return Promise.resolve({ topics: this._subscribedTopics });
-    }
-    return new Promise(resolve => {
-      this._subscriptionResolvers.push(resolve);
-    });
-  }
-
-  waitForTopicData(topic: string, _signal?: AbortSignal): Promise<{ data: unknown; fetchNextUrl?: string }> {
-    const buffered = this._topicDataBuffer.get(topic);
-    if (buffered && buffered.length > 0) {
-      return Promise.resolve(buffered.shift()!);
-    }
-    return new Promise(resolve => {
-      if (!this._topicDataResolvers.has(topic)) {
-        this._topicDataResolvers.set(topic, []);
-      }
-      this._topicDataResolvers.get(topic)!.push(resolve);
-    });
-  }
-
-  getTopicMeta(topic: string): { fetchNextUrl?: string } | undefined {
-    return this._topicMeta.get(topic);
-  }
-
-  onTopicUpdate(topic: string, callback: (event: MutationEvent) => void): () => void {
-    if (!this._updateListeners.has(topic)) {
-      this._updateListeners.set(topic, new Set());
-    }
-    this._updateListeners.get(topic)!.add(callback);
     return () => {
-      this._updateListeners.get(topic)?.delete(callback);
+      this._subscriptions.delete(topic);
     };
   }
-
-  reset(): void {
-    this._subscribedTopics = undefined;
-    this._subscriptionResolvers = [];
-    this._topicDataBuffer.clear();
-    this._topicDataResolvers.clear();
-    this._topicMeta.clear();
-    this._updateListeners.clear();
-  }
 }
 
 // ============================================================
-// TopicNotFoundError
+// MockTopicQueryController — bridges MockStream ↔ TopicQueryController
 // ============================================================
 
-class TopicNotFoundError extends Error {
-  constructor(topic: string) {
-    super(`Topic "${topic}" not found in subscription`);
-    this.name = 'TopicNotFoundError';
+class MockTopicQueryController extends TopicQueryController {
+  private _stream: MockStream;
+  private _fetch: (url: string, init?: RequestInit) => Promise<Response>;
+  private _unsubscribers = new Map<string, () => void>();
+  private _topicMeta = new Map<string, { fetchNextUrl?: string }>();
+
+  constructor(stream: MockStream, fetchFn: (url: string, init?: RequestInit) => Promise<Response>) {
+    super();
+    this._stream = stream;
+    this._fetch = fetchFn;
   }
-}
 
-// ============================================================
-// TopicQuery base class
-// ============================================================
-
-// ============================================================
-// TopicQueryController
-// ============================================================
-
-class TopicQueryController extends QueryController {
-  private _fetch: typeof globalThis.fetch;
-  constructor(fetchFn: typeof globalThis.fetch = globalThis.fetch) { super(); this._fetch = fetchFn; }
-  private get stream(): StreamAPI {
-    return (this.queryClient!.getContext() as any).stream as StreamAPI;
+  subscribe(topic: string): void {
+    const unsub = this._stream.subscribe(topic, {
+      onData: (data, meta) => {
+        if (meta) this._topicMeta.set(topic, meta);
+        this.fulfillTopic(topic, data);
+      },
+      onError: (error) => {
+        this.rejectTopic(topic, error);
+      },
+      onEvent: (event) => {
+        this.sendMutationEvent(event);
+      },
+    });
+    this._unsubscribers.set(topic, unsub);
   }
+
+  unsubscribe(topic: string): void {
+    this._unsubscribers.get(topic)?.();
+    this._unsubscribers.delete(topic);
+    this.clearTopic(topic);
+  }
+
+  // --- Pagination support ---
 
   private resolveFetchNext(ctx: TopicQuery): { url?: string; searchParams?: Record<string, unknown> } | undefined {
-    const dynamicConfig = ctx.getFetchNext ? ctx.getFetchNext() : undefined;
-    const fetchNextConfig = dynamicConfig ?? ctx.rawFetchNext;
+    const dynamicConfig = (ctx as any).getFetchNext ? (ctx as any).getFetchNext() : undefined;
+    const fetchNextConfig: FetchNextConfig | undefined = dynamicConfig ?? ctx.rawFetchNext;
     if (fetchNextConfig === undefined) return undefined;
 
     const resolveRoot: Record<string, unknown> = {
@@ -160,35 +142,16 @@ class TopicQueryController extends QueryController {
     };
   }
 
-  override async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
-    const topicCtx = ctx as TopicQuery;
-    const stream = this.stream;
-    if (!stream) {
-      throw new Error('StreamAPI not available in context');
-    }
-
-    const { topics } = await stream.waitForSubscription(signal);
-
-    if (!topics.includes(topicCtx.topic)) {
-      throw new TopicNotFoundError(topicCtx.topic);
-    }
-
-    const result = await stream.waitForTopicData(topicCtx.topic, signal);
-    return result.data;
-  }
-
   override hasNext(ctx: Query): boolean {
     const topicCtx = ctx as TopicQuery;
-    const meta = this.stream?.getTopicMeta?.(topicCtx.topic);
+    const meta = this._topicMeta.get(topicCtx.topic);
     if (!meta?.fetchNextUrl) return false;
 
     const resolved = this.resolveFetchNext(topicCtx);
     if (resolved === undefined) return false;
 
     if (resolved.searchParams !== undefined) {
-      const keys = Object.keys(resolved.searchParams);
-      if (keys.length === 0) return false;
-      for (const key of keys) {
+      for (const key of Object.keys(resolved.searchParams)) {
         if (resolved.searchParams[key] === undefined || resolved.searchParams[key] === null) return false;
       }
     }
@@ -198,8 +161,7 @@ class TopicQueryController extends QueryController {
 
   override async sendNext(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicQuery;
-    const stream = this.stream;
-    const meta = stream.getTopicMeta(topicCtx.topic);
+    const meta = this._topicMeta.get(topicCtx.topic);
 
     if (!meta?.fetchNextUrl) {
       throw new Error('No fetchNextUrl available for topic');
@@ -221,9 +183,7 @@ class TopicQueryController extends QueryController {
         }
       }
       const qs = sp.toString();
-      if (qs) {
-        url += (url.includes('?') ? '&' : '?') + qs;
-      }
+      if (qs) url += (url.includes('?') ? '&' : '?') + qs;
     }
 
     const fetchResponse = await this._fetch(url, { signal });
@@ -232,32 +192,22 @@ class TopicQueryController extends QueryController {
 }
 
 // ============================================================
-// TopicQuery base class (declarative only)
+// TopicNotFoundError
 // ============================================================
 
-abstract class TopicQuery extends Query {
-  static override controller = TopicQueryController;
-
-  declare topic: string;
-  fetchNext?: FetchNextConfig;
-
-  getFetchNext?(): FetchNextConfig | undefined;
-
-  getIdentityKey(): string {
-    return `topic:${this.topic}`;
+class TopicNotFoundError extends Error {
+  constructor(topic: string) {
+    super(`Topic "${topic}" not found in subscription`);
+    this.name = 'TopicNotFoundError';
   }
+}
 
-  getConfig() {
-    const stream = (this.context as any)?.stream as StreamAPI | undefined;
-    return {
-      retry: false as const,
-      subscribe: stream
-        ? (onEvent: (event: MutationEvent) => void) => {
-            return stream.onTopicUpdate(this.topic, onEvent);
-          }
-        : undefined,
-    };
-  }
+// ============================================================
+// Concrete TopicQuery subclass that uses the mock controller
+// ============================================================
+
+abstract class MockTopicQuery extends TopicQuery {
+  static override controller = MockTopicQueryController as unknown as typeof TopicQueryController;
 }
 
 // ============================================================
@@ -338,7 +288,13 @@ describe('TopicQuery', () => {
     const store = new SyncQueryStore(kv);
     mockFetch = createMockFetch();
     mockStream = new MockStream();
-    client = new QueryClient({ store: store, stream: mockStream, controllers: [new TopicQueryController(mockFetch as any), new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] } as any);
+    client = new QueryClient({
+      store: store,
+      controllers: [
+        new MockTopicQueryController(mockStream, mockFetch as any),
+        new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' }),
+      ],
+    } as any);
   });
 
   afterEach(() => {
@@ -350,8 +306,8 @@ describe('TopicQuery', () => {
   // ============================================================
 
   describe('Basic Topic Loading', () => {
-    it('should be pending before subscription event', async () => {
-      class GetPrices extends TopicQuery {
+    it('should be pending before stream pushes data', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
@@ -362,7 +318,6 @@ describe('TopicQuery', () => {
         const relay = fetchQuery(GetPrices);
         expect(relay.isPending).toBe(true);
 
-        mockStream.pushSubscribed(['prices:live']);
         mockStream.pushTopicData('prices:live', {
           items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
         });
@@ -372,15 +327,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should resolve when subscribed event contains topic and data arrives', async () => {
-      class GetPrices extends TopicQuery {
+    it('should resolve when stream delivers topic data', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      mockStream.pushSubscribed(['prices:live', 'balances:wallet-1']);
       mockStream.pushTopicData('prices:live', {
         items: [
           { __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 },
@@ -400,15 +354,15 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should reject when topic is not in subscription', async () => {
-      class GetPrices extends TopicQuery {
+    it('should reject when stream rejects topic', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1', 'positions:wallet-1']);
+      mockStream.rejectTopic('prices:live', new TopicNotFoundError('prices:live'));
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetPrices);
@@ -425,8 +379,8 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should stay pending between subscription confirmation and data arrival', async () => {
-      class GetPrices extends TopicQuery {
+    it('should stay pending until stream delivers data', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
@@ -437,9 +391,7 @@ describe('TopicQuery', () => {
         const relay = fetchQuery(GetPrices);
         expect(relay.isPending).toBe(true);
 
-        mockStream.pushSubscribed(['prices:live']);
         await sleep(20);
-
         expect(relay.isPending).toBe(true);
 
         mockStream.pushTopicData('prices:live', {
@@ -452,21 +404,20 @@ describe('TopicQuery', () => {
     });
 
     it('should resolve multiple topic queries for different topics independently', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      class GetBalances extends TopicQuery {
+      class GetBalances extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = {
           items: t.array(t.entity(TopicBalance)),
         };
       }
 
-      mockStream.pushSubscribed(['prices:live', 'balances:wallet-1']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -489,7 +440,7 @@ describe('TopicQuery', () => {
     });
 
     it('should support parameterized topics', async () => {
-      class GetBalances extends TopicQuery {
+      class GetBalances extends MockTopicQuery {
         params = { walletId: t.string };
         topic = `balances:${this.params.walletId}`;
         result = {
@@ -497,7 +448,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         items: [{ __typename: 'TopicBalance', id: '1', walletId: 'wallet-1', token: 'BTC', amount: 1.5 }],
       });
@@ -512,12 +462,11 @@ describe('TopicQuery', () => {
     });
 
     it('should resolve with single entity result', async () => {
-      class GetWallet extends TopicQuery {
+      class GetWallet extends MockTopicQuery {
         topic = 'wallet:main';
         result = t.entity(TopicWallet);
       }
 
-      mockStream.pushSubscribed(['wallet:main']);
       mockStream.pushTopicData('wallet:main', {
         __typename: 'TopicWallet',
         id: 'w1',
@@ -535,7 +484,7 @@ describe('TopicQuery', () => {
     });
 
     it('should resolve with nested entities in result', async () => {
-      class GetPositionDetail extends TopicQuery {
+      class GetPositionDetail extends MockTopicQuery {
         topic = 'position:detail';
         result = {
           position: t.entity(TopicPosition),
@@ -543,7 +492,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['position:detail']);
       mockStream.pushTopicData('position:detail', {
         position: {
           __typename: 'TopicPosition',
@@ -571,15 +519,14 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should resolve when subscription and data are pre-pushed', async () => {
-      class GetPrices extends TopicQuery {
+    it('should resolve when data is pre-pushed before query activates', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -594,21 +541,20 @@ describe('TopicQuery', () => {
     });
 
     it('should maintain entity identity across queries sharing entities', async () => {
-      class GetPricesA extends TopicQuery {
+      class GetPricesA extends MockTopicQuery {
         topic = 'prices:a';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      class GetPricesB extends TopicQuery {
+      class GetPricesB extends MockTopicQuery {
         topic = 'prices:b';
         result = {
           items: t.array(t.entity(TopicPrice)),
         };
       }
 
-      mockStream.pushSubscribed(['prices:a', 'prices:b']);
       mockStream.pushTopicData('prices:a', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -643,7 +589,7 @@ describe('TopicQuery', () => {
     });
 
     it('should handle result with plain object fields', async () => {
-      class GetSnapshot extends TopicQuery {
+      class GetSnapshot extends MockTopicQuery {
         topic = 'snapshot:daily';
         result = {
           total: t.number,
@@ -652,7 +598,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['snapshot:daily']);
       mockStream.pushTopicData('snapshot:daily', {
         total: 150000,
         currency: 'USD',
@@ -669,18 +614,18 @@ describe('TopicQuery', () => {
       });
     });
 
-    it('should reject only the specific query whose topic is missing', async () => {
-      class GetPrices extends TopicQuery {
+    it('should reject only the specific query whose topic is rejected', async () => {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      class GetBalances extends TopicQuery {
+      class GetBalances extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { items: t.array(t.entity(TopicBalance)) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
+      mockStream.rejectTopic('prices:live', new TopicNotFoundError('prices:live'));
       mockStream.pushTopicData('balances:wallet-1', {
         items: [{ __typename: 'TopicBalance', id: '1', walletId: 'wallet-1', token: 'BTC', amount: 1.5 }],
       });
@@ -711,12 +656,11 @@ describe('TopicQuery', () => {
 
   describe('Stream Update Events', () => {
     it('should update existing entity field via stream event', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [
           { __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 },
@@ -742,12 +686,11 @@ describe('TopicQuery', () => {
     });
 
     it('should preserve untouched fields on partial update', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -776,12 +719,11 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -818,12 +760,11 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -862,12 +803,11 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -895,7 +835,7 @@ describe('TopicQuery', () => {
     });
 
     it('should update nested entity through parent', async () => {
-      class GetPositionDetail extends TopicQuery {
+      class GetPositionDetail extends MockTopicQuery {
         topic = 'position:detail';
         result = {
           position: t.entity(TopicPosition),
@@ -903,7 +843,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['position:detail']);
       mockStream.pushTopicData('position:detail', {
         position: {
           __typename: 'TopicPosition',
@@ -939,12 +878,11 @@ describe('TopicQuery', () => {
     });
 
     it('should handle multiple rapid successive events', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [
           { __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 },
@@ -978,12 +916,11 @@ describe('TopicQuery', () => {
     });
 
     it('should be a no-op for events with unregistered typename', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -1006,12 +943,11 @@ describe('TopicQuery', () => {
     });
 
     it('should also update entities via direct applyMutationEvent', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -1031,17 +967,16 @@ describe('TopicQuery', () => {
     });
 
     it('should not affect unrelated query entities', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
 
-      class GetBalances extends TopicQuery {
+      class GetBalances extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { items: t.array(t.entity(TopicBalance)) };
       }
 
-      mockStream.pushSubscribed(['prices:live', 'balances:wallet-1']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -1079,7 +1014,7 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
@@ -1094,7 +1029,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1129,7 +1063,7 @@ describe('TopicQuery', () => {
     });
 
     it('should update entity via mutation update effect', async () => {
-      class GetPrices extends TopicQuery {
+      class GetPrices extends MockTopicQuery {
         topic = 'prices:live';
         result = { items: t.array(t.entity(TopicPrice)) };
       }
@@ -1144,7 +1078,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['prices:live']);
       mockStream.pushTopicData('prices:live', {
         items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
       });
@@ -1174,7 +1107,7 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
@@ -1189,7 +1122,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1228,7 +1160,7 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
@@ -1249,7 +1181,6 @@ describe('TopicQuery', () => {
         }
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1289,7 +1220,7 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
@@ -1304,7 +1235,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1350,12 +1280,11 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1391,12 +1320,11 @@ describe('TopicQuery', () => {
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
 
-      class GetBalanceList extends TopicQuery {
+      class GetBalanceList extends MockTopicQuery {
         topic = 'balances:wallet-1';
         result = { list: t.entity(TopicBalanceList) };
       }
 
-      mockStream.pushSubscribed(['balances:wallet-1']);
       mockStream.pushTopicData('balances:wallet-1', {
         list: {
           __typename: 'TopicBalanceList',
@@ -1436,7 +1364,7 @@ describe('TopicQuery', () => {
     }
 
     it('should fetch next page using fetchNextUrl and cursor', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1449,7 +1377,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1487,7 +1414,7 @@ describe('TopicQuery', () => {
     });
 
     it('should accumulate live array items across fetchNext calls', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1498,7 +1425,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1535,7 +1461,7 @@ describe('TopicQuery', () => {
     });
 
     it('should advance cursor with each fetchNext response', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1546,7 +1472,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1577,7 +1502,7 @@ describe('TopicQuery', () => {
     });
 
     it('should deduplicate entities in live array on fetchNext', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1588,7 +1513,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1622,7 +1546,7 @@ describe('TopicQuery', () => {
     });
 
     it('should reflect __hasNext based on cursor value', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1633,7 +1557,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1659,7 +1582,7 @@ describe('TopicQuery', () => {
     });
 
     it('should show correct __isFetchingNext states', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1670,7 +1593,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1697,7 +1619,7 @@ describe('TopicQuery', () => {
     });
 
     it('should preserve prior state on fetchNext error', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.liveArray(TopicItem),
@@ -1708,7 +1630,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData(
         'items:list',
         {
@@ -1737,14 +1658,13 @@ describe('TopicQuery', () => {
     });
 
     it('should return false for __hasNext when no fetchNext is configured', async () => {
-      class GetItems extends TopicQuery {
+      class GetItems extends MockTopicQuery {
         topic = 'items:list';
         result = {
           items: t.array(t.entity(TopicItem)),
         };
       }
 
-      mockStream.pushSubscribed(['items:list']);
       mockStream.pushTopicData('items:list', {
         items: [{ __typename: 'TopicItem', id: '1', name: 'first' }],
       });
@@ -1777,7 +1697,7 @@ describe('TopicQuery', () => {
     }
 
     it('should reflect both fetchNext and stream update in final state', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
@@ -1788,7 +1708,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['list:main']);
       mockStream.pushTopicData(
         'list:main',
         {
@@ -1833,7 +1752,7 @@ describe('TopicQuery', () => {
     });
 
     it('should handle stream update then fetchNext correctly', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
@@ -1844,7 +1763,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['list:main']);
       mockStream.pushTopicData(
         'list:main',
         {
@@ -1888,7 +1806,7 @@ describe('TopicQuery', () => {
     });
 
     it('should handle mutation effect then stream update without duplicates', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:main';
         result = { list: t.entity(TopicCombinedList) };
       }
@@ -1903,7 +1821,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['list:main']);
       mockStream.pushTopicData('list:main', {
         list: {
           __typename: 'TopicCombinedList',
@@ -1937,7 +1854,7 @@ describe('TopicQuery', () => {
     });
 
     it('should handle fetchNext + mutation + stream update in sequence', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
@@ -1958,7 +1875,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['list:main']);
       mockStream.pushTopicData(
         'list:main',
         {
@@ -2011,7 +1927,7 @@ describe('TopicQuery', () => {
     });
 
     it('should deduplicate when stream creates entity then fetchNext returns it', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:main';
         result = {
           list: t.entity(TopicCombinedList),
@@ -2022,7 +1938,6 @@ describe('TopicQuery', () => {
         };
       }
 
-      mockStream.pushSubscribed(['list:main']);
       mockStream.pushTopicData(
         'list:main',
         {
@@ -2067,7 +1982,7 @@ describe('TopicQuery', () => {
     });
 
     it('full lifecycle: subscribe → data → fetchNext → stream updates → mutation', async () => {
-      class GetList extends TopicQuery {
+      class GetList extends MockTopicQuery {
         topic = 'list:full';
         result = {
           list: t.entity(TopicCombinedList),
@@ -2094,7 +2009,6 @@ describe('TopicQuery', () => {
         const relay = fetchQuery(GetList);
         expect(relay.isPending).toBe(true);
 
-        mockStream.pushSubscribed(['list:full', 'prices:live']);
         await sleep(10);
         expect(relay.isPending).toBe(true);
 
@@ -2132,7 +2046,7 @@ describe('TopicQuery', () => {
         expect(items()).toHaveLength(3);
         expect(items()[2].name).toBe('Gamma');
 
-        await applyEventOutsideReactiveContext(client, {
+        await pushUpdateOutsideReactiveContext(mockStream, 'list:full', {
           type: 'update',
           typename: 'TopicCombinedItem',
           data: { id: '1', name: 'Alpha-Updated' },
@@ -2140,7 +2054,7 @@ describe('TopicQuery', () => {
 
         expect(items()[0].name).toBe('Alpha-Updated');
 
-        await applyEventOutsideReactiveContext(client, {
+        await pushUpdateOutsideReactiveContext(mockStream, 'list:full', {
           type: 'create',
           typename: 'TopicCombinedItem',
           data: { __typename: 'TopicCombinedItem', id: '4', listId: 'full', name: 'Delta' },

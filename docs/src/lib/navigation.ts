@@ -87,6 +87,7 @@ export const navigation: GroupNavigationItem[] = [
       { type: 'link', title: 'Queries', href: '/core/queries' },
       { type: 'link', title: 'Types', href: '/core/types' },
       { type: 'link', title: 'Entities', href: '/core/entities' },
+      { type: 'link', title: 'Streaming', href: '/core/streaming' },
     ],
   },
   {
@@ -121,11 +122,6 @@ export const navigation: GroupNavigationItem[] = [
         type: 'link',
         title: 'Pagination & Infinite Queries',
         href: '/reference/pagination',
-      },
-      {
-        type: 'link',
-        title: 'Streaming & Subscriptions',
-        href: '/reference/streaming',
       },
       { type: 'link', title: 'Why Signalium?', href: '/reference/why-signalium' },
     ],

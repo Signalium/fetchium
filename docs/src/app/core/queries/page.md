@@ -22,7 +22,7 @@ This pattern works across many different protocols:
 - **GraphQL** --- has this exact split built into the language (`query` vs `mutation`)
 - **JSON-RPC** and **gRPC** --- have no formal distinction, but the query/mutation pattern maps cleanly onto read vs write operations
 
-Fetchium currently ships a built-in adapter for JSON REST APIs (`RESTQuery` and `RESTMutation`) as they are the lowest common denominator across the web ecosystem. But it is built from the ground up to support _any_ protocol with a simple, easily expandable class-based adapter system --- see [Custom Queries](#custom-queries) and [Custom Mutations](/data/mutations#custom-mutations).
+Fetchium ships built-in adapters for JSON REST APIs (`RESTQuery` / `RESTMutation` from `fetchium/rest`) and topic-based streaming (`TopicQuery` from `fetchium/topic`). REST is the lowest common denominator across the web ecosystem, while TopicQuery provides a declarative way to integrate with message buses, WebSockets, and other pub/sub systems --- see [Streaming](/core/streaming) for details. Fetchium is built from the ground up to support _any_ protocol with a simple, easily expandable class-based adapter system --- see [Custom Queries](#custom-queries) and [Custom Mutations](/data/mutations#custom-mutations).
 
 More importantly, Fetchium handles caching, deduplication, and refetching behind the scenes. And when your results include [Entities](/core/entities) and [Live Data](/data/live-data), Fetchium also handles normalization and incremental streaming updates.
 

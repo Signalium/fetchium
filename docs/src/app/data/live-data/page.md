@@ -432,4 +432,4 @@ When the stream delivers a `create` event for a `ChatMessage`, any constrained l
 
 This makes it straightforward to build real-time features: define your entities with `__subscribe`, use `t.liveArray` or `t.liveValue` in your result shapes, and the UI updates automatically.
 
-For full details on streaming patterns and transport options, see the [Streaming reference](/reference/streaming).
+For full details on streaming patterns and transport options, see the [Streaming guide](/core/streaming).
