@@ -36,7 +36,8 @@ export class RESTQueryController extends QueryController {
 
   constructor(options?: RESTQueryControllerOptions) {
     super();
-    this._fetch = options?.fetch ?? (globalThis.fetch as unknown as (url: string, init?: QueryRequestInit) => Promise<Response>);
+    this._fetch =
+      options?.fetch ?? (globalThis.fetch as unknown as (url: string, init?: QueryRequestInit) => Promise<Response>);
     this._baseUrl = options?.baseUrl;
   }
 
@@ -85,10 +86,7 @@ export class RESTQueryController extends QueryController {
     };
 
     return {
-      url:
-        fetchNextConfig.url !== undefined
-          ? (reifyValue(fetchNextConfig.url, resolveRoot) as string)
-          : undefined,
+      url: fetchNextConfig.url !== undefined ? (reifyValue(fetchNextConfig.url, resolveRoot) as string) : undefined,
       searchParams:
         fetchNextConfig.searchParams !== undefined
           ? (reifyValue(fetchNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
@@ -113,10 +111,7 @@ export class RESTQueryController extends QueryController {
 
     // Root-relative path — needs a base
     if (path.startsWith('/')) {
-      const base =
-        resolveBaseUrl(ctxBaseUrl) ??
-        resolveBaseUrl(this._baseUrl) ??
-        globalThis.location?.origin;
+      const base = resolveBaseUrl(ctxBaseUrl) ?? resolveBaseUrl(this._baseUrl) ?? globalThis.location?.origin;
 
       if (!base) {
         throw new Error(
@@ -141,9 +136,7 @@ export class RESTQueryController extends QueryController {
     const path = next?.url ?? (ctx.getPath ? ctx.getPath() : ctx.path);
     const method = ctx.getMethod ? ctx.getMethod() : ctx.method;
     const baseSearchParams = ctx.getSearchParams ? ctx.getSearchParams() : ctx.searchParams;
-    const searchParams = next?.searchParams
-      ? { ...baseSearchParams, ...next.searchParams }
-      : baseSearchParams;
+    const searchParams = next?.searchParams ? { ...baseSearchParams, ...next.searchParams } : baseSearchParams;
     const body = ctx.getBody ? ctx.getBody() : ctx.body;
     const requestOptions = ctx.getRequestOptions ? ctx.getRequestOptions() : ctx.requestOptions;
 
@@ -170,8 +163,7 @@ export class RESTQueryController extends QueryController {
     const ctxBaseUrl = requestOptions?.baseUrl ?? ctx.baseUrl;
     const fullUrl = this.buildUrl(url, ctxBaseUrl);
 
-    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } =
-      requestOptions ?? ({} as Record<string, unknown>);
+    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } = requestOptions ?? ({} as Record<string, unknown>);
 
     const hasHeaders = body || ctx.headers;
     const headers: HeadersInit | undefined = hasHeaders
@@ -208,8 +200,7 @@ export class RESTQueryController extends QueryController {
     const ctxBaseUrl = (requestOptions as QueryRequestOptions | undefined)?.baseUrl ?? restCtx.baseUrl;
     const fullUrl = this.buildUrl(path, ctxBaseUrl);
 
-    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } =
-      (requestOptions ?? {}) as Record<string, unknown>;
+    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } = (requestOptions ?? {}) as Record<string, unknown>;
 
     const headers: HeadersInit = {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),

@@ -123,7 +123,11 @@ export const navigation: GroupNavigationItem[] = [
         title: 'Pagination & Infinite Queries',
         href: '/reference/pagination',
       },
-      { type: 'link', title: 'Why Signalium?', href: '/reference/why-signalium' },
+      {
+        type: 'link',
+        title: 'Why Signalium?',
+        href: '/reference/why-signalium',
+      },
     ],
   },
   {
@@ -133,7 +137,11 @@ export const navigation: GroupNavigationItem[] = [
       { type: 'link', title: 'fetchium', href: '/api/fetchium' },
       { type: 'link', title: 'fetchium/react', href: '/api/fetchium-react' },
       { type: 'link', title: 'fetchium/stores/sync', href: '/api/stores-sync' },
-      { type: 'link', title: 'fetchium/stores/async', href: '/api/stores-async' },
+      {
+        type: 'link',
+        title: 'fetchium/stores/async',
+        href: '/api/stores-async',
+      },
     ],
   },
 ];

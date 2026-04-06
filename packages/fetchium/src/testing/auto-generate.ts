@@ -58,11 +58,7 @@ export class GeneratorContext {
 // Type-def walker
 // ================================
 
-export function generateFromTypeDef(
-  typeDef: InternalTypeDef,
-  fieldName: string,
-  ctx: GeneratorContext,
-): unknown {
+export function generateFromTypeDef(typeDef: InternalTypeDef, fieldName: string, ctx: GeneratorContext): unknown {
   if (typeof typeDef === 'number') {
     return generateFromMask(typeDef as Mask, fieldName, ctx);
   }
@@ -109,11 +105,7 @@ function generateFromMask(mask: Mask, fieldName: string, ctx: GeneratorContext):
   return undefined;
 }
 
-function generateFromValidatorDef(
-  def: ValidatorDef<any>,
-  fieldName: string,
-  ctx: GeneratorContext,
-): unknown {
+function generateFromValidatorDef(def: ValidatorDef<any>, fieldName: string, ctx: GeneratorContext): unknown {
   const mask = def.mask;
 
   if (mask & Mask.ENTITY) {
@@ -160,10 +152,7 @@ function generateFromValidatorDef(
   return generateFromMask(mask, fieldName, ctx);
 }
 
-function generateObject(
-  shape: InternalObjectShape,
-  ctx: GeneratorContext,
-): Record<string, unknown> {
+function generateObject(shape: InternalObjectShape, ctx: GeneratorContext): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   for (const [key, fieldDef] of Object.entries(shape)) {
@@ -176,10 +165,7 @@ function generateObject(
   return result;
 }
 
-function generateEntity(
-  def: ValidatorDef<any>,
-  ctx: GeneratorContext,
-): Record<string, unknown> {
+function generateEntity(def: ValidatorDef<any>, ctx: GeneratorContext): Record<string, unknown> {
   const typename = def.typenameValue;
   const typenameField = def.typenameField;
   const idField = def.idField;
@@ -230,11 +216,7 @@ function generateEntity(
   return result;
 }
 
-function generateUnion(
-  def: ValidatorDef<any>,
-  fieldName: string,
-  ctx: GeneratorContext,
-): unknown {
+function generateUnion(def: ValidatorDef<any>, fieldName: string, ctx: GeneratorContext): unknown {
   const shape = def.shape as Record<string, ValidatorDef<any>> | undefined;
 
   if (shape === undefined) return undefined;

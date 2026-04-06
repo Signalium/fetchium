@@ -631,8 +631,10 @@ describe('BaseUrl and RequestOptions', () => {
       mockFetch.get('https://api.example.com/users/[id]', { id: 123, name: 'Test User' });
 
       const store = new SyncQueryStore(new MemoryPersistentStore());
-      const client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: 'https://api.example.com', })] });
+      const client = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'https://api.example.com' })],
+      });
 
       class GetUser extends RESTQuery {
         params = { id: t.id };
@@ -662,8 +664,10 @@ describe('BaseUrl and RequestOptions', () => {
       const baseUrlSignal = signal('https://api-v1.example.com');
 
       const store = new SyncQueryStore(new MemoryPersistentStore());
-      const client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: baseUrlSignal, })] });
+      const client = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: baseUrlSignal })],
+      });
 
       class ListUsers extends RESTQuery {
         path = '/users';
@@ -700,8 +704,12 @@ describe('BaseUrl and RequestOptions', () => {
       mockFetch.get('https://dynamic.example.com/users', { users: [] });
 
       const store = new SyncQueryStore(new MemoryPersistentStore());
-      const client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: () => 'https://dynamic.example.com', })] });
+      const client = new QueryClient({
+        store: store,
+        controllers: [
+          new RESTQueryController({ fetch: mockFetch as any, baseUrl: () => 'https://dynamic.example.com' }),
+        ],
+      });
 
       class ListUsers extends RESTQuery {
         path = '/users';
@@ -725,8 +733,9 @@ describe('BaseUrl and RequestOptions', () => {
     it('should allow query baseUrl field to override controller baseUrl', async () => {
       mockFetch.get('https://special-api.example.com/items', { items: [] });
 
-      const client = new QueryClient({ controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: 'https://api.example.com', })] });
+      const client = new QueryClient({
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'https://api.example.com' })],
+      });
 
       class ListItems extends RESTQuery {
         path = '/items';
@@ -749,8 +758,9 @@ describe('BaseUrl and RequestOptions', () => {
     it('should allow requestOptions.baseUrl to override controller baseUrl', async () => {
       mockFetch.get('https://special-api.example.com/items', { items: [] });
 
-      const client = new QueryClient({ controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: 'https://api.example.com', })] });
+      const client = new QueryClient({
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'https://api.example.com' })],
+      });
 
       class ListItems extends RESTQuery {
         path = '/items';
@@ -775,8 +785,9 @@ describe('BaseUrl and RequestOptions', () => {
     it('should use absolute path as-is without prepending baseUrl', async () => {
       mockFetch.get('https://other.example.com/data', { value: 1 });
 
-      const client = new QueryClient({ controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: 'https://api.example.com', })] });
+      const client = new QueryClient({
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'https://api.example.com' })],
+      });
 
       class GetData extends RESTQuery {
         path = 'https://other.example.com/data';
@@ -798,8 +809,9 @@ describe('BaseUrl and RequestOptions', () => {
     it('should pass additional request options to fetch', async () => {
       mockFetch.get('https://api.example.com/secure', { data: 'secret' });
 
-      const client = new QueryClient({ controllers: [new RESTQueryController({ fetch: mockFetch as any,
-        baseUrl: 'https://api.example.com', })] });
+      const client = new QueryClient({
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'https://api.example.com' })],
+      });
 
       class GetSecureData extends RESTQuery {
         path = '/secure';

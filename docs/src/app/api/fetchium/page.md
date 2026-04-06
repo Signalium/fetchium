@@ -30,11 +30,7 @@ import {
 } from 'fetchium';
 
 // REST adapter (JSON REST APIs)
-import {
-  RESTQuery,
-  RESTMutation,
-  RESTQueryController,
-} from 'fetchium/rest';
+import { RESTQuery, RESTMutation, RESTQueryController } from 'fetchium/rest';
 ```
 
 ---
@@ -53,18 +49,18 @@ Base class for all query definitions. Extend this to define custom data-fetching
 
 #### Static properties
 
-| Property     | Type                             | Description                                                                    |
-| ------------ | -------------------------------- | ------------------------------------------------------------------------------ |
-| `cache`      | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                   |
+| Property     | Type                             | Description                                                                                                                                                             |
+| ------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cache`      | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                                                                                                            |
 | `controller` | `typeof QueryController`         | **(required)** The controller class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own controller class. |
 
 #### Instance properties
 
-| Property  | Type                                   | Description                                                    |
-| --------- | -------------------------------------- | -------------------------------------------------------------- |
-| `params`  | `Record<string, TypeDef> \| undefined` | Shape definition for query parameters.                         |
-| `result`  | `TypeDefShape`                         | **(abstract)** Shape definition for the query result.          |
-| `config`  | `QueryConfigOptions \| undefined`      | Instance-level configuration (gcTime, staleTime, retry, etc.). |
+| Property  | Type                                   | Description                                                                                    |
+| --------- | -------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `params`  | `Record<string, TypeDef> \| undefined` | Shape definition for query parameters.                                                         |
+| `result`  | `TypeDefShape`                         | **(abstract)** Shape definition for the query result.                                          |
+| `config`  | `QueryConfigOptions \| undefined`      | Instance-level configuration (gcTime, staleTime, retry, etc.).                                 |
 | `context` | `QueryContext`                         | The query context provided by the `QueryClient`. Available in `getConfig()` and other methods. |
 
 #### Methods
@@ -83,16 +79,16 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 
 #### Instance properties
 
-| Property         | Type                                              | Default | Description                                                                        |
-| ---------------- | ------------------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
-| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                       |
-| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.        |
-| `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                           |
-| `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                    |
-| `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                               |
-| `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                       |
-| `fetchNext`       | `FetchNextConfig \| undefined`                     | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`). |
-| `response`        | `Response \| undefined`                            | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryController` after each request completes. Available in `getConfig()`. |
+| Property         | Type                                              | Default | Description                                                                                                                         |
+| ---------------- | ------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                                                                        |
+| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.                                                         |
+| `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                                                                            |
+| `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                                                                     |
+| `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                                |
+| `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                        |
+| `fetchNext`      | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                                  |
+| `response`       | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryController` after each request completes. Available in `getConfig()`. |
 
 #### `getIdentityKey()` default
 
@@ -100,14 +96,14 @@ Returns `"${method}:${path}"`.
 
 #### Optional method overrides
 
-| Method              | Signature                                  | Description                                                                             |
-| ------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `getPath`           | `(): string \| undefined`                  | Dynamically compute the URL path.                                                       |
-| `getMethod`         | `(): string`                               | Dynamically compute the HTTP method.                                                    |
-| `getSearchParams`   | `(): Record<string, unknown> \| undefined` | Dynamically compute search params.                                                      |
-| `getBody`           | `(): Record<string, unknown> \| undefined` | Dynamically compute the request body.                                                   |
-| `getRequestOptions` | `(): QueryRequestOptions \| undefined`     | Dynamically compute fetch options.                                                      |
-| `getFetchNext`       | `(): FetchNextConfig \| undefined`          | Dynamically compute pagination config. Takes priority over the static `fetchNext` field. |
+| Method              | Signature                                  | Description                                                                              |
+| ------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `getPath`           | `(): string \| undefined`                  | Dynamically compute the URL path.                                                        |
+| `getMethod`         | `(): string`                               | Dynamically compute the HTTP method.                                                     |
+| `getSearchParams`   | `(): Record<string, unknown> \| undefined` | Dynamically compute search params.                                                       |
+| `getBody`           | `(): Record<string, unknown> \| undefined` | Dynamically compute the request body.                                                    |
+| `getRequestOptions` | `(): QueryRequestOptions \| undefined`     | Dynamically compute fetch options.                                                       |
+| `getFetchNext`      | `(): FetchNextConfig \| undefined`         | Dynamically compute pagination config. Takes priority over the static `fetchNext` field. |
 
 #### Example
 
@@ -165,8 +161,8 @@ Base class for mutation definitions.
 
 #### Static properties
 
-| Property     | Type                     | Description                                                                     |
-| ------------ | ------------------------ | ------------------------------------------------------------------------------- |
+| Property     | Type                     | Description                                                                                                                                                                     |
+| ------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `controller` | `typeof QueryController` | **(required)** The controller class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own controller class. |
 
 #### Instance properties
@@ -195,13 +191,13 @@ Convenience base class for REST/JSON mutations.
 
 #### Instance properties
 
-| Property         | Type                                     | Default  | Description                                            |
-| ---------------- | ---------------------------------------- | -------- | ------------------------------------------------------ |
-| `path`           | `string \| undefined`                    | —        | URL path.                                              |
-| `method`         | `'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'POST'` | HTTP method.                                           |
-| `body`           | `Record<string, unknown> \| undefined`   | —        | Request body shape. No body is sent if omitted.        |
-| `headers`        | `HeadersInit \| undefined`               | —        | Custom HTTP headers.                                   |
-| `requestOptions` | `QueryRequestOptions \| undefined`       | —        | Additional fetch options.                              |
+| Property         | Type                                     | Default  | Description                                     |
+| ---------------- | ---------------------------------------- | -------- | ----------------------------------------------- |
+| `path`           | `string \| undefined`                    | —        | URL path.                                       |
+| `method`         | `'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'POST'` | HTTP method.                                    |
+| `body`           | `Record<string, unknown> \| undefined`   | —        | Request body shape. No body is sent if omitted. |
+| `headers`        | `HeadersInit \| undefined`               | —        | Custom HTTP headers.                            |
+| `requestOptions` | `QueryRequestOptions \| undefined`       | —        | Additional fetch options.                       |
 
 #### `getIdentityKey()` default
 
@@ -228,23 +224,23 @@ Central coordinator for queries, mutations, entity storage, caching, and garbage
 new QueryClient(config: QueryClientConfig)
 ```
 
-| Field              | Type                         | Default                | Description                                                                       |
-| ------------------ | ---------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
-| `store`            | `QueryStore`                 | —                      | **(required)** Persistent storage backend.                                        |
-| `controllers`      | `QueryController[]`          | `[]`                   | Transport controllers (e.g. `new RESTQueryController({ fetch, baseUrl })`).       |
-| `log`              | `LogContext \| undefined`    | `console`              | Logger with `error`, `warn`, `info`, `debug` methods.                             |
-| `evictionMultiplier` | `number \| undefined`      | `1`                    | Scales all GC times for testing. Set to `0.001` to make timers fire in milliseconds. |
-| `networkManager`   | `NetworkManager`             | `new NetworkManager()` | Tracks network connectivity.                                                      |
-| `gcManager`        | `GcManager \| NoOpGcManager` | Auto-detected          | GC manager. Uses `NoOpGcManager` on the server.                                   |
+| Field                | Type                         | Default                | Description                                                                          |
+| -------------------- | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
+| `store`              | `QueryStore`                 | —                      | **(required)** Persistent storage backend.                                           |
+| `controllers`        | `QueryController[]`          | `[]`                   | Transport controllers (e.g. `new RESTQueryController({ fetch, baseUrl })`).          |
+| `log`                | `LogContext \| undefined`    | `console`              | Logger with `error`, `warn`, `info`, `debug` methods.                                |
+| `evictionMultiplier` | `number \| undefined`        | `1`                    | Scales all GC times for testing. Set to `0.001` to make timers fire in milliseconds. |
+| `networkManager`     | `NetworkManager`             | `new NetworkManager()` | Tracks network connectivity.                                                         |
+| `gcManager`          | `GcManager \| NoOpGcManager` | Auto-detected          | GC manager. Uses `NoOpGcManager` on the server.                                      |
 
 #### Methods
 
-| Method               | Signature                      | Description                                                                    |
-| -------------------- | ------------------------------ | ------------------------------------------------------------------------------ |
-| `getContext`         | `(): QueryContext`             | Returns the `QueryContext` passed at construction.                             |
-| `applyMutationEvent` | `(event: MutationEvent): void`                      | Applies an external mutation event (create/update/delete) to the entity store.                           |
-| `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void`  | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering. |
-| `destroy`            | `(): void`                                          | Tears down the GC manager, network manager, and all caches.                                             |
+| Method               | Signature                                          | Description                                                                                              |
+| -------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `getContext`         | `(): QueryContext`                                 | Returns the `QueryContext` passed at construction.                                                       |
+| `applyMutationEvent` | `(event: MutationEvent): void`                     | Applies an external mutation event (create/update/delete) to the entity store.                           |
+| `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void` | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering. |
+| `destroy`            | `(): void`                                         | Tears down the GC manager, network manager, and all caches.                                              |
 
 ---
 
@@ -254,20 +250,20 @@ Base class for transport adapters. A controller handles sending queries and muta
 
 #### Methods
 
-| Method                  | Signature                                                    | Description                                                                              |
-| ----------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `register`              | `(queryClient: IQueryClientForController): void`             | Called once when the controller is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
-| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`        | **(abstract)** Send a query and return the raw response data.                            |
-| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`        | Optional. Send the next-page request for a paginated query.                              |
-| `hasNext`               | `(ctx: Query): boolean`                                      | Optional. Return `true` if more pages are available for the current result.              |
-| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>`     | Optional. Send a mutation and return the raw response data.                              |
-| `onNetworkStatusChange` | `(isOnline: boolean): void`                                  | Optional. Called when the network comes online or goes offline.                          |
-| `destroy`               | `(): void`                                                   | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.    |
+| Method                  | Signature                                                | Description                                                                                                                  |
+| ----------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `register`              | `(queryClient: IQueryClientForController): void`         | Called once when the controller is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
+| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                                |
+| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                                  |
+| `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                                  |
+| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>` | Optional. Send a mutation and return the raw response data.                                                                  |
+| `onNetworkStatusChange` | `(isOnline: boolean): void`                              | Optional. Called when the network comes online or goes offline.                                                              |
+| `destroy`               | `(): void`                                               | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.                                        |
 
 #### Protected properties
 
-| Property      | Type                             | Description                                    |
-| ------------- | -------------------------------- | ---------------------------------------------- |
+| Property      | Type                                     | Description                                                                                      |
+| ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `queryClient` | `IQueryClientForController \| undefined` | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
 
 #### Example
@@ -311,10 +307,10 @@ Import from `fetchium/rest`.
 new RESTQueryController(options?: RESTQueryControllerOptions)
 ```
 
-| Option    | Type                                                         | Description                                                    |
-| --------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
-| `fetch`   | `(url: string, init?: RequestInit) => Promise<Response>`     | The fetch implementation to use. Defaults to `globalThis.fetch`. |
-| `baseUrl` | `string \| Signal<string> \| (() => string) \| undefined`    | Base URL prepended to all request paths.                       |
+| Option    | Type                                                      | Description                                                      |
+| --------- | --------------------------------------------------------- | ---------------------------------------------------------------- |
+| `fetch`   | `(url: string, init?: RequestInit) => Promise<Response>`  | The fetch implementation to use. Defaults to `globalThis.fetch`. |
+| `baseUrl` | `string \| Signal<string> \| (() => string) \| undefined` | Base URL prepended to all request paths.                         |
 
 ---
 
@@ -604,13 +600,13 @@ The `t` object provides a declarative type definition DSL for describing query p
 | Type                            | Definition                                                                                                                | Description                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `QueryPromise<T extends Query>` | `DiscriminatedReactivePromise<QueryResult<T>>`                                                                            | The return type of `fetchQuery`. A reactive promise.                                                                       |
-| `QueryResult<T extends Query>`  | `ExtractType<T['result']> & { __refetch(), __fetchNext(), __hasNext, __isFetchingNext }`                                    | The resolved value of a query. Includes pagination helpers.                                                                |
+| `QueryResult<T extends Query>`  | `ExtractType<T['result']> & { __refetch(), __fetchNext(), __hasNext, __isFetchingNext }`                                  | The resolved value of a query. Includes pagination helpers.                                                                |
 | `QueryCacheOptions`             | `{ maxCount?: number; cacheTime?: number }`                                                                               | Persistent storage cache settings. `cacheTime` is in minutes (default: 1440 / 24 hours). `maxCount` is the LRU queue size. |
 | `QueryConfigOptions`            | `{ gcTime?, staleTime?, debounce?, networkMode?, retry?, refreshStaleOnReconnect?, subscribe? }`                          | Instance-level query configuration. See property table below.                                                              |
 | `QueryRequestOptions`           | `{ baseUrl?, credentials?, mode?, cache?, redirect?, referrer?, referrerPolicy?, integrity?, keepalive?, signal? }`       | Extended fetch options for individual queries.                                                                             |
 | `QueryContext`                  | `{ fetch, baseUrl?, log?, evictionMultiplier? }`                                                                          | Context object provided to the `QueryClient`.                                                                              |
 | `QueryParams`                   | `Record<string, string \| number \| boolean \| undefined \| null \| Signal<...> \| unknown[] \| Record<string, unknown>>` | The shape of query parameters at runtime.                                                                                  |
-| `FetchNextConfig`                | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
+| `FetchNextConfig`               | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
 
 #### `QueryConfigOptions` properties
 
@@ -626,15 +622,15 @@ The `t` object provides a declarative type definition DSL for describing query p
 
 ### Mutation types
 
-| Type                    | Definition                                                                                              | Description                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `MutationConfigOptions` | `{ retry?: RetryConfig \| number \| false }`                                                            | Mutation retry configuration.                                                                            |
+| Type                    | Definition                                                                                              | Description                                                                                                                                               |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MutationConfigOptions` | `{ retry?: RetryConfig \| number \| false }`                                                            | Mutation retry configuration.                                                                                                                             |
 | `MutationEffects`       | `{ creates?, updates?, deletes?, invalidates? }`                                                        | Mutation side effects. Entity effects are `ReadonlyArray<readonly [EntityClassOrTypename, unknown]>`. `invalidates` is `ReadonlyArray<InvalidateTarget>`. |
-| `InvalidateTarget`      | `QueryClass \| readonly [QueryClass, Record<string, unknown>]`                                          | Target for query invalidation. Class alone matches all instances; tuple with param subset matches only instances whose params contain those values. |
-| `MutationEvent`         | `CreateEvent \| UpdateEvent \| DeleteEvent`                                                             | Union of mutation event types.                                                                           |
-| `CreateEvent`           | `{ type: 'create'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity creation event.                                                                                   |
-| `UpdateEvent`           | `{ type: 'update'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity update event.                                                                                     |
-| `DeleteEvent`           | `{ type: 'delete'; typename: string; data: string \| number \| Record<string, unknown>; id?: unknown }` | Entity deletion event. `data` can be just the ID.                                                        |
+| `InvalidateTarget`      | `QueryClass \| readonly [QueryClass, Record<string, unknown>]`                                          | Target for query invalidation. Class alone matches all instances; tuple with param subset matches only instances whose params contain those values.       |
+| `MutationEvent`         | `CreateEvent \| UpdateEvent \| DeleteEvent`                                                             | Union of mutation event types.                                                                                                                            |
+| `CreateEvent`           | `{ type: 'create'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity creation event.                                                                                                                                    |
+| `UpdateEvent`           | `{ type: 'update'; typename: string; data: Record<string, unknown>; id?: unknown }`                     | Entity update event.                                                                                                                                      |
+| `DeleteEvent`           | `{ type: 'delete'; typename: string; data: string \| number \| Record<string, unknown>; id?: unknown }` | Entity deletion event. `data` can be just the ID.                                                                                                         |
 
 ### Network types
 

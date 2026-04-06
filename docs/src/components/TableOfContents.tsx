@@ -68,7 +68,7 @@ export function TableOfContents({
           <>
             <h2
               id="on-this-page-title"
-              className="text-[11px] font-semibold uppercase tracking-wider text-primary-400"
+              className="text-[11px] font-semibold tracking-wider text-primary-400 uppercase"
             >
               On this page
             </h2>

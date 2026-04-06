@@ -1,6 +1,14 @@
 import { context, watcher, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
-import { EntityDef, MutationEvent, QueryPromise, ComplexTypeDef, InternalTypeDef, QUERY_ID, InvalidateTarget } from './types.js';
+import {
+  EntityDef,
+  MutationEvent,
+  QueryPromise,
+  ComplexTypeDef,
+  InternalTypeDef,
+  QUERY_ID,
+  InvalidateTarget,
+} from './types.js';
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
 import { EntityInstance } from './EntityInstance.js';
@@ -74,7 +82,15 @@ export class QueryClient {
   private networkUnsubscribe: (() => void) | undefined;
 
   constructor(config: QueryClientConfig = {}) {
-    const { store = new SyncQueryStore(new MemoryPersistentStore()), log, evictionMultiplier, controllers: _c, networkManager: _n, gcManager: _g, ...rest } = config as QueryClientConfig & Record<string, unknown>;
+    const {
+      store = new SyncQueryStore(new MemoryPersistentStore()),
+      log,
+      evictionMultiplier,
+      controllers: _c,
+      networkManager: _n,
+      gcManager: _g,
+      ...rest
+    } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
     this.context = { ...rest, log: log ?? console, evictionMultiplier };
@@ -93,12 +109,15 @@ export class QueryClient {
     // Notify controllers when network status changes
     const onlineSignal = this.networkManager.getOnlineSignal();
     const networkWatcher = watcher(() => onlineSignal.value);
-    this.networkUnsubscribe = networkWatcher.addListener(() => {
-      const isOnline = onlineSignal.value;
-      for (const controller of this.controllers.values()) {
-        controller.onNetworkStatusChange?.(isOnline);
-      }
-    }, { skipInitial: true });
+    this.networkUnsubscribe = networkWatcher.addListener(
+      () => {
+        const isOnline = onlineSignal.value;
+        for (const controller of this.controllers.values()) {
+          controller.onNetworkStatusChange?.(isOnline);
+        }
+      },
+      { skipInitial: true },
+    );
 
     this.store.purgeStaleQueries?.();
   }
@@ -469,10 +488,7 @@ export class QueryClient {
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
 
-function paramsMatch(
-  instanceParams: Record<string, unknown> | undefined,
-  subset: Record<string, unknown>,
-): boolean {
+function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset: Record<string, unknown>): boolean {
   if (instanceParams === undefined) return false;
   for (const key in subset) {
     if (instanceParams[key] !== subset[key]) return false;

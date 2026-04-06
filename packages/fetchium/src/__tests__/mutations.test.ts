@@ -871,5 +871,4 @@ describe('Mutations', () => {
       });
     });
   });
-
 });

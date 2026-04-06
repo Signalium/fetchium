@@ -15,6 +15,7 @@ If `$ARGUMENTS` contains "hooks" or "signalium", use that mode for component exa
 ### 1. Gather the existing data model
 
 Ask the user to provide one or more of:
+
 - REST API endpoints (OpenAPI spec, route definitions, or example curl commands)
 - GraphQL schema or queries
 - TypeScript interfaces or types for API responses
@@ -28,11 +29,13 @@ If the user hasn't provided anything yet, ask them to share their data model bef
 Entities are objects with **identity** — they have a unique typename and ID, and the same object may appear across multiple queries.
 
 Look for:
+
 - Objects with an `id` field (or similar: `_id`, `uuid`, `pk`)
 - Objects referenced by multiple endpoints or nested in other objects
 - Objects that can be created, updated, or deleted independently
 
 For each entity, note:
+
 - The typename (use the domain name: `User`, `Post`, `Comment`, etc.)
 - The ID field and type (`string` or `number`)
 - All scalar fields and their types
@@ -44,6 +47,7 @@ For each entity, note:
 ### 3. Identify Queries
 
 Map read operations to Query classes:
+
 - Each GET endpoint or GraphQL query becomes a `RESTQuery` (or custom `Query`) class
 - Identify params: path parameters, query string parameters, headers
 - Identify the result shape: which fields come back, which are entities vs plain objects
@@ -53,6 +57,7 @@ Map read operations to Query classes:
 ### 4. Identify Mutations
 
 Map write operations to Mutation classes:
+
 - Each POST/PUT/PATCH/DELETE endpoint becomes a `RESTMutation` (or custom `Mutation`)
 - Identify params and body shape
 - **Critically:** identify the side effects:
@@ -65,6 +70,7 @@ Map write operations to Mutation classes:
 ### 5. Flag issues
 
 Watch for these common problems:
+
 - **Missing IDs**: Objects that should be entities but lack an `id` field
 - **Undiscriminated unions**: Polymorphic arrays/objects without a `type`/`__typename` discriminator field
 - **Circular references**: Entity A references Entity B which references Entity A — Fetchium handles this, but note it
@@ -76,6 +82,7 @@ Watch for these common problems:
 Output a structured plan with these sections:
 
 **Entities** — list each Entity class with its fields in `t.*` DSL format:
+
 ```ts
 class User extends Entity {
   __typename = t.typename('User');
@@ -87,6 +94,7 @@ class User extends Entity {
 ```
 
 **Queries** — list each Query class with params, path, and result:
+
 ```ts
 class GetUser extends RESTQuery {
   params = { id: t.id };
@@ -96,6 +104,7 @@ class GetUser extends RESTQuery {
 ```
 
 **Mutations** — list each Mutation class with params, method, body, and effects:
+
 ```ts
 class UpdateUser extends RESTMutation {
   params = { id: t.id, name: t.string };
@@ -110,6 +119,7 @@ class UpdateUser extends RESTMutation {
 ```
 
 **Gaps and decisions** — list anything that needs user input:
+
 - Ambiguous entity boundaries
 - Missing discriminators that need to be added
 - Fields that might need `t.optional()` vs required
@@ -119,6 +129,7 @@ class UpdateUser extends RESTMutation {
 ## Reference
 
 For detailed guidance on any topic, read the relevant files from `node_modules/fetchium/plugin/docs/`:
+
 - Entity definitions and proxy behavior: `node_modules/fetchium/plugin/docs/core/entities.md`
 - Query definitions and class rules: `node_modules/fetchium/plugin/docs/core/queries.md`
 - Type DSL reference: `node_modules/fetchium/plugin/docs/core/types.md`

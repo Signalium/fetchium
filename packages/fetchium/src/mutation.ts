@@ -1,12 +1,5 @@
 import { getContext, ReactiveTask } from 'signalium';
-import {
-  ExtractType,
-  InternalTypeDef,
-  MutationEffects,
-  TypeDef,
-  RetryConfig,
-  TypeDefShape,
-} from './types.js';
+import { ExtractType, InternalTypeDef, MutationEffects, TypeDef, RetryConfig, TypeDefShape } from './types.js';
 import { QueryClientContext, type QueryContext } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
 import { createDefinitionProxy, extractDefinition, type CapturedDefinition } from './fieldRef.js';

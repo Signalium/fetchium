@@ -46,29 +46,29 @@ Declared in `packages/fetchium/src/globals.d.ts`. Do NOT import it — it's a ba
 
 ### Entry points
 
-| Import path             | Source                    |
-| ----------------------- | ------------------------ |
-| `fetchium`              | `src/index.ts`           |
-| `fetchium/react`        | `src/react/index.ts`     |
-| `fetchium/stores/sync`  | `src/stores/sync.ts`     |
-| `fetchium/stores/async` | `src/stores/async.ts`    |
+| Import path             | Source                |
+| ----------------------- | --------------------- |
+| `fetchium`              | `src/index.ts`        |
+| `fetchium/react`        | `src/react/index.ts`  |
+| `fetchium/stores/sync`  | `src/stores/sync.ts`  |
+| `fetchium/stores/async` | `src/stores/async.ts` |
 
 ### Key source files
 
-| File                       | Purpose                                                                                                           |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `query.ts`                 | `Query` base class, `fetchQuery()`, `QueryDefinition`                                                             |
-| `QueryResult.ts`           | `QueryInstance` — manages a single query's lifecycle (relay, fetch, cache, refetch)                               |
-| `QueryClient.ts`           | `QueryClient` — central coordinator. Manages query instances, entity store, cache, context                        |
-| `proxy.ts`                 | `Entity` base class, `createEntityProxy()` — Proxy-based entity objects with lazy parsing                         |
-| `parseEntities.ts`         | Entity extraction during response parsing — normalizes entities into the store                                    |
-| `EntityMap.ts`             | `PreloadedEntityRecord` type, entity store data structures                                                        |
-| `typeDefs.ts`              | `t` type DSL (`t.string`, `t.entity()`, `t.array()`, etc.), `ValidatorDef`, `reifyShape()`                        |
-| `types.ts`                 | TypeScript types: `Mask` enum, `EntityDef`, `ObjectDef`, `QueryResult<T>`, `QueryPromise<T>`                      |
-| `mutation.ts`              | `Mutation` base class, `getMutation()`                                                                            |
-| `NetworkManager.ts`        | Online/offline detection via signal                                                                               |
-| `MemoryEvictionManager.ts` | Schedules query eviction after deactivation                                                                       |
-| `RefetchManager.ts`        | Periodic refetch for stale queries                                                                                |
+| File                       | Purpose                                                                                      |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| `query.ts`                 | `Query` base class, `fetchQuery()`, `QueryDefinition`                                        |
+| `QueryResult.ts`           | `QueryInstance` — manages a single query's lifecycle (relay, fetch, cache, refetch)          |
+| `QueryClient.ts`           | `QueryClient` — central coordinator. Manages query instances, entity store, cache, context   |
+| `proxy.ts`                 | `Entity` base class, `createEntityProxy()` — Proxy-based entity objects with lazy parsing    |
+| `parseEntities.ts`         | Entity extraction during response parsing — normalizes entities into the store               |
+| `EntityMap.ts`             | `PreloadedEntityRecord` type, entity store data structures                                   |
+| `typeDefs.ts`              | `t` type DSL (`t.string`, `t.entity()`, `t.array()`, etc.), `ValidatorDef`, `reifyShape()`   |
+| `types.ts`                 | TypeScript types: `Mask` enum, `EntityDef`, `ObjectDef`, `QueryResult<T>`, `QueryPromise<T>` |
+| `mutation.ts`              | `Mutation` base class, `getMutation()`                                                       |
+| `NetworkManager.ts`        | Online/offline detection via signal                                                          |
+| `MemoryEvictionManager.ts` | Schedules query eviction after deactivation                                                  |
+| `RefetchManager.ts`        | Periodic refetch for stale queries                                                           |
 
 ### Entity system
 

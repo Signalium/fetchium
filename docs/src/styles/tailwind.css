@@ -40,44 +40,44 @@
   --container-8xl: 88rem;
 
   /* Neutral near-black base */
-  --color-primary-50: #E8E8EC;
-  --color-primary-100: #D0D0D6;
-  --color-primary-200: #B0B0B8;
+  --color-primary-50: #e8e8ec;
+  --color-primary-100: #d0d0d6;
+  --color-primary-200: #b0b0b8;
   --color-primary-300: #909098;
   --color-primary-400: #707078;
   --color-primary-500: #585860;
-  --color-primary-600: #4A4A52;
-  --color-primary-700: #3A3A42;
-  --color-primary-800: #2C2C32;
-  --color-primary-900: #1A1A1E;
+  --color-primary-600: #4a4a52;
+  --color-primary-700: #3a3a42;
+  --color-primary-800: #2c2c32;
+  --color-primary-900: #1a1a1e;
   --color-primary-950: #131315;
-  --color-primary-1000: #0C0C0E;
+  --color-primary-1000: #0c0c0e;
 
   /* Green / lime accent */
-  --color-secondary-50: #F4FCE0;
-  --color-secondary-100: #E4F8B0;
-  --color-secondary-200: #C8F068;
-  --color-secondary-300: #A8E848;
-  --color-secondary-400: #88D038;
-  --color-secondary-500: #70B830;
-  --color-secondary-600: #60A028;
-  --color-secondary-700: #4A8020;
+  --color-secondary-50: #f4fce0;
+  --color-secondary-100: #e4f8b0;
+  --color-secondary-200: #c8f068;
+  --color-secondary-300: #a8e848;
+  --color-secondary-400: #88d038;
+  --color-secondary-500: #70b830;
+  --color-secondary-600: #60a028;
+  --color-secondary-700: #4a8020;
   --color-secondary-800: #386018;
-  --color-secondary-900: #1A2C08;
-  --color-secondary-950: #0E1A04;
+  --color-secondary-900: #1a2c08;
+  --color-secondary-950: #0e1a04;
 
   /* Pink accent */
-  --color-tertiary-50: #FFF0F6;
-  --color-tertiary-100: #FFD0E4;
-  --color-tertiary-200: #F8A0C8;
-  --color-tertiary-300: #F050A0;
-  --color-tertiary-400: #D8408A;
-  --color-tertiary-500: #C03078;
-  --color-tertiary-600: #A03068;
+  --color-tertiary-50: #fff0f6;
+  --color-tertiary-100: #ffd0e4;
+  --color-tertiary-200: #f8a0c8;
+  --color-tertiary-300: #f050a0;
+  --color-tertiary-400: #d8408a;
+  --color-tertiary-500: #c03078;
+  --color-tertiary-600: #a03068;
   --color-tertiary-700: #802858;
   --color-tertiary-800: #601848;
-  --color-tertiary-900: #300C22;
-  --color-tertiary-950: #1A0614;
+  --color-tertiary-900: #300c22;
+  --color-tertiary-950: #1a0614;
 
   --color-divider: color-mix(
     in oklab,

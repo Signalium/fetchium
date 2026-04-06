@@ -50,12 +50,12 @@ The returned promise object has the following properties:
 
 The resolved `QueryResult<T>` includes pagination helpers:
 
-| Property          | Type                            | Description                                         |
-| ----------------- | ------------------------------- | --------------------------------------------------- |
-| `__refetch()`     | `() => QueryPromise<T>`         | Triggers a refetch and returns a new promise.       |
+| Property           | Type                            | Description                                            |
+| ------------------ | ------------------------------- | ------------------------------------------------------ |
+| `__refetch()`      | `() => QueryPromise<T>`         | Triggers a refetch and returns a new promise.          |
 | `__fetchNext()`    | `() => Promise<QueryResult<T>>` | Fetches the next page (if configured via `fetchNext`). |
-| `__hasNext`       | `boolean`                       | Whether there is a next page available.             |
-| `__isFetchingNext` | `boolean`                       | Whether a next-page request is currently in flight. |
+| `__hasNext`        | `boolean`                       | Whether there is a next page available.                |
+| `__isFetchingNext` | `boolean`                       | Whether a next-page request is currently in flight.    |
 
 #### Requirements
 

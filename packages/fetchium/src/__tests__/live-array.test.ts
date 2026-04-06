@@ -435,7 +435,10 @@ describe('LiveArray', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     const mockFetch1 = createMockFetch();
-    const client1 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch1 as any , baseUrl: 'http://localhost' })] });
+    const client1 = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
+    });
 
     mockFetch1.get('/list/[id]', {
       list: {
@@ -481,7 +484,10 @@ describe('LiveArray', () => {
       },
       { delay: 5000 },
     );
-    const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch2 as any , baseUrl: 'http://localhost' })] });
+    const client2 = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
+    });
 
     await testWithClient(client2, async () => {
       const relay = fetchQuery(GetList, { id: '1' });
@@ -519,7 +525,10 @@ describe('LiveArray', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     const mockFetch1 = createMockFetch();
-    const client1 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch1 as any , baseUrl: 'http://localhost' })] });
+    const client1 = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
+    });
 
     mockFetch1.get('/items', {
       items: [
@@ -557,7 +566,10 @@ describe('LiveArray', () => {
       },
       { delay: 5000 },
     );
-    const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch2 as any , baseUrl: 'http://localhost' })] });
+    const client2 = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
+    });
 
     await testWithClient(client2, async () => {
       const relay = fetchQuery(GetItems);

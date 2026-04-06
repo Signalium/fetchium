@@ -253,10 +253,10 @@ if (relay.value.__hasNext) {
 
 When `fetchNext` is configured on a query, the query result object gains three additional properties:
 
-| Property          | Type            | Description                                                                     |
-| ----------------- | --------------- | ------------------------------------------------------------------------------- |
+| Property           | Type            | Description                                                                     |
+| ------------------ | --------------- | ------------------------------------------------------------------------------- |
 | `__fetchNext()`    | `() => Promise` | Fetches the next page. Returns a promise that resolves when the page is loaded. |
-| `__hasNext`       | `boolean`       | Whether more pages are available.                                               |
+| `__hasNext`        | `boolean`       | Whether more pages are available.                                               |
 | `__isFetchingNext` | `boolean`       | Whether a next-page request is currently in flight.                             |
 
 All three properties are **reactive** --- reading them inside a Signalium reactive function or a `component()` establishes a dependency, so your UI updates automatically when the values change.

@@ -27,9 +27,6 @@ export class EntityFactory<T extends Entity> {
   }
 }
 
-export function defineFactory<T extends Entity>(
-  cls: new () => T,
-  generators: EntityGenerators<T>,
-): EntityFactory<T> {
+export function defineFactory<T extends Entity>(cls: new () => T, generators: EntityGenerators<T>): EntityFactory<T> {
   return new EntityFactory(cls, generators);
 }

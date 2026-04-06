@@ -42,7 +42,7 @@ function GroupNavigationListItem({
 }) {
   return (
     <li key={item.title}>
-      <h2 className="px-6 font-display text-[11px] font-semibold uppercase tracking-wider text-primary-500">
+      <h2 className="px-6 font-display text-[11px] font-semibold tracking-wider text-primary-500 uppercase">
         {item.title}
       </h2>
       <ul role="list" className="mt-3 space-y-0.5">
@@ -74,7 +74,7 @@ function LinkNavigationListItem({
         href={item.href}
         onClick={onLinkClick}
         className={clsx(
-          'block border-r-2 py-2 pl-6 pr-4 text-sm transition-colors',
+          'block border-r-2 py-2 pr-4 pl-6 text-sm transition-colors',
           isActive
             ? 'border-tertiary-300 bg-tertiary-300/10 font-medium text-tertiary-300'
             : 'border-transparent text-primary-300/70 hover:text-white',

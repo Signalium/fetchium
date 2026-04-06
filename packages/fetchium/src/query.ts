@@ -1,13 +1,5 @@
 import { getContext } from 'signalium';
-import {
-  ExtractType,
-  TypeDef,
-  TypeDefShape,
-  RetryConfig,
-  QueryPromise,
-  Mask,
-  QUERY_ID,
-} from './types.js';
+import { ExtractType, TypeDef, TypeDefShape, RetryConfig, QueryPromise, Mask, QUERY_ID } from './types.js';
 import {
   QueryCacheOptions,
   QueryConfigOptions,
@@ -127,7 +119,10 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
     this.statics = statics;
   }
 
-  createExecutionContext(actualParams: Record<string, unknown>, queryContext: import('./query-types.js').QueryContext): Query {
+  createExecutionContext(
+    actualParams: Record<string, unknown>,
+    queryContext: import('./query-types.js').QueryContext,
+  ): Query {
     return createExecutionContextUtil(this.captured, actualParams, queryContext);
   }
 
@@ -160,7 +155,9 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
     const cache = (QueryClass as typeof Query).cache;
 
     // Extract raw fetchNext config before reification so FieldRefs survive
-    const rawFetchNext = (captured.fields as unknown as Record<string, unknown>).fetchNext as FetchNextConfig | undefined;
+    const rawFetchNext = (captured.fields as unknown as Record<string, unknown>).fetchNext as
+      | FetchNextConfig
+      | undefined;
 
     // Resolve the controller class from the Query class static property
     const controllerClass = (QueryClass as typeof Query).controller;

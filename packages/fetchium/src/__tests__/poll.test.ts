@@ -137,7 +137,6 @@ describe('poll() factory', () => {
         expect(callCount).toBeGreaterThanOrEqual(3);
       });
     });
-
   });
 
   describe('Multiple independent polls', () => {

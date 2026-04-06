@@ -21,7 +21,11 @@ describe('Network Mode', () => {
     store = new SyncQueryStore(new MemoryPersistentStore());
     // Start with online status
     networkManager = new NetworkManager(true);
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })], networkManager: networkManager });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      networkManager: networkManager,
+    });
   });
 
   afterEach(() => {
@@ -374,7 +378,11 @@ describe('Network Mode', () => {
       // @ts-ignore
       delete global.window;
 
-      const serverClient = new QueryClient({ store: serverStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })], networkManager: serverNetworkManager });
+      const serverClient = new QueryClient({
+        store: serverStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        networkManager: serverNetworkManager,
+      });
 
       let attempts = 0;
       mockFetch.get('/users/1', () => {

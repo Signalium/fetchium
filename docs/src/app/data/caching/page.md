@@ -14,11 +14,11 @@ This philosophy is a direct extension of Fetchium's core design principle: _desc
 
 Fetchium's cache behavior is controlled by three settings, each operating at a different layer of the caching system.
 
-| Setting     | Unit         | Default              | Scope                    | Description                                                |
-| ----------- | ------------ | -------------------- | ------------------------ | ---------------------------------------------------------- |
-| `staleTime` | milliseconds | `0` (always stale)   | Per-query instance       | How long data is considered fresh after fetching            |
-| `gcTime`    | minutes      | `5`                  | Per-query instance       | How long an unwatched query stays in the in-memory cache   |
-| `cacheTime` | minutes      | `1440` (24 hours)    | Per-query class (static) | How long query results persist in the persistent store     |
+| Setting     | Unit         | Default            | Scope                    | Description                                              |
+| ----------- | ------------ | ------------------ | ------------------------ | -------------------------------------------------------- |
+| `staleTime` | milliseconds | `0` (always stale) | Per-query instance       | How long data is considered fresh after fetching         |
+| `gcTime`    | minutes      | `5`                | Per-query instance       | How long an unwatched query stays in the in-memory cache |
+| `cacheTime` | minutes      | `1440` (24 hours)  | Per-query class (static) | How long query results persist in the persistent store   |
 
 The lifecycle of a piece of data flows through these layers:
 
@@ -58,11 +58,11 @@ class GetFeatureFlags extends RESTQuery {
 
 The default is `5` minutes. Due to Fetchium's bucket-based garbage collection, the actual eviction time falls between `gcTime` and `2 × gcTime`. This is a deliberate trade-off: bucket-based GC is much cheaper than per-key timers, and the imprecision is irrelevant for most applications.
 
-| `gcTime` value | Behavior                                                             |
-| -------------- | -------------------------------------------------------------------- |
-| `0`            | Evicted on the next tick after all consumers unmount                 |
-| `5` (default)  | Stays in memory for 5--10 minutes after last consumer unmounts       |
-| `Infinity`     | Never evicted from memory (use with caution)                         |
+| `gcTime` value | Behavior                                                       |
+| -------------- | -------------------------------------------------------------- |
+| `0`            | Evicted on the next tick after all consumers unmount           |
+| `5` (default)  | Stays in memory for 5--10 minutes after last consumer unmounts |
+| `Infinity`     | Never evicted from memory (use with caution)                   |
 
 ### cacheTime
 
@@ -88,7 +88,7 @@ class GetUser extends RESTQuery {
 
   config = {
     staleTime: 30_000, // fresh for 30 seconds
-    gcTime: 10,        // keep in memory 10 minutes after unmount
+    gcTime: 10, // keep in memory 10 minutes after unmount
   };
 }
 ```
@@ -122,7 +122,7 @@ class GetUser extends RESTQuery {
 class GetUser extends RESTQuery {
   static cache = {
     cacheTime: 120, // persist in store for 2 hours
-    maxCount: 100,  // keep at most 100 cached instances
+    maxCount: 100, // keep at most 100 cached instances
   };
 
   params = { id: t.number };
@@ -150,9 +150,7 @@ function UserProfile({ userId }: { userId: number }) {
   return (
     <div>
       <h1>{query.value.name}</h1>
-      <button onClick={() => query.value.__refetch()}>
-        Refresh
-      </button>
+      <button onClick={() => query.value.__refetch()}>Refresh</button>
     </div>
   );
 }
@@ -167,9 +165,7 @@ const UserProfile = component(({ userId }: { userId: number }) => {
   return (
     <div>
       <h1>{query.value.name}</h1>
-      <button onClick={() => query.value.__refetch()}>
-        Refresh
-      </button>
+      <button onClick={() => query.value.__refetch()}>Refresh</button>
     </div>
   );
 });
@@ -269,12 +265,12 @@ class User extends Entity {
 }
 ```
 
-| `gcTime` value        | Behavior                                                         |
-| --------------------- | ---------------------------------------------------------------- |
-| `undefined` (default) | Entity is evicted immediately when no queries reference it       |
-| `0`                   | Entity is evicted on the next tick                               |
-| `10`                  | Entity stays in cache for 10--20 minutes after last reference    |
-| `Infinity`            | Entity is never garbage collected                                |
+| `gcTime` value        | Behavior                                                      |
+| --------------------- | ------------------------------------------------------------- |
+| `undefined` (default) | Entity is evicted immediately when no queries reference it    |
+| `0`                   | Entity is evicted on the next tick                            |
+| `10`                  | Entity stays in cache for 10--20 minutes after last reference |
+| `Infinity`            | Entity is never garbage collected                             |
 
 Entity GC and query GC are independent but related. When a query is evicted from memory (its `gcTime` expires), the entities it referenced lose one consumer. If no other active query references a given entity, that entity's own `gcTime` clock starts. This means:
 

@@ -10,11 +10,7 @@ import type { ExtractType, TypeDefShape } from '../types.js';
 type Primitive = string | number | boolean | null | undefined | Date;
 
 type DataKeys<T> = {
-  [K in keyof T & string]: K extends `__${string}`
-    ? never
-    : T[K] extends (...args: any[]) => any
-      ? never
-      : K;
+  [K in keyof T & string]: K extends `__${string}` ? never : T[K] extends (...args: any[]) => any ? never : K;
 }[keyof T & string];
 
 export type DotPaths<T, Depth extends unknown[] = []> = Depth['length'] extends 5

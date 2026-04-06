@@ -14,13 +14,13 @@ This is the same resilience philosophy described in the [Types guide](/core/type
 
 Every query in Fetchium returns a `ReactivePromise`, which exposes a small set of properties for handling async state --- including errors:
 
-| Property     | Type      | Description                                                                                       |
-| ------------ | --------- | ------------------------------------------------------------------------------------------------- |
-| `isRejected` | `boolean` | `true` when the most recent execution failed (after all retries are exhausted)                    |
-| `error`      | `unknown` | The error object from the rejection. Only meaningful when `isRejected` is `true`                  |
-| `isPending`  | `boolean` | `true` during loading, including retry attempts                                                   |
+| Property     | Type      | Description                                                                                        |
+| ------------ | --------- | -------------------------------------------------------------------------------------------------- |
+| `isRejected` | `boolean` | `true` when the most recent execution failed (after all retries are exhausted)                     |
+| `error`      | `unknown` | The error object from the rejection. Only meaningful when `isRejected` is `true`                   |
+| `isPending`  | `boolean` | `true` during loading, including retry attempts                                                    |
 | `isReady`    | `boolean` | `true` once data has loaded successfully at least once --- stays `true` even across later failures |
-| `value`      | `T`       | The most recently resolved value. Available when `isReady` is `true`, even if a later fetch fails |
+| `value`      | `T`       | The most recently resolved value. Available when `isReady` is `true`, even if a later fetch fails  |
 
 The standard pattern for handling errors in components follows directly from these properties:
 
@@ -325,14 +325,14 @@ This is a conscious opt-in. The default explicit-checking pattern (`isRejected` 
 
 ## Summary
 
-| Error type             | Behavior                                                             | Surfaces as                              |
-| ---------------------- | -------------------------------------------------------------------- | ---------------------------------------- |
-| Network error          | Retried, then rejected                                               | `isRejected: true`, `error` set          |
-| HTTP error (4xx/5xx)   | Retried (by default), then rejected                                  | `isRejected: true`, `error` set          |
-| Parse error (required) | Query rejects                                                        | `isRejected: true`, `error` set          |
-| Parse error (optional) | Falls back to `undefined`                                            | Silent, logged via `log.warn`            |
-| Parse error (array)    | Item filtered out                                                    | Silent, logged via `log.warn`            |
-| Mutation failure       | Not retried by default                                               | `isRejected: true`, `error` set          |
+| Error type             | Behavior                            | Surfaces as                     |
+| ---------------------- | ----------------------------------- | ------------------------------- |
+| Network error          | Retried, then rejected              | `isRejected: true`, `error` set |
+| HTTP error (4xx/5xx)   | Retried (by default), then rejected | `isRejected: true`, `error` set |
+| Parse error (required) | Query rejects                       | `isRejected: true`, `error` set |
+| Parse error (optional) | Falls back to `undefined`           | Silent, logged via `log.warn`   |
+| Parse error (array)    | Item filtered out                   | Silent, logged via `log.warn`   |
+| Mutation failure       | Not retried by default              | `isRejected: true`, `error` set |
 
 ---
 

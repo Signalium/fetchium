@@ -1,6 +1,12 @@
 import clsx from 'clsx';
 
-export function FcTile({ className, size = 'sm' }: { className?: string; size?: 'sm' | 'md' }) {
+export function FcTile({
+  className,
+  size = 'sm',
+}: {
+  className?: string;
+  size?: 'sm' | 'md';
+}) {
   const ismd = size === 'md';
 
   return (
@@ -11,10 +17,20 @@ export function FcTile({ className, size = 'sm' }: { className?: string; size?: 
         className,
       )}
     >
-      <span className={clsx('font-mono font-bold leading-none text-tertiary-300', ismd ? 'text-lg' : 'text-base')}>
+      <span
+        className={clsx(
+          'font-mono leading-none font-bold text-tertiary-300',
+          ismd ? 'text-lg' : 'text-base',
+        )}
+      >
         Fc
       </span>
-      <span className={clsx('font-display text-secondary-300/70', ismd ? 'text-[6px]' : 'text-[5px]')}>
+      <span
+        className={clsx(
+          'font-display text-secondary-300/70',
+          ismd ? 'text-[6px]' : 'text-[5px]',
+        )}
+      >
         200
       </span>
     </div>

@@ -210,10 +210,9 @@ it('renders the user name after loading', async () => {
     user: mock.entity(User, { name: 'Alice', email: 'alice@example.com' }),
   });
 
-  const { getByTestId } = renderApp(
-    <UserProfile userId={1} />,
-    { client: mock.client },
-  );
+  const { getByTestId } = renderApp(<UserProfile userId={1} />, {
+    client: mock.client,
+  });
 
   await waitFor(() => {
     expect(getByTestId('name')).toHaveTextContent('Alice');
@@ -276,12 +275,12 @@ it('mutation updates the entity visible in queries', async () => {
 
 ## Summary
 
-| What you are testing | Tools needed | Pattern |
-| --- | --- | --- |
-| React components with `useQuery` | `MockClient` + your `renderApp` | `mock.when().respond()`, render, assert |
-| Mutations | `MockClient` | `mock.when(Mutation).respond()`, check `mock.calls` |
-| Entity effects after mutation | `MockClient` + entity query | Mock both, verify query data reflects mutation |
-| Error states | `MockClient` | `.error()` or `.networkError()` |
+| What you are testing             | Tools needed                    | Pattern                                             |
+| -------------------------------- | ------------------------------- | --------------------------------------------------- |
+| React components with `useQuery` | `MockClient` + your `renderApp` | `mock.when().respond()`, render, assert             |
+| Mutations                        | `MockClient`                    | `mock.when(Mutation).respond()`, check `mock.calls` |
+| Entity effects after mutation    | `MockClient` + entity query     | Mock both, verify query data reflects mutation      |
+| Error states                     | `MockClient`                    | `.error()` or `.networkError()`                     |
 
 The core idea is always the same: create a `MockClient`, set up your mocks, plug `mock.client` into your providers, and assert.
 

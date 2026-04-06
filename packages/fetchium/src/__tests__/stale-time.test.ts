@@ -67,7 +67,10 @@ describe('StaleTime', () => {
       // Create new client with same store (simulating app restart)
       mockFetch.reset();
       mockFetch.get('/item', { data: 99 }, { delay: 50 });
-      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const client2 = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
@@ -147,7 +150,10 @@ describe('StaleTime', () => {
       // Create new client
       mockFetch.reset();
       mockFetch.get('/data', { version: 2 }, { delay: 50 });
-      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const client2 = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);

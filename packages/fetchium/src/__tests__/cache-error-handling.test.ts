@@ -55,7 +55,10 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const errorClient = new QueryClient({
+        store: errorStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
 
@@ -91,7 +94,10 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const errorClient = new QueryClient({
+        store: errorStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
 
@@ -426,7 +432,10 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const errorClient = new QueryClient({
+        store: errorStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       mockFetch.get('/users/[id]', {
         user: { __typename: 'User', id: 1, name: 'Initial User', email: 'initial@example.com' },

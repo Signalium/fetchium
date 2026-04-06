@@ -37,13 +37,22 @@ function Header() {
       </div>
 
       <nav className="flex items-center gap-5 text-sm">
-        <Link href="/quickstart" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+        <Link
+          href="/quickstart"
+          className="hidden text-primary-300 transition-colors hover:text-white sm:block"
+        >
           Docs
         </Link>
-        <Link href="/core/queries" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+        <Link
+          href="/core/queries"
+          className="hidden text-primary-300 transition-colors hover:text-white sm:block"
+        >
           Examples
         </Link>
-        <Link href="/api/fetchium" className="hidden text-primary-300 transition-colors hover:text-white sm:block">
+        <Link
+          href="/api/fetchium"
+          className="hidden text-primary-300 transition-colors hover:text-white sm:block"
+        >
           API
         </Link>
         <Link
@@ -80,9 +89,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Main content area — centered with max-width */}
         <div className="flex min-w-0 flex-1 justify-center">
-          <div className="flex w-full max-w-5xl">
-            {children}
-          </div>
+          <div className="flex w-full max-w-5xl">{children}</div>
         </div>
       </div>
     </div>

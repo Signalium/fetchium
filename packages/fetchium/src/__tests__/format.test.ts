@@ -69,7 +69,7 @@ describe('Format System', () => {
   describe('Built-in Formats', () => {
     describe('date-time format', () => {
       it('should parse date-time strings lazily on access', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -104,7 +104,7 @@ describe('Format System', () => {
       });
 
       it('should cache parsed date-time values', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -139,7 +139,7 @@ describe('Format System', () => {
       });
 
       it('should serialize date-time values as raw strings in store', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -180,7 +180,7 @@ describe('Format System', () => {
       });
 
       it('should handle invalid date-time strings', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -212,7 +212,7 @@ describe('Format System', () => {
 
     describe('date format', () => {
       it('should parse date strings lazily on access', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -249,7 +249,7 @@ describe('Format System', () => {
       });
 
       it('should serialize date values as raw strings in store', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -568,7 +568,7 @@ describe('Format System', () => {
   describe('Entity Updates with Formats', () => {
     describe('date-time format updates', () => {
       it('should update date-time values when entity is refetched', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -628,7 +628,7 @@ describe('Format System', () => {
       });
 
       it('should clear cached date-time values when entity is updated', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -681,7 +681,7 @@ describe('Format System', () => {
 
     describe('date format updates', () => {
       it('should update date values when entity is refetched', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;
@@ -738,7 +738,7 @@ describe('Format System', () => {
 
     describe('custom format updates', () => {
       it('should update custom formatted values when entity is refetched', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         // Register a custom format
         registerFormat(
           'price',
@@ -804,7 +804,7 @@ describe('Format System', () => {
       });
 
       it('should clear cached custom formatted values when entity is updated', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         // Register a custom format
         registerFormat(
           'money',
@@ -869,7 +869,7 @@ describe('Format System', () => {
 
     describe('multiple formatted fields updates', () => {
       it('should update all formatted fields when entity is refetched', async () => {
-      const { client, mockFetch, kv } = getClient();
+        const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
           id = t.id;

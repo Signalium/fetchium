@@ -21,7 +21,6 @@ import {
 import { QueryResult } from 'src/types.js';
 import { DiscriminatedReactivePromise } from 'signalium';
 
-
 /**
  * Caching and Persistence Tests
  *
@@ -271,7 +270,10 @@ describe('Caching and Persistence', () => {
 
       // Create new client with same stores
       mockFetch.get('/item', { id: 1, value: 'New Data' }, { delay: 10 });
-      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const client2 = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
@@ -1687,7 +1689,10 @@ describe('Caching and Persistence', () => {
       });
 
       // Create a new client to simulate a fresh session (but same persistent store)
-      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const client2 = new QueryClient({
+        store: store,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       await testWithClient(client2, async () => {
         class GetPositionV2 extends RESTQuery {

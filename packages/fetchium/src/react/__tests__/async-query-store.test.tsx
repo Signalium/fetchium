@@ -117,8 +117,14 @@ describe('React AsyncQueryStore Integration', () => {
     });
 
     mockFetch = createMockFetch();
-    readerClient = new QueryClient({ store: readerStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
-    writerClient = new QueryClient({ store: writerStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    readerClient = new QueryClient({
+      store: readerStore,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
+    writerClient = new QueryClient({
+      store: writerStore,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   describe('Basic Reader-Writer Flow', () => {
@@ -214,7 +220,10 @@ describe('React AsyncQueryStore Integration', () => {
         delegate: mockDelegate,
         connect: handler => newMessageChannel.connectReader(handler),
       });
-      const newReaderClient = new QueryClient({ store: newReaderStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const newReaderClient = new QueryClient({
+        store: newReaderStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       // Second component should load from cache (async load required)
       const SecondComponent = component(() => {
@@ -284,7 +293,10 @@ describe('React AsyncQueryStore Integration', () => {
         delegate: mockDelegate,
         connect: handler => newMessageChannel.connectReader(handler),
       });
-      const newReaderClient = new QueryClient({ store: newReaderStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const newReaderClient = new QueryClient({
+        store: newReaderStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       // Setup mock to return updated data
       mockFetch.get('/users/1', { id: '1', name: 'Alice Updated' });
@@ -565,7 +577,10 @@ describe('React AsyncQueryStore Integration', () => {
         delegate: mockDelegate,
         connect: handler => newMessageChannel.connectReader(handler),
       });
-      const newReaderClient = new QueryClient({ store: newReaderStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const newReaderClient = new QueryClient({
+        store: newReaderStore,
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       const NewReaderComponent = component(() => {
         const user1 = fetchQuery(GetUser, { id: '1' });

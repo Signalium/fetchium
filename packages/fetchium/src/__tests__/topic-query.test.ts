@@ -105,10 +105,10 @@ class MockTopicQueryController extends TopicQueryController {
         if (meta) this._topicMeta.set(topic, meta);
         this.fulfillTopic(topic, data);
       },
-      onError: (error) => {
+      onError: error => {
         this.rejectTopic(topic, error);
       },
-      onEvent: (event) => {
+      onEvent: event => {
         this.sendMutationEvent(event);
       },
     });

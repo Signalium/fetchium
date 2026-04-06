@@ -20,7 +20,10 @@ describe('queryKeyForClass', () => {
   beforeEach(() => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   afterEach(() => {
@@ -93,7 +96,10 @@ describe('mutationKeyForClass', () => {
   beforeEach(() => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   afterEach(() => {

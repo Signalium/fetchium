@@ -243,6 +243,5 @@ describe('Poll Subscribe', () => {
         expect(callCount).toBeGreaterThanOrEqual(3);
       });
     });
-
   });
 });

@@ -1,5 +1,10 @@
 import { type Metadata } from 'next';
-import { Inter, DM_Mono, JetBrains_Mono, Instrument_Sans } from 'next/font/google';
+import {
+  Inter,
+  DM_Mono,
+  JetBrains_Mono,
+  Instrument_Sans,
+} from 'next/font/google';
 import clsx from 'clsx';
 
 import { Providers } from '@/app/providers';

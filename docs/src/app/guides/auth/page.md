@@ -289,15 +289,15 @@ This is a deliberate design decision. Fetchium favors _composition over configur
 
 ## Summary
 
-| Pattern | When to use |
-| -------------------------------- | ------------------------------------------------------------------ |
-| Global fetch wrapper | Auth that applies to all requests (JWT, session cookies, API keys) |
-| Reactive signal token | SPAs where auth state changes at runtime (login/logout) |
-| Per-query `headers` | Endpoint-specific headers (content types, API versions) |
-| `getHeaders()` method | Dynamic per-query headers based on runtime conditions |
-| 401 catch + refresh + retry | Token expiration with automatic renewal |
-| Multiple `QueryClient` instances | Different APIs with different auth schemes or stores |
-| Per-query `requestOptions.baseUrl` | Same auth, different host |
+| Pattern                            | When to use                                                        |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| Global fetch wrapper               | Auth that applies to all requests (JWT, session cookies, API keys) |
+| Reactive signal token              | SPAs where auth state changes at runtime (login/logout)            |
+| Per-query `headers`                | Endpoint-specific headers (content types, API versions)            |
+| `getHeaders()` method              | Dynamic per-query headers based on runtime conditions              |
+| 401 catch + refresh + retry        | Token expiration with automatic renewal                            |
+| Multiple `QueryClient` instances   | Different APIs with different auth schemes or stores               |
+| Per-query `requestOptions.baseUrl` | Same auth, different host                                          |
 
 The common thread is that Fetchium does not own your auth logic. It provides the _seam_ --- the `fetch` option on `QueryClient` --- and you fill it with whatever your application needs. This keeps the library small, your auth testable, and your options open.
 

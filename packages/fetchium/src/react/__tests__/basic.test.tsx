@@ -32,7 +32,10 @@ describe('React Query Integration', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   describe('Basic Query Usage', () => {
@@ -955,7 +958,10 @@ describe('React Query Integration', () => {
         );
       });
 
-      const pollingClient = new QueryClient({ store: new SyncQueryStore(new MemoryPersistentStore()), controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const pollingClient = new QueryClient({
+        store: new SyncQueryStore(new MemoryPersistentStore()),
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       class GetUser extends RESTQuery {
         path = '/users/1';
@@ -1031,7 +1037,10 @@ describe('React Query Integration', () => {
         );
       });
 
-      const pollingClient = new QueryClient({ store: new SyncQueryStore(new MemoryPersistentStore()), controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+      const pollingClient = new QueryClient({
+        store: new SyncQueryStore(new MemoryPersistentStore()),
+        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      });
 
       class GetUser extends RESTQuery {
         path = '/users/1';

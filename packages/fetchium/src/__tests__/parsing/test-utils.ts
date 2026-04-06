@@ -104,7 +104,10 @@ export function createParsingTestContext(): ParsingTestContext {
   const kv = new MemoryPersistentStore();
   const store = new SyncQueryStore(kv);
   const mockFetch = createMockFetch();
-  const client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })] });
+  const client = new QueryClient({
+    store: store,
+    controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+  });
 
   return { client, store, kv, mockFetch };
 }

@@ -27,7 +27,10 @@ describe('__fetchNext React Integration', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     mockFetch = createMockFetch();
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   describe('useQuery', () => {

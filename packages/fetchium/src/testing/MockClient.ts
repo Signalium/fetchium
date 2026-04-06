@@ -222,10 +222,7 @@ export class MockClient {
   // Mock setup
   // ============================
 
-  when<T extends Query>(
-    queryClass: new () => T,
-    params?: Record<string, unknown>,
-  ): MockQueryBuilder<T> {
+  when<T extends Query>(queryClass: new () => T, params?: Record<string, unknown>): MockQueryBuilder<T> {
     const { method, url } = resolveQueryUrl(queryClass, params);
     const builder = new MockQueryBuilder<T>(this, method, url);
     this.queryClassMap.set((builder as any).route, queryClass);
@@ -236,10 +233,7 @@ export class MockClient {
   // Entity generation
   // ============================
 
-  entity<T extends Entity>(
-    cls: new () => T,
-    overrides?: Record<string, unknown>,
-  ): Record<string, unknown> {
+  entity<T extends Entity>(cls: new () => T, overrides?: Record<string, unknown>): Record<string, unknown> {
     return generateEntityData(cls, overrides, this._generatorCtx);
   }
 
@@ -308,9 +302,7 @@ export class MockClient {
 
   /** @internal */
   _registerRoute(route: MockRoute): void {
-    const existingIdx = this.routes.findIndex(
-      r => r.method === route.method && r.url === route.url,
-    );
+    const existingIdx = this.routes.findIndex(r => r.method === route.method && r.url === route.url);
     if (existingIdx >= 0) {
       this.routes[existingIdx] = route;
     } else {

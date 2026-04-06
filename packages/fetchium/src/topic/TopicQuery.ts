@@ -20,9 +20,7 @@ export abstract class TopicQuery extends Query {
       staleTime: 0,
       subscribe: () => {
         return () => {
-          const controller = (this as Record<string, any>)._topicController as
-            | TopicQueryController
-            | undefined;
+          const controller = (this as Record<string, any>)._topicController as TopicQueryController | undefined;
           controller?.unsubscribe(this.topic);
         };
       },

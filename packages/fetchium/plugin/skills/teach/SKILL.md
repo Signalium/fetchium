@@ -18,28 +18,28 @@ If `$ARGUMENTS` contains "hooks" or "signalium", use that mode for all examples.
 
 3. **Link to the docs site.** For every concept you explain, include a link to the relevant page on the Fetchium docs site. Use these base URLs:
 
-   | Topic | URL |
-   |---|---|
-   | Quick start | https://fetchium.dev/quickstart |
-   | Project setup | https://fetchium.dev/setup/project-setup |
-   | Queries | https://fetchium.dev/core/queries |
-   | Types | https://fetchium.dev/core/types |
-   | Entities | https://fetchium.dev/core/entities |
-   | Mutations | https://fetchium.dev/data/mutations |
-   | Live Data | https://fetchium.dev/data/live-data |
-   | Caching & Refetching | https://fetchium.dev/data/caching |
-   | Auth & Headers | https://fetchium.dev/guides/auth |
-   | Error Handling | https://fetchium.dev/guides/error-handling |
-   | Offline & Persistence | https://fetchium.dev/guides/offline |
-   | Testing | https://fetchium.dev/guides/testing |
-   | REST Queries | https://fetchium.dev/reference/rest-queries |
-   | Pagination | https://fetchium.dev/reference/pagination |
-   | Streaming | https://fetchium.dev/reference/streaming |
-   | Why Signalium? | https://fetchium.dev/reference/why-signalium |
-   | API: fetchium | https://fetchium.dev/api/fetchium |
-   | API: fetchium/react | https://fetchium.dev/api/fetchium-react |
-   | API: stores/sync | https://fetchium.dev/api/stores-sync |
-   | API: stores/async | https://fetchium.dev/api/stores-async |
+   | Topic                 | URL                                          |
+   | --------------------- | -------------------------------------------- |
+   | Quick start           | https://fetchium.dev/quickstart              |
+   | Project setup         | https://fetchium.dev/setup/project-setup     |
+   | Queries               | https://fetchium.dev/core/queries            |
+   | Types                 | https://fetchium.dev/core/types              |
+   | Entities              | https://fetchium.dev/core/entities           |
+   | Mutations             | https://fetchium.dev/data/mutations          |
+   | Live Data             | https://fetchium.dev/data/live-data          |
+   | Caching & Refetching  | https://fetchium.dev/data/caching            |
+   | Auth & Headers        | https://fetchium.dev/guides/auth             |
+   | Error Handling        | https://fetchium.dev/guides/error-handling   |
+   | Offline & Persistence | https://fetchium.dev/guides/offline          |
+   | Testing               | https://fetchium.dev/guides/testing          |
+   | REST Queries          | https://fetchium.dev/reference/rest-queries  |
+   | Pagination            | https://fetchium.dev/reference/pagination    |
+   | Streaming             | https://fetchium.dev/reference/streaming     |
+   | Why Signalium?        | https://fetchium.dev/reference/why-signalium |
+   | API: fetchium         | https://fetchium.dev/api/fetchium            |
+   | API: fetchium/react   | https://fetchium.dev/api/fetchium-react      |
+   | API: stores/sync      | https://fetchium.dev/api/stores-sync         |
+   | API: stores/async     | https://fetchium.dev/api/stores-async        |
 
 4. **Explain the mental model.** When appropriate, connect specific features to the broader Fetchium philosophy:
    - **Query-Mutation split**: queries read (reactive, automatic), mutations write (imperative, explicit)
@@ -81,25 +81,25 @@ If `$ARGUMENTS` contains "hooks" or "signalium", use that mode for all examples.
 
 All documentation files are at `node_modules/fetchium/plugin/docs/`:
 
-| File | Content |
-|---|---|
-| `quickstart.md` | Getting started guide |
-| `setup/project-setup.md` | Project configuration |
-| `core/queries.md` | Query definitions, class rules, usage with Hooks and Signalium |
-| `core/types.md` | Full type DSL reference, union rules, format system |
-| `core/entities.md` | Entity definitions, proxies, methods, subscriptions, deduplication |
-| `data/mutations.md` | Mutation definitions, effects, optimistic updates, custom mutations |
-| `data/live-data.md` | LiveArray, LiveValue, constraints, reducers |
-| `data/caching.md` | Cache configuration, stale time, refetching |
-| `guides/auth.md` | Authentication patterns, headers, context |
-| `guides/error-handling.md` | Error handling, retry configuration |
-| `guides/offline.md` | Offline support, persistent stores |
-| `guides/testing.md` | Testing patterns, mock fetch, store setup |
-| `reference/rest-queries.md` | RESTQuery field reference, dynamic overrides |
-| `reference/pagination.md` | Pagination and infinite query patterns |
-| `reference/streaming.md` | Streaming, subscriptions, real-time updates |
-| `reference/why-signalium.md` | Why Signalium, benefits over hooks |
-| `api/fetchium.md` | API reference for the main package |
-| `api/fetchium-react.md` | API reference for fetchium/react |
-| `api/stores-sync.md` | API reference for fetchium/stores/sync |
-| `api/stores-async.md` | API reference for fetchium/stores/async |
+| File                         | Content                                                             |
+| ---------------------------- | ------------------------------------------------------------------- |
+| `quickstart.md`              | Getting started guide                                               |
+| `setup/project-setup.md`     | Project configuration                                               |
+| `core/queries.md`            | Query definitions, class rules, usage with Hooks and Signalium      |
+| `core/types.md`              | Full type DSL reference, union rules, format system                 |
+| `core/entities.md`           | Entity definitions, proxies, methods, subscriptions, deduplication  |
+| `data/mutations.md`          | Mutation definitions, effects, optimistic updates, custom mutations |
+| `data/live-data.md`          | LiveArray, LiveValue, constraints, reducers                         |
+| `data/caching.md`            | Cache configuration, stale time, refetching                         |
+| `guides/auth.md`             | Authentication patterns, headers, context                           |
+| `guides/error-handling.md`   | Error handling, retry configuration                                 |
+| `guides/offline.md`          | Offline support, persistent stores                                  |
+| `guides/testing.md`          | Testing patterns, mock fetch, store setup                           |
+| `reference/rest-queries.md`  | RESTQuery field reference, dynamic overrides                        |
+| `reference/pagination.md`    | Pagination and infinite query patterns                              |
+| `reference/streaming.md`     | Streaming, subscriptions, real-time updates                         |
+| `reference/why-signalium.md` | Why Signalium, benefits over hooks                                  |
+| `api/fetchium.md`            | API reference for the main package                                  |
+| `api/fetchium-react.md`      | API reference for fetchium/react                                    |
+| `api/stores-sync.md`         | API reference for fetchium/stores/sync                              |
+| `api/stores-async.md`        | API reference for fetchium/stores/async                             |

@@ -224,10 +224,14 @@ import { SyncQueryStore } from 'fetchium/stores/sync';
 const store = new SyncQueryStore(new LocalStoragePersistentStore());
 const networkManager = new NetworkManager();
 
-const client = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: 'https://api.example.com',
-}, networkManager);
+const client = new QueryClient(
+  store,
+  {
+    fetch: globalThis.fetch,
+    baseUrl: 'https://api.example.com',
+  },
+  networkManager,
+);
 ```
 
 With this setup:

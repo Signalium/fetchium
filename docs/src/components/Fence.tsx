@@ -33,7 +33,7 @@ export function CodeFence({
             className={clsx(
               className,
               customClassName,
-              'rounded-t-none! border-t-0! mt-0!',
+              'mt-0! rounded-t-none! border-t-0!',
             )}
             style={style}
           >

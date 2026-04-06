@@ -438,7 +438,7 @@ export type EntityClassOrTypename = string | (new () => import('./proxy.js').Ent
 
 export type InvalidateTarget =
   | (new () => import('./query.js').Query)
-  | readonly [(new () => import('./query.js').Query), Record<string, unknown>];
+  | readonly [new () => import('./query.js').Query, Record<string, unknown>];
 
 export interface MutationEffects {
   readonly creates?: ReadonlyArray<readonly [EntityClassOrTypename, unknown]>;

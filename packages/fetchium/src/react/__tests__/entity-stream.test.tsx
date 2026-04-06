@@ -27,7 +27,10 @@ describe('React Entity Stream Integration', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
+    client = new QueryClient({
+      store: store,
+      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
   });
 
   describe('Component Re-rendering', () => {

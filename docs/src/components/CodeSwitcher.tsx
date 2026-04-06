@@ -53,10 +53,7 @@ export function ModeToggle({ className }: { className?: string }) {
 
   return (
     <div
-      className={clsx(
-        'flex border-b border-primary-800 text-xs',
-        className,
-      )}
+      className={clsx('flex border-b border-primary-800 text-xs', className)}
     >
       <button
         onClick={() => setMode('react')}
