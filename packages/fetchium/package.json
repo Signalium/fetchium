@@ -168,7 +168,6 @@
     "vite-plugin-dts": "^4.5.4",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4",
-    "vitest-browser-react": "^1.0.1",
-    "vitest-vary": "*"
+    "vitest-browser-react": "^1.0.1"
   }
 }
