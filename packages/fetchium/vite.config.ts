@@ -19,6 +19,7 @@ export default defineConfig({
         'stores/async': resolve(__dirname, 'src/stores/async.ts'),
         'stores/sync': resolve(__dirname, 'src/stores/sync.ts'),
         'subscriptions/polling': resolve(__dirname, 'src/subscriptions/polling.ts'),
+        'topic/index': resolve(__dirname, 'src/topic/index.ts'),
       },
       formats: ['es', 'cjs'],
     },

@@ -9,6 +9,7 @@ import type { Mutation } from './mutation.js';
 
 export interface IQueryClientForController {
   getContext(): QueryContext;
+  applyMutationEvent(event: import('./types.js').MutationEvent): void;
 }
 
 // ================================

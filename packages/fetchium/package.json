@@ -95,6 +95,20 @@
       "require": "./dist/cjs/production/rest/index.js",
       "default": "./dist/esm/production/rest/index.js"
     },
+    "./topic": {
+      "types": "./dist/esm/topic/index.d.ts",
+      "development": {
+        "import": "./dist/esm/development/topic/index.js",
+        "require": "./dist/cjs/development/topic/index.js"
+      },
+      "production": {
+        "import": "./dist/esm/production/topic/index.js",
+        "require": "./dist/cjs/production/topic/index.js"
+      },
+      "import": "./dist/esm/production/topic/index.js",
+      "require": "./dist/cjs/production/topic/index.js",
+      "default": "./dist/esm/production/topic/index.js"
+    },
     "./testing": {
       "types": "./dist/esm/testing/index.d.ts",
       "development": {
