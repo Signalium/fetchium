@@ -175,7 +175,9 @@ describe('Mutations', () => {
 
         expect(mut.isResolved).toBe(true);
         expect(mockFetch.calls[0].options.body).toBeUndefined();
-        expect((mockFetch.calls[0].options.headers as Record<string, string> | undefined)?.['Content-Type']).toBeUndefined();
+        expect(
+          (mockFetch.calls[0].options.headers as Record<string, string> | undefined)?.['Content-Type'],
+        ).toBeUndefined();
       });
     });
 
