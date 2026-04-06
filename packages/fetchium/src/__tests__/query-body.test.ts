@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { describe, it, expect } from 'vitest';
 import { t } from '../typeDefs.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 
 /**
  * Query Body Support Tests
@@ -14,21 +13,11 @@ import { createMockFetch, testWithClient, sleep } from './utils.js';
  */
 
 describe('Query Body Support', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Body Tests', () => {
     it('should send POST query with body only', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/prices', {
         prices: [
           { token: 'ETH', price: 2000 },
@@ -60,7 +49,7 @@ describe('Query Body Support', () => {
         expect(result.prices[1].price).toBe(50000);
 
         // Verify request was made correctly
-        expect(mockFetch.calls[0].url).toBe('/prices');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/prices');
         expect(mockFetch.calls[0].options.method).toBe('POST');
 
         // Verify body was sent as JSON
@@ -70,6 +59,7 @@ describe('Query Body Support', () => {
     });
 
     it('should automatically set Content-Type header to application/json', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/data', { received: true });
 
       class PostData extends RESTQuery {
@@ -93,6 +83,7 @@ describe('Query Body Support', () => {
     });
 
     it('should properly JSON stringify body with nested objects', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/complex', { id: 1 });
 
       class PostComplex extends RESTQuery {
@@ -125,6 +116,7 @@ describe('Query Body Support', () => {
     });
 
     it('should allow custom Content-Type header in requestOptions to override default', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/custom', { ok: true });
 
       class PostCustom extends RESTQuery {
@@ -156,6 +148,7 @@ describe('Query Body Support', () => {
 
   describe('Combination Tests: Body + Path Params', () => {
     it('should correctly route path params to URL and body fields to request body', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users/[id]/preferences', { success: true });
 
       class UpdateUserPreferences extends RESTQuery {
@@ -179,7 +172,7 @@ describe('Query Body Support', () => {
         expect(result.success).toBe(true);
 
         // Verify path param is in URL
-        expect(mockFetch.calls[0].url).toBe('/users/123/preferences');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users/123/preferences');
 
         // Verify body fields are in request body, NOT in URL
         const body = JSON.parse(mockFetch.calls[0].options.body as string);
@@ -192,6 +185,7 @@ describe('Query Body Support', () => {
     });
 
     it('should handle multiple path params with body', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/orgs/[orgId]/teams/[teamId]/settings', { updated: true });
 
       class UpdateTeamSettings extends RESTQuery {
@@ -214,7 +208,7 @@ describe('Query Body Support', () => {
         await relay;
 
         // Both path params should be in URL
-        expect(mockFetch.calls[0].url).toBe('/orgs/acme/teams/engineering/settings');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/orgs/acme/teams/engineering/settings');
 
         // Body fields should be in request body
         const body = JSON.parse(mockFetch.calls[0].options.body as string);
@@ -228,6 +222,7 @@ describe('Query Body Support', () => {
 
   describe('Combination Tests: Body + Search Params', () => {
     it('should correctly route search params to URL and body fields to request body', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/search', {
         results: [{ id: 1, name: 'Result 1' }],
         total: 1,
@@ -289,6 +284,7 @@ describe('Query Body Support', () => {
 
   describe('Combination Tests: Body + Path Params + Search Params', () => {
     it('should correctly route all three param types to their destinations', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users/[userId]/posts', {
         postId: 999,
         title: 'New Post',
@@ -355,6 +351,7 @@ describe('Query Body Support', () => {
 
   describe('Query Features with Body', () => {
     it('should cache body queries - same body params should return cached result', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/prices', {
         prices: [{ token: 'ETH', price: 2000 }],
       });
@@ -391,6 +388,7 @@ describe('Query Body Support', () => {
     });
 
     it('should create separate queries for different body params', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/prices', { prices: [{ token: 'ETH', price: 2000 }] });
       mockFetch.post('/prices', { prices: [{ token: 'BTC', price: 50000 }] });
 
@@ -427,6 +425,7 @@ describe('Query Body Support', () => {
     });
 
     it('should respect staleTime for body queries', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/prices', { prices: [{ token: 'ETH', price: 2000 }] });
       mockFetch.post('/prices', { prices: [{ token: 'ETH', price: 2100 }] });
 
@@ -463,6 +462,7 @@ describe('Query Body Support', () => {
     });
 
     it('should deduplicate identical concurrent body queries', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/prices', { prices: [{ token: 'ETH', price: 2000 }] });
 
       class GetPrices extends RESTQuery {
@@ -500,6 +500,7 @@ describe('Query Body Support', () => {
 
   describe('Edge Cases', () => {
     it('should work with empty body object', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/trigger', { triggered: true });
 
       class TriggerAction extends RESTQuery {
@@ -524,6 +525,7 @@ describe('Query Body Support', () => {
     });
 
     it('should handle queries without body (backward compatibility)', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/users', { users: [] });
 
       class ListUsers extends RESTQuery {
@@ -547,6 +549,7 @@ describe('Query Body Support', () => {
     });
 
     it('should handle body with array as root type', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/bulk-create', { created: 3 });
 
       class BulkCreate extends RESTQuery {

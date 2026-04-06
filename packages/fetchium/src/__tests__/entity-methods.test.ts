@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { context, getContext, withContexts, watchOnce, signal } from 'signalium';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, setupTestClient } from './utils.js';
 
 /**
  * Entity Methods Tests
@@ -19,21 +18,7 @@ import { createMockFetch, testWithClient } from './utils.js';
  */
 
 describe('Entity Methods', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: MemoryPersistentStore;
-  let store: SyncQueryStore;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Entity Methods', () => {
     it('should define methods on an entity', () => {
@@ -62,6 +47,7 @@ describe('Entity Methods', () => {
     });
 
     it('should call methods on entity proxies with correct this context', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -105,6 +91,7 @@ describe('Entity Methods', () => {
     });
 
     it('should support methods with parameters', async () => {
+      const { client, mockFetch } = getClient();
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
         id = t.id;
@@ -145,6 +132,7 @@ describe('Entity Methods', () => {
     });
 
     it('should support methods that return complex values', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -214,6 +202,7 @@ describe('Entity Methods', () => {
 
   describe('Entity Methods with Nested Entities', () => {
     it('should work with methods accessing nested entity properties', async () => {
+      const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
         id = t.id;
@@ -266,6 +255,7 @@ describe('Entity Methods', () => {
 
   describe('Entity Methods with Arrays', () => {
     it('should work with methods operating on array fields', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -314,6 +304,7 @@ describe('Entity Methods', () => {
 
   describe('Multiple Entities with Methods', () => {
     it('should handle multiple different entities with methods in same query', async () => {
+      const { client, mockFetch } = getClient();
       class Author extends Entity {
         __typename = t.typename('Author');
         id = t.id;
@@ -364,6 +355,7 @@ describe('Entity Methods', () => {
 
   describe('Method Caching', () => {
     it('should cache method results - same call returns cached value', async () => {
+      const { client, mockFetch } = getClient();
       let computeCount = 0;
 
       class User extends Entity {
@@ -412,6 +404,7 @@ describe('Entity Methods', () => {
     });
 
     it('should cache method results based on parameters', async () => {
+      const { client, mockFetch } = getClient();
       const computeCounts = new Map<string, number>();
 
       class Calculator extends Entity {
@@ -475,6 +468,7 @@ describe('Entity Methods', () => {
     });
 
     it('should invalidate cache when reactive dependencies change', async () => {
+      const { client, mockFetch } = getClient();
       let computeCount = 0;
       const multiplierSignal = signal(2);
 
@@ -539,6 +533,7 @@ describe('Entity Methods', () => {
 
   describe('Context Accessibility in Methods', () => {
     it('should access context values in entity methods', async () => {
+      const { client, mockFetch } = getClient();
       const ThemeContext = context<'light' | 'dark'>('light');
 
       class User extends Entity {
@@ -601,6 +596,7 @@ describe('Entity Methods', () => {
     });
 
     it('should access multiple contexts in entity methods', async () => {
+      const { client, mockFetch } = getClient();
       const LocaleContext = context<string>('en');
       const CurrencyContext = context<string>('USD');
 
@@ -693,6 +689,7 @@ describe('Entity Methods', () => {
     });
 
     it('should use context for conditional logic in methods', async () => {
+      const { client, mockFetch } = getClient();
       const UserRoleContext = context<'admin' | 'user' | 'guest'>('guest');
 
       class Document extends Entity {
@@ -812,6 +809,7 @@ describe('Entity Methods', () => {
 
   describe('Methods Calling Other Methods', () => {
     it('should allow methods to call other methods on the same definition', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -869,6 +867,7 @@ describe('Entity Methods', () => {
     });
 
     it('should allow methods to call other methods with parameters', async () => {
+      const { client, mockFetch } = getClient();
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
         id = t.id;
@@ -931,6 +930,7 @@ describe('Entity Methods', () => {
     });
 
     it('should properly cache method results when methods call other methods', async () => {
+      const { client, mockFetch } = getClient();
       let fullNameCallCount = 0;
       let initialsCallCount = 0;
       let greetCallCount = 0;

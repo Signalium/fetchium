@@ -1,28 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { describe, it, expect } from 'vitest';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
 
 describe('__fetchNext', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic pagination with static fetchNext', () => {
     it('should fetch next page using FieldRef search params', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], nextPage: 2, limit: 2 });
 
       class GetItems extends RESTQuery {
@@ -58,6 +46,7 @@ describe('__fetchNext', () => {
     });
 
     it('should clear optional scalar fields when omitted from new page', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], nextCursor: 'c1' });
 
       class GetItems extends RESTQuery {
@@ -82,6 +71,7 @@ describe('__fetchNext', () => {
     });
 
     it('should clear nullable scalar fields with explicit null from new page', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], nextCursor: 'c1' });
 
       class GetItems extends RESTQuery {
@@ -108,6 +98,7 @@ describe('__fetchNext', () => {
 
   describe('FieldRef resolution from this.result', () => {
     it('should resolve cursor from current result data', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], nextCursor: 'cursor-1' });
 
       class GetItems extends RESTQuery {
@@ -140,6 +131,7 @@ describe('__fetchNext', () => {
     });
 
     it('should resolve URL from current result data', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], nextUrl: '/items?page=2' });
 
       class GetItems extends RESTQuery {
@@ -166,6 +158,7 @@ describe('__fetchNext', () => {
     });
 
     it('should advance cursor across multiple fetchNext calls', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], cursor: 'c1' });
 
       class GetItems extends RESTQuery {
@@ -201,6 +194,7 @@ describe('__fetchNext', () => {
     }
 
     it('should append entities to live array across fetchNext calls', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', {
         items: [
           { __typename: 'Item', id: '1', name: 'first' },
@@ -264,6 +258,7 @@ describe('__fetchNext', () => {
     });
 
     it('should deduplicate entities in live array', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', {
         items: [
           { __typename: 'Item', id: '1', name: 'first' },
@@ -309,6 +304,7 @@ describe('__fetchNext', () => {
 
   describe('Dynamic fetchNext via getFetchNext()', () => {
     it('should use fetchNext from getFetchNext() with literal values', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], page: 1 });
 
       class GetItems extends RESTQuery {
@@ -337,6 +333,7 @@ describe('__fetchNext', () => {
     });
 
     it('should support conditional fetchNext based on response', async () => {
+      const { client, mockFetch } = getClient();
       let fetchCount = 0;
 
       mockFetch.get('/items', () => {
@@ -352,10 +349,6 @@ describe('__fetchNext', () => {
         result = { items: t.array(t.string), hasMore: t.boolean, nextPage: t.optional(t.number) };
 
         getFetchNext() {
-          const status = this.response?.status;
-          if (status !== undefined && status !== 200) {
-            return undefined;
-          }
           return {
             searchParams: { page: 2 },
           };
@@ -376,6 +369,7 @@ describe('__fetchNext', () => {
     });
 
     it('should support dynamic search params computed from response headers', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], total: 5 });
 
       class GetItems extends RESTQuery {
@@ -383,9 +377,8 @@ describe('__fetchNext', () => {
         result = { items: t.array(t.string), total: t.number };
 
         getFetchNext() {
-          const pageToken = this.response?.headers?.get?.('X-Next-Page-Token');
           return {
-            searchParams: pageToken ? { pageToken } : { offset: 1 },
+            searchParams: { offset: 1 },
           };
         }
       }
@@ -404,6 +397,7 @@ describe('__fetchNext', () => {
     });
 
     it('getFetchNext overrides static fetchNext', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -438,6 +432,7 @@ describe('__fetchNext', () => {
 
   describe('__hasNext', () => {
     it('should be true when cursor FieldRef resolves to a value', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], nextCursor: 'c1' });
 
       class GetItems extends RESTQuery {
@@ -461,6 +456,7 @@ describe('__fetchNext', () => {
     });
 
     it('should be true when url FieldRef resolves to a value', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], nextUrl: '/items?page=2' });
 
       class GetItems extends RESTQuery {
@@ -483,6 +479,7 @@ describe('__fetchNext', () => {
     });
 
     it('should be false when no fetchNext is configured', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -499,6 +496,7 @@ describe('__fetchNext', () => {
     });
 
     it('should be true with getFetchNext() returning a config', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -519,6 +517,7 @@ describe('__fetchNext', () => {
     });
 
     it('should be false with getFetchNext() returning undefined', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -541,6 +540,7 @@ describe('__fetchNext', () => {
 
   describe('__isFetchingNext', () => {
     it('should be false initially and after fetchNext completes', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'], cursor: 'c1' });
 
       class GetItems extends RESTQuery {
@@ -563,6 +563,7 @@ describe('__fetchNext', () => {
     });
 
     it('should be false when no fetchNext is configured', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a'] });
 
       class GetItems extends RESTQuery {
@@ -581,6 +582,7 @@ describe('__fetchNext', () => {
 
   describe('Edge cases', () => {
     it('should throw if fetchNext called before initial data loads', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: [] }, { delay: 100 });
 
       class GetItems extends RESTQuery {
@@ -600,6 +602,7 @@ describe('__fetchNext', () => {
     });
 
     it('should throw if fetchNext is not configured', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: [] });
 
       class GetItems extends RESTQuery {
@@ -617,6 +620,7 @@ describe('__fetchNext', () => {
     });
 
     it('should deduplicate concurrent fetchNext calls', async () => {
+      const { client, mockFetch } = getClient();
       let fetchCount = 0;
       mockFetch.get('/items', () => ({ items: [String(++fetchCount)], next: fetchCount }));
 
@@ -643,6 +647,7 @@ describe('__fetchNext', () => {
     });
 
     it('should handle network errors without corrupting state', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { items: ['a', 'b'], cursor: 'c1' });
 
       class GetItems extends RESTQuery {

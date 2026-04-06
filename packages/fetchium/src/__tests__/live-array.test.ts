@@ -1,13 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { RESTMutation, getMutation } from '../mutation.js';
-import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { getMutation } from '../mutation.js';
+import { RESTMutation } from '../rest/index.js';
+import { testWithClient, sleep, getEntityMapSize, setupTestClient, createMockFetch } from './utils.js';
 import type { MutationEvent } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
+import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
+import { RESTQueryController } from '../rest/index.js';
 
 async function applyEventOutsideReactiveContext(client: QueryClient, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -20,25 +23,14 @@ async function applyEventOutsideReactiveContext(client: QueryClient, event: Muta
 }
 
 describe('LiveArray', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Basic behavior
   // ============================================================
 
   it('should define entity with liveArray and return reactive array from query', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -85,6 +77,7 @@ describe('LiveArray', () => {
   });
 
   it('should support liveArray without constraints (local-only)', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -118,6 +111,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it("constraint isolation: server fetch does NOT leak into other query's live array", async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -168,6 +162,7 @@ describe('LiveArray', () => {
   });
 
   it("constraint isolation: mutation DOES add to other query's live array", async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -221,6 +216,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('mutation effects (creates/updates/deletes) update entity-level live array', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -298,6 +294,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('should update entity-level live array when applyMutationEvent sends create/delete events', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -355,6 +352,7 @@ describe('LiveArray', () => {
   });
 
   it('should persist entity added via applyEntityData across refetch', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -414,6 +412,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('should restore live array entities from cache after client restart (entity parent)', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -436,7 +435,7 @@ describe('LiveArray', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     const mockFetch1 = createMockFetch();
-    const client1 = new QueryClient(store, { fetch: mockFetch1 as any });
+    const client1 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch1 as any , baseUrl: 'http://localhost' })] });
 
     mockFetch1.get('/list/[id]', {
       list: {
@@ -482,7 +481,7 @@ describe('LiveArray', () => {
       },
       { delay: 5000 },
     );
-    const client2 = new QueryClient(store, { fetch: mockFetch2 as any });
+    const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch2 as any , baseUrl: 'http://localhost' })] });
 
     await testWithClient(client2, async () => {
       const relay = fetchQuery(GetList, { id: '1' });
@@ -504,6 +503,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('should restore live array entities from cache after client restart (query parent)', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -519,7 +519,7 @@ describe('LiveArray', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     const mockFetch1 = createMockFetch();
-    const client1 = new QueryClient(store, { fetch: mockFetch1 as any });
+    const client1 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch1 as any , baseUrl: 'http://localhost' })] });
 
     mockFetch1.get('/items', {
       items: [
@@ -557,7 +557,7 @@ describe('LiveArray', () => {
       },
       { delay: 5000 },
     );
-    const client2 = new QueryClient(store, { fetch: mockFetch2 as any });
+    const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch2 as any , baseUrl: 'http://localhost' })] });
 
     await testWithClient(client2, async () => {
       const relay = fetchQuery(GetItems);
@@ -579,6 +579,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('should add entity to correct list based on constraint', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -640,6 +641,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('partial payload does not add to live array when required fields are missing', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -685,6 +687,7 @@ describe('LiveArray', () => {
   });
 
   it('optional fields still match when missing from payload', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -730,6 +733,7 @@ describe('LiveArray', () => {
   });
 
   it('no orphan entity creation when no live data matches', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -776,6 +780,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('delete removes from live array but entity persists when other query references it', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -837,6 +842,7 @@ describe('LiveArray', () => {
   // ============================================================
 
   it('update event routes full merged entity data to collections', async () => {
+    const { client, mockFetch } = getClient();
     class Item extends Entity {
       __typename = t.typename('Item');
       id = t.id;
@@ -889,6 +895,7 @@ describe('LiveArray', () => {
 
   describe('liveArray nested inside t.object()', () => {
     it('should initialize and receive events for liveArray nested in a plain object field', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -942,6 +949,7 @@ describe('LiveArray', () => {
     });
 
     it('should reset nested liveArray on refetch', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;

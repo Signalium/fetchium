@@ -3,7 +3,8 @@ import { AsyncQueryStore, AsyncPersistentStore, StoreMessage } from '../stores/a
 import { valueKeyFor, refCountKeyFor, refIdsKeyFor, updatedAtKeyFor, queueKeyFor } from '../stores/shared.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, queryKeyForClass } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { queryKeyForClass } from '../query.js';
 import { hashValue } from 'signalium/utils';
 import { createMockFetch, sleep } from './utils.js';
 

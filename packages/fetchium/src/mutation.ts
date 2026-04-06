@@ -6,11 +6,11 @@ import {
   TypeDef,
   RetryConfig,
   TypeDefShape,
-  QueryRequestOptions,
 } from './types.js';
-import { QueryClientContext, QueryContext, resolveBaseUrl } from './QueryClient.js';
+import { QueryClientContext, type QueryContext } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
 import { createDefinitionProxy, extractDefinition, type CapturedDefinition } from './fieldRef.js';
+import type { QueryController } from './QueryController.js';
 
 // ================================
 // Mutation Definition Types
@@ -29,6 +29,7 @@ export interface MutationDefinition<Request, Response> {
   config?: MutationConfigOptions;
   effects?: MutationEffects;
   hasGetEffects: boolean;
+  controllerClass: typeof QueryController;
 }
 
 // ================================
@@ -36,6 +37,8 @@ export interface MutationDefinition<Request, Response> {
 // ================================
 
 export abstract class Mutation {
+  static controller?: typeof QueryController;
+
   readonly params?: TypeDefShape;
   readonly result?: TypeDefShape;
   readonly optimisticUpdates?: boolean;
@@ -43,69 +46,13 @@ export abstract class Mutation {
   readonly effects?: Readonly<MutationEffects>;
 
   declare context: QueryContext;
-  declare response: Response | undefined;
-  declare signal: AbortSignal;
 
-  abstract send(): Promise<unknown>;
   abstract getIdentityKey(): unknown;
 
   getEffects?(): MutationEffects;
 
   constructor() {
     return createDefinitionProxy(this);
-  }
-}
-
-// ================================
-// RESTMutation
-// ================================
-
-export abstract class RESTMutation extends Mutation {
-  path?: string;
-  method: 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'POST';
-  body?: Record<string, unknown>;
-  headers?: HeadersInit;
-  requestOptions?: QueryRequestOptions;
-
-  getIdentityKey(): string {
-    return `${this.method ?? 'POST'}:${this.path ?? ''}`;
-  }
-
-  getPath?(): string | undefined;
-  getMethod?(): string;
-  getBody?(): Record<string, unknown> | undefined;
-  getRequestOptions?(): QueryRequestOptions | undefined;
-
-  async send(): Promise<unknown> {
-    const path = this.getPath ? this.getPath() : this.path;
-    const method = this.getMethod ? this.getMethod() : this.method;
-    const body = this.getBody ? this.getBody() : this.body;
-    const requestOptions = this.getRequestOptions ? this.getRequestOptions() : this.requestOptions;
-
-    if (!path) {
-      throw new Error('RESTMutation requires a path. Define `path` as a field or override `getPath()`.');
-    }
-
-    const baseUrl = resolveBaseUrl(requestOptions?.baseUrl) ?? resolveBaseUrl(this.context.baseUrl);
-    const fullUrl = baseUrl ? `${baseUrl}${path}` : path;
-
-    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } = requestOptions ?? ({} as Record<string, unknown>);
-
-    const headers: HeadersInit = {
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(this.headers as Record<string, string>),
-    };
-
-    const fetchResponse = await this.context.fetch(fullUrl, {
-      method,
-      headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-      signal: this.signal,
-      ...fetchOptions,
-    });
-
-    this.response = fetchResponse;
-    return fetchResponse.json();
   }
 }
 
@@ -159,6 +106,14 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
         ? ((responseDef instanceof ValidatorDef ? responseDef : t.object(responseDef)) as unknown as InternalTypeDef)
         : undefined;
 
+    const controllerClass = (MutationClass as typeof Mutation).controller;
+    if (!controllerClass) {
+      throw new Error(
+        `Mutation class "${MutationClass.name}" must define a static \`controller\` property. ` +
+          `Extend RESTMutation (from fetchium/rest) or set \`static controller = MyController\` on your mutation class.`,
+      );
+    }
+
     mutationDefinition = {
       id,
       requestShape,
@@ -168,6 +123,7 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
       config: fields.config,
       effects: fields.effects,
       hasGetEffects: typeof captured.methods.getEffects === 'function',
+      controllerClass,
     };
 
     return mutationDefinition;

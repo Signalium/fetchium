@@ -6,9 +6,11 @@ import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import { useQuery } from '../use-query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
+import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 describe('__fetchNext React Integration', () => {
   let client: QueryClient;
@@ -25,7 +27,7 @@ describe('__fetchNext React Integration', () => {
     const kv = new MemoryPersistentStore();
     const store = new SyncQueryStore(kv);
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   describe('useQuery', () => {

@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
 import { hashValue } from 'signalium/utils';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t, getEntityDef } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, getEntityMapSize, sleep } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, getEntityMapSize, sleep, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
 
 /**
  * Applies a mutation event outside the reactive tracking context.
@@ -25,18 +25,7 @@ async function applyEventOutsideReactiveContext(client: QueryClient, event: Muta
 }
 
 describe('Mutation Events', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Update Events
@@ -44,6 +33,7 @@ describe('Mutation Events', () => {
 
   describe('Update Events', () => {
     it('should update an existing entity', async () => {
+      const { client, mockFetch } = getClient();
       class MutUser extends Entity {
         __typename = t.typename('MutUser');
         id = t.id;
@@ -89,6 +79,7 @@ describe('Mutation Events', () => {
     });
 
     it('should be a no-op when entity does not exist', async () => {
+      const { client, mockFetch } = getClient();
       class MutUserNoExist extends Entity {
         __typename = t.typename('MutUserNoExist');
         id = t.id;
@@ -122,6 +113,7 @@ describe('Mutation Events', () => {
     });
 
     it('should update multiple shapes of the same typename', async () => {
+      const { client, mockFetch } = getClient();
       class MutItemBase extends Entity {
         __typename = t.typename('MutItem');
         id = t.id;
@@ -187,6 +179,7 @@ describe('Mutation Events', () => {
 
   describe('Create Events', () => {
     it('should NOT create an entity in the store without a live data destination', async () => {
+      const { client, mockFetch } = getClient();
       class MutCreateItem extends Entity {
         __typename = t.typename('MutCreateItem');
         id = t.id;
@@ -220,6 +213,7 @@ describe('Mutation Events', () => {
     });
 
     it('should skip creation when payload is missing required fields', async () => {
+      const { client, mockFetch } = getClient();
       class MutCreateStrict extends Entity {
         __typename = t.typename('MutCreateStrict');
         id = t.id;
@@ -254,6 +248,7 @@ describe('Mutation Events', () => {
     });
 
     it('should treat create as update when entity already exists', async () => {
+      const { client, mockFetch } = getClient();
       class MutCreateExisting extends Entity {
         __typename = t.typename('MutCreateExisting');
         id = t.id;
@@ -289,6 +284,7 @@ describe('Mutation Events', () => {
     });
 
     it('should NOT create entities without a live data destination even with multiple views', async () => {
+      const { client, mockFetch } = getClient();
       class MutCreatePartialBase extends Entity {
         __typename = t.typename('MutCreatePartial');
         id = t.id;
@@ -345,6 +341,7 @@ describe('Mutation Events', () => {
 
   describe('Delete Events', () => {
     it('should NOT evict entity from store when still referenced by a query', async () => {
+      const { client, mockFetch } = getClient();
       class MutDeleteItem extends Entity {
         __typename = t.typename('MutDeleteItem');
         id = t.id;
@@ -379,6 +376,7 @@ describe('Mutation Events', () => {
     });
 
     it('should route delete events (with string id) to live data', async () => {
+      const { client, mockFetch } = getClient();
       class MutDeleteStrId extends Entity {
         __typename = t.typename('MutDeleteStrId');
         id = t.id;
@@ -412,6 +410,7 @@ describe('Mutation Events', () => {
     });
 
     it('should be a no-op when deleting non-existing entity', async () => {
+      const { client, mockFetch } = getClient();
       class MutDeleteNone extends Entity {
         __typename = t.typename('MutDeleteNone');
         id = t.id;
@@ -451,6 +450,7 @@ describe('Mutation Events', () => {
 
   describe('No-Op Scenarios', () => {
     it('should be a no-op when typename is not registered', () => {
+      const { client } = getClient();
       const sizeBefore = getEntityMapSize(client);
 
       client.applyMutationEvent({
@@ -463,6 +463,7 @@ describe('Mutation Events', () => {
     });
 
     it('should be a no-op when data has no id', async () => {
+      const { client, mockFetch } = getClient();
       class MutNoId extends Entity {
         __typename = t.typename('MutNoId');
         id = t.id;
@@ -496,6 +497,7 @@ describe('Mutation Events', () => {
     });
 
     it('should handle all event types as no-ops for unregistered typename', () => {
+      const { client } = getClient();
       const sizeBefore = getEntityMapSize(client);
 
       const events: MutationEvent[] = [
@@ -514,6 +516,7 @@ describe('Mutation Events', () => {
 
   describe('Unknown/Complex IDs via event.id', () => {
     it('should accept an explicit event.id and use it for entity lookup', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('IdItem');
         id = t.id;
@@ -546,6 +549,7 @@ describe('Mutation Events', () => {
     });
 
     it('should support object ids via event.id', async () => {
+      const { client, mockFetch } = getClient();
       class ObjIdEntity extends Entity {
         __typename = t.typename('ObjId');
         id = t.id;
@@ -578,6 +582,7 @@ describe('Mutation Events', () => {
     });
 
     it('should skip event when id is undefined and idField is not in data', async () => {
+      const { client, mockFetch } = getClient();
       class SkipEntity extends Entity {
         __typename = t.typename('SkipId');
         id = t.id;

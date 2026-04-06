@@ -1,6 +1,6 @@
 import { type Signal, isSignal as isSignalCheck } from 'signalium';
 import { hashValue } from 'signalium/utils';
-import { NetworkMode, RetryConfig, BaseUrlValue, QueryRequestInit } from './types.js';
+import { NetworkMode, RetryConfig, BaseUrlValue } from './types.js';
 import { QueryDefinition } from './query.js';
 
 // -----------------------------------------------------------------------------
@@ -8,8 +8,6 @@ import { QueryDefinition } from './query.js';
 // -----------------------------------------------------------------------------
 
 export interface QueryContext {
-  fetch: (url: string, init?: QueryRequestInit) => Promise<Response>;
-  baseUrl?: BaseUrlValue;
   log?: {
     error?: (message: string, error?: unknown) => void;
     warn?: (message: string, error?: unknown) => void;

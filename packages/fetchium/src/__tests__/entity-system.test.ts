@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { describe, it, expect } from 'vitest';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import {
-  createMockFetch,
   getClientEntityMap,
   getEntityMapSize,
   testWithClient,
   parseEntities,
   parseEntity,
+  setupTestClient,
 } from './utils.js';
 import { hashValue } from 'signalium/utils';
 import type { ExtractType } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
 
 /**
  * Entity System Tests
@@ -22,24 +22,11 @@ import type { ExtractType } from '../types.js';
  */
 
 describe('Entity System', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Entity Proxies', () => {
     it('should create reactive entity proxies', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -81,6 +68,7 @@ describe('Entity System', () => {
     });
 
     it('should cache property access in entity proxies', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -123,6 +111,7 @@ describe('Entity System', () => {
     });
 
     it('should return updated entity data when refetched', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -163,6 +152,7 @@ describe('Entity System', () => {
 
   describe('Entity class extending', () => {
     it('should support class MyExtendedEntity extends Entity {} (empty subclass)', async () => {
+      const { client, mockFetch } = getClient();
       class MyExtendedEntity extends Entity {}
 
       const def = t.entity(MyExtendedEntity);
@@ -173,6 +163,7 @@ describe('Entity System', () => {
     });
 
     it('should support entity class extending another entity class with extra fields', async () => {
+      const { client, mockFetch } = getClient();
       class BaseUser extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -218,6 +209,7 @@ describe('Entity System', () => {
     });
 
     it('should support minimal entity subclass (only required fields)', async () => {
+      const { client, mockFetch } = getClient();
       class MinimalUser extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -483,6 +475,7 @@ describe('Entity System', () => {
 
   describe('Entity Deduplication', () => {
     it('should deduplicate entities within same response', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -519,6 +512,7 @@ describe('Entity System', () => {
     });
 
     it('should share entities across multiple queries', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -575,6 +569,7 @@ describe('Entity System', () => {
 
   describe('Nested Entities', () => {
     it('should parse deeply nested entities', async () => {
+      const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
         id = t.id;
@@ -634,6 +629,7 @@ describe('Entity System', () => {
     });
 
     it('should handle entities with multiple nested arrays', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -690,6 +686,7 @@ describe('Entity System', () => {
 
   describe('Entity Parsing Functions', () => {
     it('should parse object entities correctly', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -715,6 +712,7 @@ describe('Entity System', () => {
     });
 
     it('should parse array entities correctly', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -735,6 +733,7 @@ describe('Entity System', () => {
     });
 
     it('should parse nested structures with mixed entities', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -762,6 +761,7 @@ describe('Entity System', () => {
     });
 
     it('should handle entities in records/dictionaries', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -794,6 +794,7 @@ describe('Entity System', () => {
     });
 
     it('should handle union types with entities', async () => {
+      const { client, mockFetch } = getClient();
       class TextPost extends Entity {
         __typename = t.typename('TextPost');
         id = t.id;
@@ -845,6 +846,7 @@ describe('Entity System', () => {
 
   describe('Entity Map Management', () => {
     it('should maintain entity map across queries', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -888,6 +890,7 @@ describe('Entity System', () => {
 
   describe('Deep Merge on Entity Updates', () => {
     it('should deep merge nested objects when entity is updated', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -972,6 +975,7 @@ describe('Entity System', () => {
     });
 
     it('should replace arrays, not merge them', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1023,6 +1027,7 @@ describe('Entity System', () => {
     });
 
     it('should handle multiple levels of nesting', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1100,6 +1105,7 @@ describe('Entity System', () => {
     });
 
     it('should preserve unchanged nested fields when updating', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1167,6 +1173,7 @@ describe('Entity System', () => {
     });
 
     it('should handle merging from multiple query sources', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1237,6 +1244,7 @@ describe('Entity System', () => {
 
   describe('Optional Typename in Data', () => {
     it('should return typename from definition when data omits typename field', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1266,6 +1274,7 @@ describe('Entity System', () => {
     });
 
     it('should work with nested entities without typename in data', async () => {
+      const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
         id = t.id;
@@ -1309,6 +1318,7 @@ describe('Entity System', () => {
     });
 
     it('should still accept typename in data when it matches definition', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1336,6 +1346,7 @@ describe('Entity System', () => {
     });
 
     it('should filter out union items that omit typename in arrays', async () => {
+      const { client, mockFetch } = getClient();
       class TextPost extends Entity {
         __typename = t.typename('TextPost');
         id = t.id;
@@ -1372,6 +1383,7 @@ describe('Entity System', () => {
     });
 
     it('should work with arrays of entities without typename in data', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;

@@ -1,4 +1,4 @@
-import { context, ReactiveTask, type Context } from 'signalium';
+import { context, watcher, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
 import { EntityDef, MutationEvent, QueryPromise, ComplexTypeDef, InternalTypeDef, QUERY_ID, InvalidateTarget } from './types.js';
 import { PROXY_ID } from './proxyId.js';
@@ -16,6 +16,7 @@ import { applyEntityRefs, type ApplyResult } from './applyEntities.js';
 import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
 import { LiveCollectionBinding } from './LiveCollection.js';
+import { QueryController } from './QueryController.js';
 import {
   type QueryContext,
   type QueryStore,
@@ -23,6 +24,21 @@ import {
   type PreloadedEntityMap,
   queryKeyFor,
 } from './query-types.js';
+import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
+
+export interface QueryClientConfig {
+  store?: QueryStore;
+  controllers?: QueryController[];
+  networkManager?: NetworkManager;
+  gcManager?: GcManager | NoOpGcManager;
+  log?: {
+    error?: (message: string, error?: unknown) => void;
+    warn?: (message: string, error?: unknown) => void;
+    info?: (message: string) => void;
+    debug?: (message: string) => void;
+  };
+  evictionMultiplier?: number;
+}
 
 export {
   type QueryContext,
@@ -50,25 +66,66 @@ export class QueryClient {
 
   currentParseId: number = 0;
 
+  private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
   private constraintRegistry = new Map<string, ConstraintMatcher>();
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
+  private controllers = new Map<typeof QueryController, QueryController>();
+  private networkUnsubscribe: (() => void) | undefined;
 
-  constructor(
-    store: QueryStore,
-    private context: QueryContext = { fetch, log: console },
-    networkManager?: NetworkManager,
-    gcManager?: GcManager | NoOpGcManager,
-  ) {
+  constructor(config: QueryClientConfig = {}) {
+    const { store = new SyncQueryStore(new MemoryPersistentStore()), log, evictionMultiplier, controllers: _c, networkManager: _n, gcManager: _g, ...rest } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
+    this.context = { ...rest, log: log ?? console, evictionMultiplier };
     this.gcManager =
-      gcManager ??
-      (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, this.context.evictionMultiplier));
-    this.networkManager = networkManager ?? new NetworkManager();
+      config.gcManager ??
+      (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
+    this.networkManager = config.networkManager ?? new NetworkManager();
     this.entityMap = new EntityStore((key, data, refs) => this.store.saveEntity(key, data, refs));
 
+    // Register user-supplied controllers
+    for (const controller of config.controllers ?? []) {
+      this.controllers.set(controller.constructor as typeof QueryController, controller);
+      controller.register(this);
+    }
+
+    // Notify controllers when network status changes
+    const onlineSignal = this.networkManager.getOnlineSignal();
+    const networkWatcher = watcher(() => onlineSignal.value);
+    this.networkUnsubscribe = networkWatcher.addListener(() => {
+      const isOnline = onlineSignal.value;
+      for (const controller of this.controllers.values()) {
+        controller.onNetworkStatusChange?.(isOnline);
+      }
+    }, { skipInitial: true });
+
     this.store.purgeStaleQueries?.();
+  }
+
+  /**
+   * Returns the registered controller instance for the given controller class.
+   * Throws if no controller of that class has been registered.
+   */
+  getController(controllerClass: typeof QueryController): QueryController {
+    let controller = this.controllers.get(controllerClass);
+    if (!controller) {
+      // Auto-instantiate with no-arg constructor as fallback.
+      // Works for controllers like RESTQueryController that default to globalThis.fetch.
+      // Controllers that require explicit configuration will throw here, prompting
+      // the user to register an instance explicitly.
+      try {
+        controller = new (controllerClass as new () => QueryController)();
+      } catch {
+        throw new Error(
+          `No controller registered for ${controllerClass.name} and auto-instantiation failed. ` +
+            `Pass an instance via QueryClient config: new QueryClient({ store, controllers: [new ${controllerClass.name}(...)] })`,
+        );
+      }
+      this.controllers.set(controllerClass, controller);
+      controller.register(this);
+    }
+    return controller;
   }
 
   getContext(): QueryContext {
@@ -395,8 +452,13 @@ export class QueryClient {
   }
 
   destroy(): void {
+    this.networkUnsubscribe?.();
     this.gcManager.destroy();
     this.networkManager.destroy();
+    for (const controller of this.controllers.values()) {
+      controller.destroy?.();
+    }
+    this.controllers.clear();
     this.queryInstances.clear();
     this.mutationInstances.clear();
     this.constraintRegistry.clear();

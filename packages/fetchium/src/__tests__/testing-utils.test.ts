@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { RESTMutation } from '../mutation.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { RESTMutation } from '../rest/index.js';
 import { MockClient, MockQueryBuilder } from '../testing/MockClient.js';
 import { GeneratorContext, generateEntityData, generateFromTypeDef, generateQueryResponse } from '../testing/auto-generate.js';
 import { EntityFactory, defineFactory } from '../testing/entity-factory.js';

@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { describe, it, expect } from 'vitest';
 import { t } from '../typeDefs.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { watcher, reactive } from 'signalium';
-import { createMockFetch, testWithClient } from './utils.js';
+import { testWithClient, setupTestClient } from './utils.js';
 
 /**
  * Signalium Reactivity Tests
@@ -14,24 +13,11 @@ import { createMockFetch, testWithClient } from './utils.js';
  */
 
 describe('Signalium Reactivity', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Relay Lifecycle', () => {
     it('should start relay in pending state', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', { data: 'test' }, { delay: 100 });
 
       await testWithClient(client, async () => {
@@ -49,6 +35,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should transition to resolved state with data', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', { data: 'test' });
 
       await testWithClient(client, async () => {
@@ -68,6 +55,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should transition to error state on failure', async () => {
+      const { client, mockFetch } = getClient();
       const error = new Error('Failed to fetch');
       mockFetch.get('/item', null, { error });
 
@@ -88,6 +76,7 @@ describe('Signalium Reactivity', () => {
 
   describe('Reactive Computations', () => {
     it('should support reactive functions depending on query relay', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/counter', { count: 5 });
 
       await testWithClient(client, async () => {
@@ -116,6 +105,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should support nested reactive functions', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/value', { value: 10 });
 
       await testWithClient(client, async () => {
@@ -145,6 +135,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should support conditional reactivity', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/config', { value: 5, shouldDouble: true });
 
       await testWithClient(client, async () => {
@@ -172,6 +163,7 @@ describe('Signalium Reactivity', () => {
 
   describe('Promise State Tracking', () => {
     it('should track isPending state', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', { data: 'test' }, { delay: 50 });
 
       await testWithClient(client, async () => {
@@ -194,6 +186,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should track isReady state correctly', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', { data: 'test' });
 
       await testWithClient(client, async () => {
@@ -213,6 +206,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should track isResolved state', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', { success: true });
 
       await testWithClient(client, async () => {
@@ -230,6 +224,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should track isRejected state', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', null, { error: new Error('Failed') });
 
       await testWithClient(client, async () => {
@@ -249,6 +244,7 @@ describe('Signalium Reactivity', () => {
 
   describe('Reactive Query Patterns', () => {
     it('should support query results in reactive computations', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/users', {
         users: [
           { id: 1, name: 'Alice' },
@@ -288,6 +284,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should handle conditional query access', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/config', { enabled: true, data: 'test' });
 
       await testWithClient(client, async () => {
@@ -317,6 +314,7 @@ describe('Signalium Reactivity', () => {
 
   describe('Concurrent Query Handling', () => {
     it('should handle concurrent queries without interference', async () => {
+      const { client, mockFetch } = getClient();
       // Set up mocks for different IDs
       mockFetch.get('/items/1', { url: '/items/1', timestamp: Date.now() });
       mockFetch.get('/items/2', { url: '/items/2', timestamp: Date.now() });
@@ -343,6 +341,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should deduplicate concurrent identical requests', async () => {
+      const { client, mockFetch } = getClient();
       // Set up single mock with delay - should only be called once
       mockFetch.get('/item', { count: 1 }, { delay: 50 });
 
@@ -375,6 +374,7 @@ describe('Signalium Reactivity', () => {
 
   describe('Error State Reactivity', () => {
     it('should notify watchers on error', async () => {
+      const { client, mockFetch } = getClient();
       const error = new Error('Network error');
       mockFetch.get('/item', null, { error });
 
@@ -405,6 +405,7 @@ describe('Signalium Reactivity', () => {
     });
 
     it('should expose error object on relay', async () => {
+      const { client, mockFetch } = getClient();
       const error = new Error('Custom error');
       mockFetch.get('/item', null, { error });
 

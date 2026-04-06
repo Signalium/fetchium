@@ -15,7 +15,8 @@ The key to making a live array _reactive to external events_ is **constraints**.
 Here is a typical example --- a `List` entity whose `items` field is a live array of `Item` entities scoped by `listId`:
 
 ```tsx
-import { Entity, t, RESTQuery } from 'fetchium';
+import { Entity, t } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 
 class Item extends Entity {
   __typename = t.typename('Item');

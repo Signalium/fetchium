@@ -6,9 +6,11 @@ import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { userEvent } from '@vitest/browser/context';
+import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 /**
  * React Tests for Entity Streaming
@@ -25,7 +27,7 @@ describe('React Entity Stream Integration', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   describe('Component Re-rendering', () => {

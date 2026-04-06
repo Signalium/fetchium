@@ -21,36 +21,61 @@ Every Fetchium operation --- `fetchQuery`, `useQuery`, `getMutation` --- looks u
 
 ### Creating a QueryClient
 
-The `QueryClient` constructor takes a _store_ and an optional _context_ object:
+The `QueryClient` constructor takes a single config object. The only required field is `store`:
 
 ```tsx
 import { QueryClient } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
+import { RESTQueryController } from 'fetchium/rest';
 
-const store = new SyncQueryStore(new MemoryPersistentStore());
-
-const client = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  store: new SyncQueryStore(new MemoryPersistentStore()),
+  controllers: [
+    new RESTQueryController({
+      fetch: globalThis.fetch,
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 
 The store is responsible for _persistent_ caching --- saving query results and entity data so they survive page refreshes, app restarts, or being evicted from the in-memory cache. `MemoryPersistentStore` keeps everything in memory (data is lost on refresh), which is perfect for development and tests. For production persistence, implement the `SyncPersistentStore` interface with a durable backend like `localStorage`, or use the `AsyncQueryStore` with IndexedDB. See the [Offline & Persistence](/guides/offline) guide for details.
 
-### QueryContext options
+### QueryClientConfig options
 
-The second argument to `QueryClient` is a `QueryContext` object. This is where you configure the _global_ behavior of all queries:
+| Option        | Type                  | Default                     | Description                                                                                                                     |
+| ------------- | --------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `store`       | `QueryStore`          | `SyncQueryStore` (in-memory) | Persistent storage backend for query results and entity data. Defaults to an in-memory store — data is lost on page refresh.   |
+| `controllers` | `QueryController[]`   | `[]`                        | Transport controllers. Register a `RESTQueryController` to configure `fetch`, `baseUrl`, and headers for REST queries.          |
+| `log`         | `object`              | `console`                   | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures.                                |
 
-| Option      | Type       | Default              | Description                                                                                                                                               |
-| ----------- | ---------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch`     | `Function` | ---                  | The fetch function used for all network requests. Pass `globalThis.fetch`, or a custom wrapper for auth headers, logging, or testing.                     |
-| `baseUrl`   | `string`   | `''`                 | Prepended to every query path. Set this to your API root (`https://api.example.com`) so your query paths can be relative (`/users/42` instead of the full URL). |
-| `log`       | `object`   | `console`            | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures (optional fields falling back, array items being filtered). |
+### Auto-instantiation
 
-The `fetch` option is the most important. It is the _single point of control_ for how Fetchium makes network requests. Every query and mutation flows through this function, which means you can add authentication, logging, retry logic, or any other cross-cutting concern in one place. We cover this in depth in the [Auth & Headers](/guides/auth) guide.
+Both the store and controllers have sensible defaults, so the minimal `QueryClient` requires no configuration at all:
+
+```tsx
+// Fully minimal — in-memory store, RESTQueryController auto-instantiated on first use
+const client = new QueryClient();
+```
+
+- `store` defaults to `SyncQueryStore(MemoryPersistentStore)` — data lives in memory and is lost on page refresh
+- Controllers are auto-instantiated from their base class the first time a query of that type runs. `RESTQueryController` has a no-arg constructor that defaults to `globalThis.fetch`
+
+Once you need a `baseUrl`, auth headers, persistent storage, or a custom fetch wrapper, pass explicit options.
+
+### The RESTQueryController
+
+`RESTQueryController` is the transport layer for all REST queries and mutations. It accepts:
+
+| Option    | Type       | Default            | Description                                                                                                                                            |
+| --------- | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `fetch`   | `Function` | `globalThis.fetch` | The fetch function used for all network requests. Pass a custom wrapper for auth headers, logging, or testing.                                         |
+| `baseUrl` | `string`   | `''`               | Prepended to every query path. Set this to your API root (`https://api.example.com`) so your query paths can be relative (`/users/42` instead of the full URL). |
+
+`fetch` is the _single point of control_ for how Fetchium makes network requests. Every REST query and mutation flows through this function, which means you can add authentication, logging, retry logic, or any other cross-cutting concern in one place. We cover this in depth in the [Auth & Headers](/guides/auth) guide.
 
 {% callout title="Why pass fetch explicitly?" type="note" %}
-You might wonder why Fetchium asks you to pass `fetch` instead of just using the global. The reason is _testability_ and _universality_. By accepting `fetch` as a parameter, Fetchium works identically in browsers, Node.js, Deno, and test environments. In tests, you pass a mock. On the server, you pass Node's fetch. In the browser, you pass a wrapper that adds auth headers. The interface is always the same.
+You might wonder why Fetchium asks you to pass `fetch` instead of just using the global. The reason is _testability_ and _universality_. By accepting `fetch` as a parameter, Fetchium works identically in browsers, Node.js, Deno, and test environments. In tests, you pass a mock fetch. On the server, you pass Node's fetch. In the browser, you pass a wrapper that adds auth headers. The interface is always the same.
 {% /callout %}
 
 ### Providing the client to your app
@@ -60,12 +85,17 @@ The `QueryClient` is made available to your component tree through Signalium's `
 ```tsx
 import { QueryClient, QueryClientContext } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
+import { RESTQueryController } from 'fetchium/rest';
 import { ContextProvider } from 'signalium/react';
 
-const store = new SyncQueryStore(new MemoryPersistentStore());
-const client = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  store: new SyncQueryStore(new MemoryPersistentStore()),
+  controllers: [
+    new RESTQueryController({
+      fetch: globalThis.fetch,
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 
 function App() {
@@ -197,7 +227,8 @@ Queries import from entities and define the API surface:
 
 ```ts
 // src/api/queries/GetUser.ts
-import { RESTQuery, t } from 'fetchium';
+import { t } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 import { User } from '../entities/User';
 
 export class GetUser extends RESTQuery {
@@ -217,12 +248,16 @@ A single file creates and exports the `QueryClient`. This is the place to config
 // src/api/client.ts
 import { QueryClient } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
+import { RESTQueryController } from 'fetchium/rest';
 
-const store = new SyncQueryStore(new MemoryPersistentStore());
-
-export const queryClient = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: import.meta.env.VITE_API_URL ?? 'https://api.example.com',
+export const queryClient = new QueryClient({
+  store: new SyncQueryStore(new MemoryPersistentStore()),
+  controllers: [
+    new RESTQueryController({
+      fetch: globalThis.fetch,
+      baseUrl: import.meta.env.VITE_API_URL ?? 'https://api.example.com',
+    }),
+  ],
 });
 ```
 

@@ -34,7 +34,8 @@ Add a `fetchNext` field to your `RESTQuery` class. It accepts two optional prope
 The most common pattern. Your API returns a cursor in the response body, and you pass it as a search param on the next request.
 
 ```tsx
-import { RESTQuery, t, Entity } from 'fetchium';
+import { t, Entity } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 
 class Item extends Entity {
   __typename = t.typename('Item');
@@ -433,7 +434,8 @@ When `fetchNext` provides additional `searchParams`, they are **merged** with th
 Here is a full example showing cursor-based pagination with a live array, entity normalization, and a "load more" UI:
 
 ```tsx
-import { Entity, RESTQuery, t } from 'fetchium';
+import { Entity, t } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 import { useQuery } from 'fetchium/react';
 
 // Entity definition

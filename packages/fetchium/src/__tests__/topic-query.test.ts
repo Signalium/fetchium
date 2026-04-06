@@ -5,11 +5,14 @@ import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
 import { Query, fetchQuery } from '../query.js';
-import { RESTMutation, getMutation } from '../mutation.js';
+import { getMutation } from '../mutation.js';
+import { RESTMutation } from '../rest/index.js';
 import { reifyValue } from '../fieldRef.js';
 import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
 import type { MutationEvent } from '../types.js';
 import type { FetchNextConfig } from '../query-types.js';
+import { QueryController } from '../QueryController.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 
 // ============================================================
 // StreamAPI interface
@@ -127,40 +130,25 @@ class TopicNotFoundError extends Error {
 // TopicQuery base class
 // ============================================================
 
-abstract class TopicQuery extends Query {
-  declare topic: string;
-  fetchNext?: FetchNextConfig;
+// ============================================================
+// TopicQueryController
+// ============================================================
 
-  getFetchNext?(): FetchNextConfig | undefined;
-
-  getIdentityKey(): string {
-    return `topic:${this.topic}`;
+class TopicQueryController extends QueryController {
+  private _fetch: typeof globalThis.fetch;
+  constructor(fetchFn: typeof globalThis.fetch = globalThis.fetch) { super(); this._fetch = fetchFn; }
+  private get stream(): StreamAPI {
+    return (this.queryClient!.getContext() as any).stream as StreamAPI;
   }
 
-  async send(): Promise<unknown> {
-    const stream = (this.context as any).stream as StreamAPI;
-    if (!stream) {
-      throw new Error('StreamAPI not available in context');
-    }
-
-    const { topics } = await stream.waitForSubscription(this.signal);
-
-    if (!topics.includes(this.topic)) {
-      throw new TopicNotFoundError(this.topic);
-    }
-
-    const result = await stream.waitForTopicData(this.topic, this.signal);
-    return result.data;
-  }
-
-  private resolveFetchNext(): { url?: string; searchParams?: Record<string, unknown> } | undefined {
-    const dynamicConfig = this.getFetchNext ? this.getFetchNext() : undefined;
-    const fetchNextConfig = dynamicConfig ?? this.rawFetchNext;
+  private resolveFetchNext(ctx: TopicQuery): { url?: string; searchParams?: Record<string, unknown> } | undefined {
+    const dynamicConfig = ctx.getFetchNext ? ctx.getFetchNext() : undefined;
+    const fetchNextConfig = dynamicConfig ?? ctx.rawFetchNext;
     if (fetchNextConfig === undefined) return undefined;
 
     const resolveRoot: Record<string, unknown> = {
-      params: this.params ?? {},
-      result: this.resultData,
+      params: ctx.params ?? {},
+      result: ctx.resultData,
     };
 
     return {
@@ -172,12 +160,29 @@ abstract class TopicQuery extends Query {
     };
   }
 
-  hasNext(): boolean {
-    const stream = (this.context as any)?.stream as StreamAPI | undefined;
-    const meta = stream?.getTopicMeta?.(this.topic);
+  override async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
+    const topicCtx = ctx as TopicQuery;
+    const stream = this.stream;
+    if (!stream) {
+      throw new Error('StreamAPI not available in context');
+    }
+
+    const { topics } = await stream.waitForSubscription(signal);
+
+    if (!topics.includes(topicCtx.topic)) {
+      throw new TopicNotFoundError(topicCtx.topic);
+    }
+
+    const result = await stream.waitForTopicData(topicCtx.topic, signal);
+    return result.data;
+  }
+
+  override hasNext(ctx: Query): boolean {
+    const topicCtx = ctx as TopicQuery;
+    const meta = this.stream?.getTopicMeta?.(topicCtx.topic);
     if (!meta?.fetchNextUrl) return false;
 
-    const resolved = this.resolveFetchNext();
+    const resolved = this.resolveFetchNext(topicCtx);
     if (resolved === undefined) return false;
 
     if (resolved.searchParams !== undefined) {
@@ -191,15 +196,16 @@ abstract class TopicQuery extends Query {
     return true;
   }
 
-  async sendNext(): Promise<unknown> {
-    const stream = (this.context as any).stream as StreamAPI;
-    const meta = stream.getTopicMeta(this.topic);
+  override async sendNext(ctx: Query, signal: AbortSignal): Promise<unknown> {
+    const topicCtx = ctx as TopicQuery;
+    const stream = this.stream;
+    const meta = stream.getTopicMeta(topicCtx.topic);
 
     if (!meta?.fetchNextUrl) {
       throw new Error('No fetchNextUrl available for topic');
     }
 
-    const resolved = this.resolveFetchNext();
+    const resolved = this.resolveFetchNext(topicCtx);
     if (resolved === undefined) {
       throw new Error('fetchNext is not configured for this query');
     }
@@ -220,12 +226,25 @@ abstract class TopicQuery extends Query {
       }
     }
 
-    const fetchResponse = await this.context.fetch(url, {
-      signal: this.signal,
-    });
-
-    this.response = fetchResponse;
+    const fetchResponse = await this._fetch(url, { signal });
     return fetchResponse.json();
+  }
+}
+
+// ============================================================
+// TopicQuery base class (declarative only)
+// ============================================================
+
+abstract class TopicQuery extends Query {
+  static override controller = TopicQueryController;
+
+  declare topic: string;
+  fetchNext?: FetchNextConfig;
+
+  getFetchNext?(): FetchNextConfig | undefined;
+
+  getIdentityKey(): string {
+    return `topic:${this.topic}`;
   }
 
   getConfig() {
@@ -319,7 +338,7 @@ describe('TopicQuery', () => {
     const store = new SyncQueryStore(kv);
     mockFetch = createMockFetch();
     mockStream = new MockStream();
-    client = new QueryClient(store, { fetch: mockFetch, stream: mockStream } as any);
+    client = new QueryClient({ store: store, stream: mockStream, controllers: [new TopicQueryController(mockFetch as any), new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] } as any);
   });
 
   afterEach(() => {

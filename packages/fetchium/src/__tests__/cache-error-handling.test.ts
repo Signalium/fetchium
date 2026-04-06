@@ -1,14 +1,16 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { hashValue } from 'signalium/utils';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { valueKeyFor, refIdsKeyFor, updatedAtKeyFor } from '../stores/shared.js';
 import type { QueryStore } from '../QueryClient.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 
 /**
  * Cache Error Handling Tests
@@ -30,21 +32,11 @@ function computeQueryKey(QueryClass: new () => RESTQuery, params: unknown): numb
 }
 
 describe('Cache Error Handling', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: MemoryPersistentStore;
-  let store: SyncQueryStore;
-
-  beforeEach(() => {
-    client?.destroy();
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
+  const getClient = setupTestClient();
 
   describe('loadCachedQuery errors', () => {
     it('should continue query execution if loadCachedQuery throws an error', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -63,7 +55,7 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient(errorStore, { fetch: mockFetch as any });
+      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
 
@@ -82,6 +74,7 @@ describe('Cache Error Handling', () => {
     });
 
     it('should continue query execution if loadCachedQuery returns a rejected promise', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -98,7 +91,7 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient(errorStore, { fetch: mockFetch as any });
+      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
 
@@ -119,6 +112,7 @@ describe('Cache Error Handling', () => {
 
   describe('Cached data parsing errors', () => {
     it('should continue query execution if cached value JSON parsing fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -146,6 +140,7 @@ describe('Cache Error Handling', () => {
     });
 
     it('should continue query execution if cached value has wrong shape', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -191,6 +186,7 @@ describe('Cache Error Handling', () => {
     });
 
     it('should continue query execution if cached entity references are invalid', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -234,6 +230,7 @@ describe('Cache Error Handling', () => {
 
   describe('Entity preloading errors', () => {
     it('should continue query execution if entity preloading fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -279,6 +276,7 @@ describe('Cache Error Handling', () => {
 
   describe('Multiple cache errors', () => {
     it('should continue query execution if multiple cache operations fail', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -329,6 +327,7 @@ describe('Cache Error Handling', () => {
 
   describe('Cache deletion on error', () => {
     it('should delete corrupted cache entry when loading fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -364,6 +363,7 @@ describe('Cache Error Handling', () => {
 
   describe('Background refetch after cache error', () => {
     it('should still perform background refetch if cache is stale after error', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -403,6 +403,7 @@ describe('Cache Error Handling', () => {
 
   describe('Background streams with cache errors', () => {
     it('should start background stream subscription correctly if cache loading fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -425,7 +426,7 @@ describe('Cache Error Handling', () => {
         deleteQuery: store.deleteQuery.bind(store),
       };
 
-      const errorClient = new QueryClient(errorStore, { fetch: mockFetch as any });
+      const errorClient = new QueryClient({ store: errorStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       mockFetch.get('/users/[id]', {
         user: { __typename: 'User', id: 1, name: 'Initial User', email: 'initial@example.com' },
@@ -479,6 +480,7 @@ describe('Cache Error Handling', () => {
     });
 
     it('should start background stream subscription correctly if cached value parsing fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -543,6 +545,7 @@ describe('Cache Error Handling', () => {
     });
 
     it('should start background stream subscription correctly if loading extra data fails', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;

@@ -1,12 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
+import { RESTQueryController } from '../rest/index.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery, queryKeyForClass, getQueryDefinition } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery, queryKeyForClass, getQueryDefinition } from '../query.js';
 import { hashValue } from 'signalium/utils';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import {
   valueKeyFor,
   refCountKeyFor,
@@ -18,6 +20,7 @@ import {
 } from '../stores/shared.js';
 import { QueryResult } from 'src/types.js';
 import { DiscriminatedReactivePromise } from 'signalium';
+
 
 /**
  * Caching and Persistence Tests
@@ -171,22 +174,11 @@ function setQuery(kv: any, QueryClass: new () => RESTQuery, params: unknown, res
 }
 
 describe('Caching and Persistence', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    client?.destroy();
-    kv = new MemoryPersistentStore();
-    const queryStore = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(queryStore, { fetch: mockFetch as any });
-    store = queryStore;
-  });
+  const getClient = setupTestClient();
 
   describe('Query Result Caching', () => {
     it('should cache query results in document store', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       mockFetch.get('/items/[id]', { id: 1, name: 'Test' });
 
       await testWithClient(client, async () => {
@@ -215,6 +207,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should load query results from cache', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/items/${this.params.id}`;
@@ -260,6 +253,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should persist across QueryClient instances', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       mockFetch.get('/item', { id: 1, value: 'Persistent' });
 
       class GetItem extends RESTQuery {
@@ -277,7 +271,7 @@ describe('Caching and Persistence', () => {
 
       // Create new client with same stores
       mockFetch.get('/item', { id: 1, value: 'New Data' }, { delay: 10 });
-      const client2 = new QueryClient(store, { fetch: mockFetch as any });
+      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
@@ -305,6 +299,7 @@ describe('Caching and Persistence', () => {
 
   describe('Entity Persistence', () => {
     it('should persist entities to document store', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -339,6 +334,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should load entities from persistence', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -406,6 +402,7 @@ describe('Caching and Persistence', () => {
 
   describe('Cache-loaded Entity Proxy Resolution', () => {
     it('should create proxy when setEntity merges into a preloaded entity record', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -467,6 +464,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should resolve __entityRef values when accessing nested entity properties via proxy', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Category extends Entity {
         __typename = t.typename('Category');
         id = t.id;
@@ -560,6 +558,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should resolve deeply nested __entityRef values from cache', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
         id = t.id;
@@ -677,6 +676,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should handle array of entities with __entityRef from cache', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -748,6 +748,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should resolve array of entities with nested entities from cache', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Author extends Entity {
         __typename = t.typename('Author');
         id = t.id;
@@ -836,6 +837,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should resolve deeply nested entities through multiple array levels from cache', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
         id = t.id;
@@ -979,6 +981,7 @@ describe('Caching and Persistence', () => {
 
   describe('Reference Counting', () => {
     it('should increment ref count when entity is referenced', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1024,6 +1027,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should handle multiple references to same entity', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1067,6 +1071,7 @@ describe('Caching and Persistence', () => {
 
   describe('Document Store Operations', () => {
     it('should store query results with entity references', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1109,6 +1114,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should store nested entity references correctly', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1161,6 +1167,7 @@ describe('Caching and Persistence', () => {
 
   describe('Cascade Deletion', () => {
     it('should cascade delete entities when query is evicted from LRU', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1220,6 +1227,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should NOT delete entity if still referenced by another query', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1276,6 +1284,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should handle deep cascade deletion through nested entities', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
         id = t.id;
@@ -1366,6 +1375,7 @@ describe('Caching and Persistence', () => {
 
   describe('Reference Updates', () => {
     it('should update references when query result changes', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1451,6 +1461,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should deduplicate entity references in arrays', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1493,6 +1504,7 @@ describe('Caching and Persistence', () => {
 
   describe('Storage Cleanup', () => {
     it('should clean up all query storage keys when evicted from LRU', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1555,6 +1567,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should clean up all entity storage keys when cascade deleted', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
         id = t.id;
@@ -1624,6 +1637,7 @@ describe('Caching and Persistence', () => {
 
   describe('Schema Evolution', () => {
     it('should handle schema changes without validation errors', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class PositionV1 extends Entity {
         __typename = t.typename('Position');
         id = t.id;
@@ -1673,7 +1687,7 @@ describe('Caching and Persistence', () => {
       });
 
       // Create a new client to simulate a fresh session (but same persistent store)
-      const client2 = new QueryClient(store, { fetch: mockFetch as any });
+      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       await testWithClient(client2, async () => {
         class GetPositionV2 extends RESTQuery {
@@ -1695,6 +1709,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should store entities with different shapes separately', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       class UserV1 extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -1751,6 +1766,7 @@ describe('Caching and Persistence', () => {
 
   describe('Stale Query Purge', () => {
     it('should write lastUsedAt and cacheTime metadata on activateQuery', async () => {
+      const { client, mockFetch, kv, store } = getClient();
       mockFetch.get('/items/[id]', { id: 1, name: 'Test' });
 
       await testWithClient(client, async () => {
@@ -1774,6 +1790,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should purge expired queries on purgeStaleQueries', () => {
+      const { kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/purge-items/${this.params.id}`;
@@ -1805,6 +1822,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should not purge fresh queries', () => {
+      const { kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/fresh-items/${this.params.id}`;
@@ -1832,6 +1850,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should cascade-delete orphaned entities when purging stale queries', () => {
+      const { kv, store } = getClient();
       class GetUser extends RESTQuery {
         params = { id: t.id };
         path = `/purge-users/${this.params.id}`;
@@ -1867,6 +1886,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should respect custom cacheTime when purging', () => {
+      const { kv, store } = getClient();
       class GetLongLived extends RESTQuery {
         static cache = { cacheTime: 60 * 24 * 30 }; // 30 days
         params = { id: t.id };
@@ -1894,6 +1914,7 @@ describe('Caching and Persistence', () => {
     });
 
     it('should purge multiple entries from the same queue', () => {
+      const { kv, store } = getClient();
       class GetItem extends RESTQuery {
         params = { id: t.id };
         path = `/multi-purge/${this.params.id}`;

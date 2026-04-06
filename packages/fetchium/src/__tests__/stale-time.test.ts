@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { describe, it, expect, vi } from 'vitest';
+import { RESTQuery, RESTQueryController } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
+import { QueryClient } from '../QueryClient.js';
 
 /**
  * StaleTime Tests
@@ -13,21 +13,11 @@ import { t } from '../typeDefs.js';
  */
 
 describe('StaleTime', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    client?.destroy();
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
+  const getClient = setupTestClient();
 
   describe('Fresh Data', () => {
     it('should not refetch when data is fresh (within staleTime)', async () => {
+      const { client, mockFetch } = getClient();
       // Set up query with 10 second staleTime
       class GetItem extends RESTQuery {
         path = '/item';
@@ -59,6 +49,7 @@ describe('StaleTime', () => {
     });
 
     it('should use fresh data from disk cache without refetch', async () => {
+      const { client, mockFetch, store } = getClient();
       class GetItem extends RESTQuery {
         path = '/item';
         result = { data: t.number };
@@ -76,7 +67,7 @@ describe('StaleTime', () => {
       // Create new client with same store (simulating app restart)
       mockFetch.reset();
       mockFetch.get('/item', { data: 99 }, { delay: 50 });
-      const client2 = new QueryClient(store, { fetch: mockFetch as any });
+      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
@@ -95,6 +86,7 @@ describe('StaleTime', () => {
 
   describe('Stale Data', () => {
     it('should serve stale data immediately while refetching in background', async () => {
+      const { client, mockFetch } = getClient();
       class GetItem extends RESTQuery {
         path = '/item';
         result = { count: t.number };
@@ -135,6 +127,7 @@ describe('StaleTime', () => {
     });
 
     it('should refetch stale data from disk cache', async () => {
+      const { client, mockFetch, store } = getClient();
       class GetItem extends RESTQuery {
         path = '/data';
         result = { version: t.number };
@@ -154,7 +147,7 @@ describe('StaleTime', () => {
       // Create new client
       mockFetch.reset();
       mockFetch.get('/data', { version: 2 }, { delay: 50 });
-      const client2 = new QueryClient(store, { fetch: mockFetch as any });
+      const client2 = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
@@ -173,6 +166,7 @@ describe('StaleTime', () => {
     });
 
     it('should handle no staleTime (always refetch)', async () => {
+      const { client, mockFetch } = getClient();
       class GetItem extends RESTQuery {
         path = '/item';
         result = { value: t.string };
@@ -211,6 +205,7 @@ describe('StaleTime', () => {
 
   describe('Edge Cases', () => {
     it('should handle staleTime of 0 (always stale)', async () => {
+      const { client, mockFetch } = getClient();
       class GetItem extends RESTQuery {
         path = '/item';
         result = { n: t.number };
@@ -241,6 +236,7 @@ describe('StaleTime', () => {
     });
 
     it('should handle very long staleTime', async () => {
+      const { client, mockFetch } = getClient();
       vi.useFakeTimers();
 
       try {
@@ -320,6 +316,7 @@ describe('StaleTime', () => {
     });
 
     it('should handle concurrent access to stale data', async () => {
+      const { client, mockFetch } = getClient();
       class GetItem extends RESTQuery {
         path = '/item';
         result = { id: t.number };

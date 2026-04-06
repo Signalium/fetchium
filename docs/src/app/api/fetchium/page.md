@@ -10,11 +10,10 @@ API reference for the main `fetchium` package — a data-fetching and query laye
 ```ts
 import {
   Query,
-  RESTQuery,
+  QueryController,
   fetchQuery,
   queryKeyForClass,
   Mutation,
-  RESTMutation,
   getMutation,
   mutationKeyForClass,
   Entity,
@@ -29,6 +28,13 @@ import {
   QueryClientContext,
   NetworkManagerContext,
 } from 'fetchium';
+
+// REST adapter (JSON REST APIs)
+import {
+  RESTQuery,
+  RESTMutation,
+  RESTQueryController,
+} from 'fetchium/rest';
 ```
 
 ---
@@ -45,27 +51,29 @@ Base class for all query definitions. Extend this to define custom data-fetching
 | -------- | -------------------------------- | ------------------------------------------------------------ |
 | `cache`  | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime). |
 
+#### Static properties
+
+| Property     | Type                             | Description                                                                    |
+| ------------ | -------------------------------- | ------------------------------------------------------------------------------ |
+| `cache`      | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                   |
+| `controller` | `typeof QueryController`         | **(required)** The controller class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own controller class. |
+
 #### Instance properties
 
-| Property   | Type                                   | Description                                                                 |
-| ---------- | -------------------------------------- | --------------------------------------------------------------------------- |
-| `params`   | `Record<string, TypeDef> \| undefined` | Shape definition for query parameters.                                      |
-| `result`   | `TypeDefShape`                         | **(abstract)** Shape definition for the query result.                       |
-| `config`   | `QueryConfigOptions \| undefined`      | Instance-level configuration (gcTime, staleTime, retry, etc.).              |
-| `context`  | `QueryContext`                         | The query context provided by the `QueryClient`. Available during `send()`. |
-| `response` | `Response \| undefined`                | The raw fetch `Response` object, set after `send()` completes.              |
-| `signal`   | `AbortSignal`                          | Abort signal for cancelling the in-flight request.                          |
+| Property  | Type                                   | Description                                                    |
+| --------- | -------------------------------------- | -------------------------------------------------------------- |
+| `params`  | `Record<string, TypeDef> \| undefined` | Shape definition for query parameters.                         |
+| `result`  | `TypeDefShape`                         | **(abstract)** Shape definition for the query result.          |
+| `config`  | `QueryConfigOptions \| undefined`      | Instance-level configuration (gcTime, staleTime, retry, etc.). |
+| `context` | `QueryContext`                         | The query context provided by the `QueryClient`. Available in `getConfig()` and other methods. |
 
 #### Methods
 
-| Method          | Signature                                | Description                                                                                |
-| --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `getIdentityKey` | `(): unknown`                            | **(abstract)** Returns a value used to compute the cache/identity key for this query class. |
-| `send`          | `(): Promise<unknown>`                   | **(abstract)** Executes the network request and returns the raw response data.             |
-| `refetch`       | `(): void`                               | Triggers a refetch of this query, bypassing staleTime.                                     |
-| `getConfig`     | `(): QueryConfigOptions \| undefined`    | Optional override. Dynamically compute config at execution time.                           |
-| `sendNext`      | `(args: SendNextArgs): Promise<unknown>` | Optional. Fetches the next page of paginated data.                                         |
-| `hasNext`       | `(args: SendNextArgs): boolean`          | Optional. Returns `true` if there is a next page to load.                                  |
+| Method           | Signature                             | Description                                                                                 |
+| ---------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `getIdentityKey` | `(): unknown`                         | **(abstract)** Returns a value used to compute the cache/identity key for this query class. |
+| `refetch`        | `(): void`                            | Triggers a refetch of this query, bypassing staleTime.                                      |
+| `getConfig`      | `(): QueryConfigOptions \| undefined` | Optional. Dynamically compute config at execution time.                                     |
 
 ---
 
@@ -84,6 +92,7 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 | `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                               |
 | `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                       |
 | `fetchNext`       | `FetchNextConfig \| undefined`                     | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`). |
+| `response`        | `Response \| undefined`                            | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryController` after each request completes. Available in `getConfig()`. |
 
 #### `getIdentityKey()` default
 
@@ -154,26 +163,29 @@ class User extends Entity {
 
 Base class for mutation definitions.
 
+#### Static properties
+
+| Property     | Type                     | Description                                                                     |
+| ------------ | ------------------------ | ------------------------------------------------------------------------------- |
+| `controller` | `typeof QueryController` | **(required)** The controller class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own controller class. |
+
 #### Instance properties
 
-| Property            | Type                                 | Description                                                             |
-| ------------------- | ------------------------------------ | ----------------------------------------------------------------------- |
-| `params`            | `TypeDefShape \| undefined`          | Shape definition for mutation input parameters.                         |
-| `result`            | `TypeDefShape \| undefined`          | Shape definition for the mutation response.                             |
-| `optimisticUpdates` | `boolean \| undefined`               | When `true`, applies effects optimistically before the server responds. |
-| `config`            | `MutationConfigOptions \| undefined` | Mutation configuration (retry settings).                                |
+| Property            | Type                                 | Description                                                               |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
+| `params`            | `TypeDefShape \| undefined`          | Shape definition for mutation input parameters.                           |
+| `result`            | `TypeDefShape \| undefined`          | Shape definition for the mutation response.                               |
+| `optimisticUpdates` | `boolean \| undefined`               | When `true`, applies effects optimistically before the server responds.   |
+| `config`            | `MutationConfigOptions \| undefined` | Mutation configuration (retry settings).                                  |
 | `effects`           | `MutationEffects \| undefined`       | Static entity effects (creates, updates, deletes) and query invalidation. |
-| `context`           | `QueryContext`                       | The query context. Available during `send()`.                           |
-| `response`          | `Response \| undefined`              | Raw fetch response after `send()` completes.                            |
-| `signal`            | `AbortSignal`                        | Abort signal for the request.                                           |
+| `context`           | `QueryContext`                       | The query context provided by the `QueryClient`.                          |
 
 #### Methods
 
-| Method          | Signature              | Description                                                               |
-| --------------- | ---------------------- | ------------------------------------------------------------------------- |
-| `send`          | `(): Promise<unknown>` | **(abstract)** Executes the mutation request.                             |
-| `getIdentityKey` | `(): unknown`          | **(abstract)** Returns a value used to compute the mutation identity key. |
-| `getEffects`    | `(): MutationEffects`  | Optional. Dynamically compute entity effects at execution time.           |
+| Method           | Signature             | Description                                                               |
+| ---------------- | --------------------- | ------------------------------------------------------------------------- |
+| `getIdentityKey` | `(): unknown`         | **(abstract)** Returns a value used to compute the mutation identity key. |
+| `getEffects`     | `(): MutationEffects` | Optional. Dynamically compute entity effects at execution time.           |
 
 ---
 
@@ -213,20 +225,17 @@ Central coordinator for queries, mutations, entity storage, caching, and garbage
 #### Constructor
 
 ```ts
-new QueryClient(
-  store: QueryStore,
-  context?: QueryContext,
-  networkManager?: NetworkManager,
-  gcManager?: GcManager | NoOpGcManager,
-)
+new QueryClient(config: QueryClientConfig)
 ```
 
-| Parameter        | Type                         | Default                   | Description                                          |
-| ---------------- | ---------------------------- | ------------------------- | ---------------------------------------------------- |
-| `store`          | `QueryStore`                 | —                         | Persistent storage backend.                          |
-| `context`        | `QueryContext`               | `{ fetch, log: console }` | Provides the `fetch` function, base URL, and logger. |
-| `networkManager` | `NetworkManager`             | `new NetworkManager()`    | Tracks network connectivity.                         |
-| `gcManager`      | `GcManager \| NoOpGcManager` | Auto-detected             | GC manager. Uses `NoOpGcManager` on the server.      |
+| Field              | Type                         | Default                | Description                                                                       |
+| ------------------ | ---------------------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| `store`            | `QueryStore`                 | —                      | **(required)** Persistent storage backend.                                        |
+| `controllers`      | `QueryController[]`          | `[]`                   | Transport controllers (e.g. `new RESTQueryController({ fetch, baseUrl })`).       |
+| `log`              | `LogContext \| undefined`    | `console`              | Logger with `error`, `warn`, `info`, `debug` methods.                             |
+| `evictionMultiplier` | `number \| undefined`      | `1`                    | Scales all GC times for testing. Set to `0.001` to make timers fire in milliseconds. |
+| `networkManager`   | `NetworkManager`             | `new NetworkManager()` | Tracks network connectivity.                                                      |
+| `gcManager`        | `GcManager \| NoOpGcManager` | Auto-detected          | GC manager. Uses `NoOpGcManager` on the server.                                   |
 
 #### Methods
 
@@ -236,6 +245,76 @@ new QueryClient(
 | `applyMutationEvent` | `(event: MutationEvent): void`                      | Applies an external mutation event (create/update/delete) to the entity store.                           |
 | `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void`  | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering. |
 | `destroy`            | `(): void`                                          | Tears down the GC manager, network manager, and all caches.                                             |
+
+---
+
+### `QueryController` (abstract)
+
+Base class for transport adapters. A controller handles sending queries and mutations for all query/mutation classes that declare it via `static controller`. Register controllers with `QueryClient` at construction time.
+
+#### Methods
+
+| Method                  | Signature                                                    | Description                                                                              |
+| ----------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `register`              | `(queryClient: IQueryClientForController): void`             | Called once when the controller is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
+| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`        | **(abstract)** Send a query and return the raw response data.                            |
+| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`        | Optional. Send the next-page request for a paginated query.                              |
+| `hasNext`               | `(ctx: Query): boolean`                                      | Optional. Return `true` if more pages are available for the current result.              |
+| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>`     | Optional. Send a mutation and return the raw response data.                              |
+| `onNetworkStatusChange` | `(isOnline: boolean): void`                                  | Optional. Called when the network comes online or goes offline.                          |
+| `destroy`               | `(): void`                                                   | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.    |
+
+#### Protected properties
+
+| Property      | Type                             | Description                                    |
+| ------------- | -------------------------------- | ---------------------------------------------- |
+| `queryClient` | `IQueryClientForController \| undefined` | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
+
+#### Example
+
+```ts
+import { QueryController } from 'fetchium';
+import type { Query } from 'fetchium';
+
+class GraphQLController extends QueryController {
+  async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
+    const q = ctx as GraphQLQuery;
+    const response = await fetch('/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q.query, variables: q.variables }),
+      signal,
+    });
+    const json = await response.json();
+    if (json.errors?.length) throw new Error(json.errors[0].message);
+    return json.data;
+  }
+}
+
+new QueryClient({
+  store,
+  controllers: [new GraphQLController()],
+});
+```
+
+---
+
+### `RESTQueryController` extends `QueryController`
+
+Transport controller for `RESTQuery` and `RESTMutation`. Handles URL construction, JSON serialization, search params, pagination, and `baseUrl` resolution.
+
+Import from `fetchium/rest`.
+
+#### Constructor
+
+```ts
+new RESTQueryController(options?: RESTQueryControllerOptions)
+```
+
+| Option    | Type                                                         | Description                                                    |
+| --------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| `fetch`   | `(url: string, init?: RequestInit) => Promise<Response>`     | The fetch implementation to use. Defaults to `globalThis.fetch`. |
+| `baseUrl` | `string \| Signal<string> \| (() => string) \| undefined`    | Base URL prepended to all request paths.                       |
 
 ---
 

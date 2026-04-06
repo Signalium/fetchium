@@ -61,7 +61,8 @@ const onlineSignal = networkManager.getOnlineSignal();
 Each query can configure how it behaves when the device is offline. Set `networkMode` in the query's `config` property:
 
 ```tsx
-import { RESTQuery, t, NetworkMode } from 'fetchium';
+import { t, NetworkMode } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 
 class GetUser extends RESTQuery {
   params = { id: t.id };

@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { NetworkMode } from '../types.js';
 import { createMockFetch, testWithClient, sleep, createTestWatcher } from './utils.js';
 import { t } from '../typeDefs.js';
 import { withContexts } from 'signalium';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 
 describe('Network Mode', () => {
   let mockFetch: ReturnType<typeof createMockFetch>;
@@ -19,7 +21,7 @@ describe('Network Mode', () => {
     store = new SyncQueryStore(new MemoryPersistentStore());
     // Start with online status
     networkManager = new NetworkManager(true);
-    client = new QueryClient(store, { fetch: mockFetch as any }, networkManager);
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })], networkManager: networkManager });
   });
 
   afterEach(() => {
@@ -372,7 +374,7 @@ describe('Network Mode', () => {
       // @ts-ignore
       delete global.window;
 
-      const serverClient = new QueryClient(serverStore, { fetch: mockFetch as any }, serverNetworkManager);
+      const serverClient = new QueryClient({ store: serverStore, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })], networkManager: serverNetworkManager });
 
       let attempts = 0;
       mockFetch.get('/users/1', () => {

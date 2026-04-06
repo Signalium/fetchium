@@ -19,7 +19,6 @@ import { withRetry } from './retry.js';
 export class MutationResultImpl<Request, Result> {
   def: MutationDefinition<Request, Result>;
   private queryClient: QueryClient;
-  private _lastResponse: globalThis.Response | undefined;
   private _inFlight: boolean = false;
 
   readonly task: ReactiveTask<Result, [Request]>;
@@ -80,7 +79,6 @@ export class MutationResultImpl<Request, Result> {
         this.queryClient.getContext(),
       );
       (ctx as any).result = parsedResult;
-      (ctx as any).response = this._lastResponse;
       effects = (ctx as any).getEffects();
     } else if (this.def.effects !== undefined) {
       const root = { params: request as Record<string, unknown>, result: parsedResult as Record<string, unknown> };
@@ -105,17 +103,24 @@ export class MutationResultImpl<Request, Result> {
 
   private executeWithRetry(request: Request): Promise<Result> {
     const retryConfig = resolveRetryConfig(this.def.config?.retry, true);
+    const controller = this.queryClient.getController(this.def.controllerClass);
+
+    if (!controller.sendMutation) {
+      throw new Error(
+        `Controller "${this.def.controllerClass.name}" does not implement sendMutation(). ` +
+          `Add a sendMutation() method to handle mutations.`,
+      );
+    }
 
     return withRetry(async () => {
+      const abortController = new AbortController();
       const ctx = createExecutionContext(
         this.def.captured,
         (request ?? {}) as Record<string, unknown>,
         this.queryClient.getContext(),
       );
 
-      const result = (await this.def.captured.methods.send.call(ctx)) as Result;
-      this._lastResponse = (ctx as any).response;
-      return result;
+      return (await controller.sendMutation!(ctx, abortController.signal)) as Result;
     }, retryConfig);
   }
 }

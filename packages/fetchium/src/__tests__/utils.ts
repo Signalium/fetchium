@@ -1,5 +1,11 @@
+import { beforeEach, afterEach } from 'vitest';
 import { watchOnce, watcher, withContexts } from 'signalium';
 import { QueryClient, QueryClientContext, QueryStore } from '../QueryClient.js';
+import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { NetworkManager } from '../NetworkManager.js';
+import { GcManager } from '../GcManager.js';
+import type { NoOpGcManager } from '../GcManager.js';
 import { EntityStore } from '../EntityStore.js';
 import type { EntityInstance } from '../EntityInstance.js';
 import type { PreloadedEntityMap } from '../QueryClient.js';
@@ -36,6 +42,85 @@ interface MockRoute {
   used: boolean;
 }
 
+// ================================
+// Test client factory
+// ================================
+
+export interface TestClientOptions {
+  networkManager?: NetworkManager;
+  gcManager?: GcManager | NoOpGcManager;
+  evictionMultiplier?: number;
+  /** Extra config keys passed through to QueryContext (e.g. stream) */
+  [key: string]: unknown;
+}
+
+export interface TestClient {
+  client: QueryClient;
+  mockFetch: ReturnType<typeof createMockFetch>;
+  kv: MemoryPersistentStore;
+  store: SyncQueryStore;
+}
+
+/**
+ * Creates a QueryClient wired up with a mock fetch, in-memory store, and
+ * RESTQueryController configured for http://localhost.
+ *
+ * @example
+ * const { client, mockFetch } = createTestClient();
+ * mockFetch.get('/users', [...]);
+ * await testWithClient(client, async () => { ... });
+ * client.destroy();
+ */
+export function createTestClient(options: TestClientOptions = {}): TestClient {
+  const { networkManager, gcManager, evictionMultiplier, ...rest } = options;
+  const mockFetch = createMockFetch();
+  const kv = new MemoryPersistentStore();
+  const store = new SyncQueryStore(kv);
+  const client = new QueryClient({
+    store,
+    controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    networkManager,
+    // When evictionMultiplier is provided, always use a real GcManager (overrides isServer check)
+    gcManager: gcManager ?? (evictionMultiplier !== undefined ? undefined : undefined),
+    evictionMultiplier,
+    ...rest,
+  } as any);
+  // If evictionMultiplier was specified, ensure a real GcManager is active
+  // (the QueryClient may have chosen NoOpGcManager if running in a non-browser env)
+  if (evictionMultiplier !== undefined && !(client.gcManager instanceof GcManager)) {
+    client.gcManager = new GcManager((client as any).handleEviction.bind(client), evictionMultiplier);
+  }
+  return { client, mockFetch, kv, store };
+}
+
+/**
+ * Sets up a fresh TestClient before each test and destroys it after.
+ * Returns a getter function that provides the current test client.
+ *
+ * @example
+ * const getClient = setupTestClient();
+ *
+ * it('should fetch users', async () => {
+ *   const { client, mockFetch } = getClient();
+ *   mockFetch.get('/users', [...]);
+ *   await testWithClient(client, async () => { ... });
+ * });
+ */
+export function setupTestClient(options?: TestClientOptions | (() => TestClientOptions)): () => TestClient {
+  let tc: TestClient;
+
+  beforeEach(() => {
+    const opts = typeof options === 'function' ? options() : options;
+    tc = createTestClient(opts);
+  });
+
+  afterEach(() => {
+    tc?.client?.destroy();
+  });
+
+  return () => tc;
+}
+
 /**
  * Creates a mock fetch function with a fluent API for setting up responses.
  *
@@ -51,21 +136,47 @@ export function createMockFetch(): MockFetch {
   const routes: MockRoute[] = [];
   const calls: Array<{ url: string; options: RequestInit }> = [];
 
+  /**
+   * Extracts the comparable portion of a URL for matching.
+   * - If both route and request are absolute URLs with the same origin, compare full paths.
+   * - If route has an origin, compare full URL.
+   * - Otherwise compare just the pathname.
+   */
+  const toComparable = (raw: string): { origin: string | null; path: string } => {
+    // Strip query string
+    const base = raw.split('?')[0];
+    // Replace [param] patterns with a placeholder so URL() doesn't choke on brackets
+    const sanitized = base.replace(/\[([^\]]*)\]/g, '__param__');
+    try {
+      const parsed = new URL(sanitized);
+      return { origin: parsed.origin, path: parsed.pathname.replace(/__param__/g, '[...]') };
+    } catch {
+      return { origin: null, path: base };
+    }
+  };
+
   const matchRoute = (url: string, method: string): MockRoute | undefined => {
     const isMatch = (r: MockRoute): boolean => {
       if (r.method !== method) return false;
 
-      // Simple pattern: check if the route URL is a prefix or matches the base path
-      const routeBase = r.url.split('?')[0];
-      const urlBase = url.split('?')[0];
+      const req = toComparable(url);
+      const route = toComparable(r.url);
 
-      // Check if URL starts with the route (for exact matches)
-      if (urlBase === routeBase) return true;
+      // If route has an origin, require it to match the request origin
+      if (route.origin !== null && req.origin !== null && route.origin !== req.origin) {
+        return false;
+      }
 
-      // Check if route contains path params [...]
+      const routePath = route.path;
+      const urlPath = req.path;
+
+      // Exact match on path
+      if (urlPath === routePath) return true;
+
+      // Pattern match: route contains [...] placeholders
       if (r.url.includes('[')) {
-        const routeParts = routeBase.split('/');
-        const urlParts = urlBase.split('/');
+        const routeParts = routePath.split('/');
+        const urlParts = urlPath.split('/');
 
         if (routeParts.length !== urlParts.length) return false;
 

@@ -41,7 +41,8 @@ Fetchium takes a _declarative_ approach. Your first tool is entity effects: decl
 As with queries, we'll use the built-in `RESTMutation` adapter for our examples. It handles JSON serialization, content-type headers, and path interpolation for REST APIs. For other protocols, you can extend the base `Mutation` class directly --- see [Custom Mutations](#custom-mutations) below.
 
 ```tsx
-import { RESTMutation, t } from 'fetchium';
+import { t } from 'fetchium';
+import { RESTMutation } from 'fetchium/rest';
 
 class CreateUser extends RESTMutation {
   params = { name: t.string, email: t.string };
@@ -323,47 +324,60 @@ If a mutation with optimistic updates fails, the rollback restores the entity to
 
 ## Custom Mutations
 
-`RESTMutation` is an adapter for JSON REST APIs. But mutations as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, file uploads, WebSocket messages, RPC calls --- you extend the base `Mutation` class directly and implement the `send()` method.
+`RESTMutation` is an adapter for JSON REST APIs. But mutations as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, file uploads, WebSocket messages, RPC calls --- you build a **`QueryController`** that handles the transport and a **`Mutation`** subclass that stays purely declarative.
 
-This is _not_ an escape hatch or a workaround. It is the intended way to support any protocol. `RESTMutation` is itself just one implementation of `Mutation` with `send()` pre-built for HTTP/JSON. You can build your own adapters the same way.
+The same controller that handles queries can also handle mutations by implementing `sendMutation(ctx, signal)`. This means custom query and mutation transports for the same protocol live in one place:
 
-```tsx
-import { Mutation, t } from 'fetchium';
+```ts
+import { QueryController, Mutation, t } from 'fetchium';
+import type { Query } from 'fetchium';
 
-class UploadAvatar extends Mutation {
-  params = { userId: t.id, file: t.any };
-
-  result = { url: t.string };
-
-  getIdentityKey() {
-    return 'upload-avatar';
+class MyController extends QueryController {
+  async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
+    // ... query transport
   }
 
-  async send() {
+  override async sendMutation(
+    ctx: Mutation,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const m = ctx as UploadAvatarMutation;
     const formData = new FormData();
-    formData.append('file', this.params.file);
+    formData.append('file', m.params.file);
 
-    const response = await this.context.fetch(
-      `/users/${this.params.userId}/avatar`,
-      {
-        method: 'POST',
-        body: formData,
-        signal: this.signal,
-      },
-    );
+    const response = await fetch(`/users/${m.params.userId}/avatar`, {
+      method: 'POST',
+      body: formData,
+      signal,
+    });
 
-    this.response = response;
     return response.json();
   }
 }
 ```
 
-Inside `send()`, you have access to:
+The mutation class is purely declarative:
 
-- **`this.params`** --- the validated input params
-- **`this.context`** --- the `QueryContext` with `fetch`, `log`, and `baseUrl`
-- **`this.signal`** --- an `AbortSignal` for cancellation
-- **`this.response`** --- set this to the raw `Response` object if you want to access it in `getEffects()`
+```ts
+import { Mutation, t } from 'fetchium';
+
+class UploadAvatar extends Mutation {
+  static override controller = MyController;
+
+  params = { userId: t.id, file: t.any };
+  result = { url: t.string };
+
+  getIdentityKey() {
+    return 'upload-avatar';
+  }
+}
+```
+
+Inside `sendMutation()`:
+
+- **`ctx`** --- the mutation execution context, cast to your mutation type; all fields are resolved to their real values
+- **`signal`** --- an `AbortSignal` for cancellation
+- **`this.queryClient`** --- call `this.queryClient.getContext()` to access `log` and any other context properties
 
 Custom mutations participate in the same effects system as `RESTMutation`. You can define `effects` or `getEffects()` on any mutation class, and the entity store, live data, and components will react to them identically.
 

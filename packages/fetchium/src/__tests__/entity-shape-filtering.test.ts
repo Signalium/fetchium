@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
 
 class ItemSummary extends Entity {
   __typename = t.typename('ShapeItem');
@@ -32,19 +32,7 @@ async function applyEventOutsideReactiveContext(client: QueryClient, event: Muta
 }
 
 describe('Entity Shape Filtering', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Normal arrays (proxy-level filtering)
@@ -52,6 +40,7 @@ describe('Entity Shape Filtering', () => {
 
   describe('Normal arrays (proxy-level filtering)', () => {
     it('should filter incomplete entities from detail-typed array when loaded via different shapes', async () => {
+      const { client, mockFetch } = getClient();
       class GetSummaryItems extends RESTQuery {
         path = '/items-summary';
         result = { items: t.array(t.entity(ItemSummary)) };
@@ -108,6 +97,7 @@ describe('Entity Shape Filtering', () => {
     });
 
     it('should not filter when only one def is registered (single-def happy path)', async () => {
+      const { client, mockFetch } = getClient();
       class SimpleItem extends Entity {
         __typename = t.typename('SimpleItem');
         id = t.id;
@@ -143,6 +133,7 @@ describe('Entity Shape Filtering', () => {
 
   describe('Live arrays (binding-level filtering)', () => {
     it('should reject create with narrow payload from detail live array', async () => {
+      const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent');
         id = t.id;
@@ -198,6 +189,7 @@ describe('Entity Shape Filtering', () => {
     });
 
     it('should accept create with full payload in both live arrays', async () => {
+      const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent2');
         id = t.id;
@@ -253,6 +245,7 @@ describe('Entity Shape Filtering', () => {
     });
 
     it('should add entity to detail live array when update gives it detail fields', async () => {
+      const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent3');
         id = t.id;
@@ -321,6 +314,7 @@ describe('Entity Shape Filtering', () => {
 
   describe('Edge cases', () => {
     it('should preserve detail fields on partial update', async () => {
+      const { client, mockFetch } = getClient();
       class GetDetailItems extends RESTQuery {
         path = '/detail-items';
         result = { items: t.array(t.entity(ItemDetail)) };
@@ -362,6 +356,7 @@ describe('Entity Shape Filtering', () => {
     });
 
     it('should delete from both summary and detail live arrays', async () => {
+      const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent4');
         id = t.id;

@@ -6,13 +6,15 @@ import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { createRenderCounter } from './utils.js';
 import { QueryPromise, QueryResult } from '../../types.js';
 import { poll } from '../../subscriptions/polling.js';
 
 import { userEvent } from '@vitest/browser/context';
+import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 /**
  * React Tests for Query Package
@@ -30,7 +32,7 @@ describe('React Query Integration', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   describe('Basic Query Usage', () => {
@@ -421,9 +423,9 @@ describe('React Query Integration', () => {
 
       // Verify we made 3 fetches: getUser, getPost, refetch getUser
       expect(mockFetch.calls.length).toBe(3);
-      expect(mockFetch.calls[0].url).toBe('/user/1');
-      expect(mockFetch.calls[1].url).toBe('/posts/100');
-      expect(mockFetch.calls[2].url).toBe('/user/1');
+      expect(mockFetch.calls[0].url).toBe('http://localhost/user/1');
+      expect(mockFetch.calls[1].url).toBe('http://localhost/posts/100');
+      expect(mockFetch.calls[2].url).toBe('http://localhost/user/1');
     });
 
     it('should handle nested entities correctly', async () => {
@@ -953,9 +955,7 @@ describe('React Query Integration', () => {
         );
       });
 
-      const pollingClient = new QueryClient(new SyncQueryStore(new MemoryPersistentStore()), {
-        fetch: mockFetch as any,
-      });
+      const pollingClient = new QueryClient({ store: new SyncQueryStore(new MemoryPersistentStore()), controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       class GetUser extends RESTQuery {
         path = '/users/1';
@@ -1031,9 +1031,7 @@ describe('React Query Integration', () => {
         );
       });
 
-      const pollingClient = new QueryClient(new SyncQueryStore(new MemoryPersistentStore()), {
-        fetch: mockFetch as any,
-      });
+      const pollingClient = new QueryClient({ store: new SyncQueryStore(new MemoryPersistentStore()), controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
       class GetUser extends RESTQuery {
         path = '/users/1';

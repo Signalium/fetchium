@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { signal } from 'signalium';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, getEntityMapSize, sleep } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, getEntityMapSize, sleep, setupTestClient } from './utils.js';
 
 /**
  * Debounce Tests
@@ -14,21 +13,11 @@ import { createMockFetch, testWithClient, getEntityMapSize, sleep } from './util
  */
 
 describe('Debounce', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Debounce Functionality', () => {
     it('should not delay initial fetch when debounce is configured', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/users', { users: [] });
 
       class ListUsers extends RESTQuery {
@@ -47,6 +36,7 @@ describe('Debounce', () => {
     });
 
     it('should not delay when debounce is not configured', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/users', { users: [] });
 
       class ListUsers extends RESTQuery {
@@ -64,6 +54,7 @@ describe('Debounce', () => {
     });
 
     it('should delay refetch when Signal value changes', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal('123');
       mockFetch.get('/users/[id]', { id: 123, name: 'User 123' });
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
@@ -106,6 +97,7 @@ describe('Debounce', () => {
 
   describe('Debounce Cancellation', () => {
     it('should handle rapid Signal changes', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal('123');
       mockFetch.get('/users/[id]', { id: 123, name: 'User 123' });
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
@@ -153,6 +145,7 @@ describe('Debounce', () => {
 
   describe('Debounce Edge Cases', () => {
     it('should handle debounce with 0ms delay (no debounce)', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/users', { users: [] });
 
       class ListUsers extends RESTQuery {
@@ -171,6 +164,7 @@ describe('Debounce', () => {
     });
 
     it('should work with retry logic', async () => {
+      const { client, mockFetch } = getClient();
       // First call fails, second succeeds
       mockFetch.get('/users', null, { status: 500 });
       mockFetch.get('/users', { users: [] });

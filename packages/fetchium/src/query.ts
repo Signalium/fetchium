@@ -2,7 +2,6 @@ import { getContext } from 'signalium';
 import {
   ExtractType,
   TypeDef,
-  QueryRequestOptions,
   TypeDefShape,
   RetryConfig,
   QueryPromise,
@@ -14,10 +13,8 @@ import {
   QueryConfigOptions,
   FetchNextConfig,
   QueryClientContext,
-  QueryContext,
   QueryParams,
   queryKeyFor,
-  resolveBaseUrl,
 } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
 import { HasRequiredKeys, Optionalize, Signalize } from './type-utils.js';
@@ -25,18 +22,9 @@ import {
   createDefinitionProxy,
   extractDefinition,
   createExecutionContext as createExecutionContextUtil,
-  reifyValue,
   type CapturedDefinition,
 } from './fieldRef.js';
-
-// ================================
-// FetchNext types
-// ================================
-
-export interface ResolvedFetchNext {
-  url?: string;
-  searchParams?: Record<string, unknown>;
-}
+import type { QueryController } from './QueryController.js';
 
 // ================================
 // Retry config
@@ -77,159 +65,27 @@ export function resolveRetryConfig(
 
 export abstract class Query {
   static cache?: QueryCacheOptions;
+  /**
+   * The controller class responsible for sending requests for this query type.
+   * Must be set on each concrete Query subclass (or inherited from a base like RESTQuery).
+   */
+  static controller?: typeof QueryController;
 
   params?: Record<string, TypeDef>;
   abstract result: TypeDefShape;
   config?: QueryConfigOptions;
 
-  declare context: QueryContext;
-  declare response: Response | undefined;
-  declare signal: AbortSignal;
+  declare context: import('./query-types.js').QueryContext;
   declare refetch: () => void;
   declare resultData: Record<string, unknown>;
   declare rawFetchNext: FetchNextConfig | undefined;
 
   abstract getIdentityKey(): unknown;
-  abstract send(): Promise<unknown>;
 
   getConfig?(): QueryConfigOptions | undefined;
-  sendNext?(): Promise<unknown>;
-  hasNext?(): boolean;
 
   constructor() {
     return createDefinitionProxy(this);
-  }
-}
-
-// ================================
-// RESTQuery
-// ================================
-
-export abstract class RESTQuery extends Query {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'GET';
-  path?: string;
-  searchParams?: Record<string, unknown>;
-  body?: Record<string, unknown>;
-  headers?: HeadersInit;
-  requestOptions?: QueryRequestOptions;
-  fetchNext?: FetchNextConfig;
-
-  getIdentityKey(): string {
-    return `${this.method ?? 'GET'}:${this.path ?? ''}`;
-  }
-
-  getPath?(): string | undefined;
-  getMethod?(): string;
-  getSearchParams?(): Record<string, unknown> | undefined;
-  getBody?(): Record<string, unknown> | undefined;
-  getRequestOptions?(): QueryRequestOptions | undefined;
-  getFetchNext?(): FetchNextConfig | undefined;
-
-  async send(): Promise<unknown> {
-    return this.executeRequest();
-  }
-
-  private resolveFetchNext(): ResolvedFetchNext | undefined {
-    const dynamicConfig = this.getFetchNext ? this.getFetchNext() : undefined;
-    const fetchNextConfig = dynamicConfig ?? this.rawFetchNext;
-    if (fetchNextConfig === undefined) return undefined;
-
-    const resolveRoot: Record<string, unknown> = {
-      params: this.params ?? {},
-      result: this.resultData,
-    };
-
-    return {
-      url: fetchNextConfig.url !== undefined ? (reifyValue(fetchNextConfig.url, resolveRoot) as string) : undefined,
-      searchParams:
-        fetchNextConfig.searchParams !== undefined
-          ? (reifyValue(fetchNextConfig.searchParams, resolveRoot) as Record<string, unknown>)
-          : undefined,
-    };
-  }
-
-  hasNext(): boolean {
-    const resolved = this.resolveFetchNext();
-    if (resolved === undefined) return false;
-
-    if (resolved.url !== undefined && resolved.url !== null) {
-      return true;
-    }
-
-    if (resolved.searchParams !== undefined) {
-      const keys = Object.keys(resolved.searchParams);
-      if (keys.length === 0) return false;
-      for (const key of keys) {
-        if (resolved.searchParams[key] === undefined || resolved.searchParams[key] === null) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  async sendNext(): Promise<unknown> {
-    const resolved = this.resolveFetchNext();
-    if (resolved === undefined) {
-      throw new Error('fetchNext is not configured for this query');
-    }
-
-    return this.executeRequest(resolved);
-  }
-
-  private async executeRequest(next?: { url?: string; searchParams?: Record<string, unknown> }): Promise<unknown> {
-    const path = next?.url ?? (this.getPath ? this.getPath() : this.path);
-    const method = this.getMethod ? this.getMethod() : this.method;
-    const baseSearchParams = this.getSearchParams ? this.getSearchParams() : this.searchParams;
-    const searchParams = next?.searchParams ? { ...baseSearchParams, ...next.searchParams } : baseSearchParams;
-    const body = this.getBody ? this.getBody() : this.body;
-    const requestOptions = this.getRequestOptions ? this.getRequestOptions() : this.requestOptions;
-
-    if (!path) {
-      throw new Error('RESTQuery requires a path. Define `path` as a field or override `getPath()`.');
-    }
-
-    let url = path;
-
-    if (searchParams) {
-      const sp = new URLSearchParams();
-      for (const key in searchParams) {
-        const val = searchParams[key];
-        if (val !== undefined && val !== null) {
-          sp.append(key, String(val));
-        }
-      }
-      const qs = sp.toString();
-      if (qs) {
-        url += '?' + qs;
-      }
-    }
-
-    const baseUrl = resolveBaseUrl(requestOptions?.baseUrl) ?? resolveBaseUrl(this.context.baseUrl);
-    const fullUrl = baseUrl ? `${baseUrl}${url}` : url;
-
-    const { baseUrl: _baseUrl, signal: _signal, ...fetchOptions } = requestOptions ?? ({} as Record<string, unknown>);
-
-    const hasHeaders = body || this.headers;
-    const headers: HeadersInit | undefined = hasHeaders
-      ? {
-          ...(body ? { 'Content-Type': 'application/json' } : undefined),
-          ...(this.headers as Record<string, string>),
-        }
-      : undefined;
-
-    const fetchResponse = await this.context.fetch(fullUrl, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: this.signal,
-      ...fetchOptions,
-    });
-
-    this.response = fetchResponse;
-    return fetchResponse.json();
   }
 }
 
@@ -253,10 +109,12 @@ export interface QueryDefinitionStatics {
   readonly cache: QueryCacheOptions | undefined;
   /** Raw fetchNext config with unresolved FieldRefs, extracted before reification. */
   readonly rawFetchNext: FetchNextConfig | undefined;
-  /** Whether the query class implements sendNext(). */
+  /** Whether the controller implements sendNext(). */
   readonly hasSendNext: boolean;
   /** Whether the result shape is already an entity (vs synthetic wrapper). */
   readonly isEntityResult: boolean;
+  /** The controller class responsible for sending requests. */
+  readonly controllerClass: typeof QueryController;
 }
 
 export class QueryDefinition<Params extends QueryParams | undefined, Result, StreamType> {
@@ -269,7 +127,7 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
     this.statics = statics;
   }
 
-  createExecutionContext(actualParams: Record<string, unknown>, queryContext: QueryContext): Query {
+  createExecutionContext(actualParams: Record<string, unknown>, queryContext: import('./query-types.js').QueryContext): Query {
     return createExecutionContextUtil(this.captured, actualParams, queryContext);
   }
 
@@ -303,7 +161,18 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
 
     // Extract raw fetchNext config before reification so FieldRefs survive
     const rawFetchNext = (captured.fields as unknown as Record<string, unknown>).fetchNext as FetchNextConfig | undefined;
-    const hasSendNext = typeof captured.methods.sendNext === 'function';
+
+    // Resolve the controller class from the Query class static property
+    const controllerClass = (QueryClass as typeof Query).controller;
+    if (!controllerClass) {
+      throw new Error(
+        `Query class "${QueryClass.name}" must define a static \`controller\` property. ` +
+          `Extend RESTQuery (from fetchium/rest) or set \`static controller = MyController\` on your query class.`,
+      );
+    }
+
+    // Derive hasSendNext from the controller prototype
+    const hasSendNext = typeof controllerClass.prototype.sendNext === 'function';
 
     // For entity results, the root entity IS the result entity.
     // For non-entity results, create a synthetic EntityDef with QUERY_ID as idField.
@@ -319,7 +188,7 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
         );
 
     queryDefinition = new QueryDefinition(
-      { id, shape: rootEntityShape, cache, rawFetchNext, hasSendNext, isEntityResult },
+      { id, shape: rootEntityShape, cache, rawFetchNext, hasSendNext, isEntityResult, controllerClass },
       captured,
     );
 

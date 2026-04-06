@@ -81,6 +81,20 @@
       "require": "./dist/cjs/production/subscriptions/polling.js",
       "default": "./dist/esm/production/subscriptions/polling.js"
     },
+    "./rest": {
+      "types": "./dist/esm/rest/index.d.ts",
+      "development": {
+        "import": "./dist/esm/development/rest/index.js",
+        "require": "./dist/cjs/development/rest/index.js"
+      },
+      "production": {
+        "import": "./dist/esm/production/rest/index.js",
+        "require": "./dist/cjs/production/rest/index.js"
+      },
+      "import": "./dist/esm/production/rest/index.js",
+      "require": "./dist/cjs/production/rest/index.js",
+      "default": "./dist/esm/production/rest/index.js"
+    },
     "./testing": {
       "types": "./dist/esm/testing/index.d.ts",
       "development": {

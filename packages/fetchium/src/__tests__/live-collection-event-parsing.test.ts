@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t, registerFormat } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { Mask } from '../types.js';
-import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
+import { testWithClient, sleep, getEntityMapSize, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
 
 async function applyEventOutsideReactiveContext(client: QueryClient, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -20,19 +20,7 @@ async function applyEventOutsideReactiveContext(client: QueryClient, event: Muta
 }
 
 describe('LiveCollection Event Parsing', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Create events with full payload
@@ -40,6 +28,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('Create events', () => {
     it('should parse and add entity to collection on create with full payload', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -89,6 +78,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should reject create when required fields are missing', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -135,6 +125,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should accept create when optional fields are missing', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -186,6 +177,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('Layering: summary vs detail defs', () => {
     it('should handle create with two bindings using different entity defs', async () => {
+      const { client, mockFetch } = getClient();
       class ItemSummary extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -264,6 +256,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should only add to narrow binding when payload lacks wider def fields', async () => {
+      const { client, mockFetch } = getClient();
       class ItemSummary extends Entity {
         __typename = t.typename('NarrowItem');
         id = t.id;
@@ -344,6 +337,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('Update events for existing entities', () => {
     it('should update existing entity with partial payload', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('UpdItem');
         id = t.id;
@@ -391,6 +385,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should route update through collection after merge with full data', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('RouteItem');
         id = t.id;
@@ -453,6 +448,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('Delete events', () => {
     it('should delete from collection using existing entity data for routing', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('DelItem');
         id = t.id;
@@ -497,6 +493,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should handle delete with object data containing constraint fields', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('DelItem2');
         id = t.id;
@@ -547,6 +544,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('Formatted fields in events', () => {
     it('should eagerly format date fields in create events', async () => {
+      const { client, mockFetch } = getClient();
       class Event extends Entity {
         __typename = t.typename('FmtEvent');
         id = t.id;
@@ -595,6 +593,7 @@ describe('LiveCollection Event Parsing', () => {
     });
 
     it('should eagerly format date fields in update events for existing entities', async () => {
+      const { client, mockFetch } = getClient();
       class Task extends Entity {
         __typename = t.typename('FmtTask');
         id = t.id;
@@ -649,6 +648,7 @@ describe('LiveCollection Event Parsing', () => {
 
   describe('No orphan creation', () => {
     it('should not create orphan entity when no live data matches', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('OrphanItem');
         id = t.id;

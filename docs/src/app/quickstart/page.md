@@ -66,11 +66,9 @@ Every Fetchium app needs a `QueryClient` backed by a store. The client manages q
 
 ```tsx
 import { QueryClient, QueryClientContext } from 'fetchium';
-import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
 import { ContextProvider } from 'signalium/react';
 
-const store = new SyncQueryStore(new MemoryPersistentStore());
-const client = new QueryClient(store, { fetch });
+const client = new QueryClient();
 
 function App() {
   return (
@@ -81,8 +79,10 @@ function App() {
 }
 ```
 
+This is the minimal setup. The store defaults to an in-memory cache and `RESTQueryController` is auto-instantiated on first use with `globalThis.fetch`. When you need a `baseUrl`, auth headers, or persistent storage, pass explicit options --- see [Project Setup](/setup/project-setup).
+
 {% callout title="Want to go deeper?" type="note" %}
-This minimal setup is enough to get started. For a complete guide to configuring `baseUrl`, auth headers, persistent stores, and project structure, see [Project Setup](/setup/project-setup).
+For a complete guide to configuring `baseUrl`, auth headers, persistent stores, and project structure, see [Project Setup](/setup/project-setup).
 {% /callout %}
 
 ### 4. Define an Entity and a Query
@@ -90,7 +90,8 @@ This minimal setup is enough to get started. For a complete guide to configuring
 Entities describe the shape of your API resources. Queries describe how to fetch them. Both use the `t` type DSL for field definitions.
 
 ```tsx
-import { RESTQuery, t, Entity } from 'fetchium';
+import { t, Entity } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 
 class User extends Entity {
   __typename = t.typename('User');

@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { describe, it, expect } from 'vitest';
 import { t } from '../typeDefs.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { watcher } from 'signalium';
-import { createMockFetch, testWithClient } from './utils.js';
+import { testWithClient, setupTestClient } from './utils.js';
 
 /**
  * Query Behavior Tests
@@ -19,18 +18,11 @@ import { createMockFetch, testWithClient } from './utils.js';
  */
 
 describe('Query Behavior', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    client?.destroy();
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
+  const getClient = setupTestClient();
 
   describe('Error Handling', () => {
     it('should handle fetch errors gracefully', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', null, {
         error: new Error('Network error'),
       });
@@ -49,6 +41,7 @@ describe('Query Behavior', () => {
     });
 
     it('should handle JSON parsing errors', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/item', null, {
         jsonError: new Error('Invalid JSON'),
       });
@@ -78,6 +71,7 @@ describe('Query Behavior', () => {
 
   describe('Path Interpolation via Queries', () => {
     it('should handle paths with no parameters', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/static/path', { data: 'test' });
 
       await testWithClient(client, async () => {
@@ -89,11 +83,12 @@ describe('Query Behavior', () => {
         const relay = fetchQuery(GetItem);
         await relay;
 
-        expect(mockFetch.calls[0].url).toBe('/static/path');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/static/path');
       });
     });
 
     it('should handle multiple path parameters', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/org/[orgId]/team/[teamId]/user/[userId]', { data: 'test' });
 
       await testWithClient(client, async () => {
@@ -113,6 +108,7 @@ describe('Query Behavior', () => {
 
   describe('Query Definition Caching', () => {
     it('should cache query definition across calls', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/counter', { count: 1 });
 
       await testWithClient(client, async () => {
@@ -140,6 +136,7 @@ describe('Query Behavior', () => {
 
   describe('HTTP Method Support', () => {
     it('should include method in query ID', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/items', { success: true });
       mockFetch.post('/items', { success: true });
 
@@ -169,6 +166,7 @@ describe('Query Behavior', () => {
 
   describe('Concurrent Operations', () => {
     it('should handle race conditions safely', async () => {
+      const { client, mockFetch } = getClient();
       // Set up single mock response with delay - testing query deduplication
       mockFetch.get('/counter', { count: 1 }, { delay: 25 });
 
@@ -200,6 +198,7 @@ describe('Query Behavior', () => {
     });
 
     it('should handle many concurrent queries', async () => {
+      const { client, mockFetch } = getClient();
       // Set up 50 individual mock responses
       for (let i = 0; i < 50; i++) {
         mockFetch.get('/items/[id]', { url: `/items/${i}` });
@@ -231,6 +230,7 @@ describe('Query Behavior', () => {
 
   describe('Memory and Watchers', () => {
     it('should cleanup watchers properly', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.get('/counter', { count: 1 });
 
       await testWithClient(client, async () => {

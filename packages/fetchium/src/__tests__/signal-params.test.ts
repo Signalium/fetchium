@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { signal } from 'signalium';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, setupTestClient } from './utils.js';
 
 /**
  * Signal Parameter Tests
@@ -14,21 +13,11 @@ import { createMockFetch, testWithClient } from './utils.js';
  */
 
 describe('Signal Parameters', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Signal Support', () => {
     it('should execute a query with Signal in path parameter', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal('123');
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
@@ -45,11 +34,12 @@ describe('Signal Parameters', () => {
         const result = await fetchQuery(GetUser, { id: idSignal });
         expect(result.id).toBe(123);
         expect(result.name).toBe('Test User');
-        expect(mockFetch.calls[0].url).toBe('/users/123');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users/123');
       });
     });
 
     it('should execute a query with Signal in search parameter', async () => {
+      const { client, mockFetch } = getClient();
       const pageSignal = signal(1);
       const limitSignal = signal(10);
       mockFetch.get('/users', { users: [], page: 1, total: 0 });
@@ -79,6 +69,7 @@ describe('Signal Parameters', () => {
     });
 
     it('should execute a query with mixed Signal and primitive parameters', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal('456');
       mockFetch.get('/users/[id]/posts', { posts: [] });
 
@@ -106,6 +97,7 @@ describe('Signal Parameters', () => {
 
   describe('Signal Change Triggers Refetch', () => {
     it('should refetch when Signal value changes', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal('123');
       mockFetch.get('/users/[id]', { id: 123, name: 'User 123' });
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
@@ -145,6 +137,7 @@ describe('Signal Parameters', () => {
     });
 
     it('should refetch when multiple Signals change', async () => {
+      const { client, mockFetch } = getClient();
       const pageSignal = signal(1);
       const limitSignal = signal(10);
       mockFetch.get('/users', { users: [], page: 1, total: 0 });
@@ -186,6 +179,7 @@ describe('Signal Parameters', () => {
 
   describe('Query Key Computation', () => {
     it('should use same cache for queries with same Signal values', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal1 = signal('123');
       const idSignal2 = signal('123');
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
@@ -211,6 +205,7 @@ describe('Signal Parameters', () => {
     });
 
     it('should create separate cache entries for different Signal values', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal1 = signal('123');
       const idSignal2 = signal('456');
       mockFetch.get('/users/[id]', { id: 123, name: 'User 123' });
@@ -239,6 +234,7 @@ describe('Signal Parameters', () => {
 
   describe('Edge Cases', () => {
     it('should handle Signal with undefined value', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal<number | undefined>(undefined);
       mockFetch.get('/users', { id: null, name: 'No User' });
 
@@ -260,6 +256,7 @@ describe('Signal Parameters', () => {
     });
 
     it('should handle Signal with null value', async () => {
+      const { client, mockFetch } = getClient();
       const idSignal = signal<number | null>(null);
       mockFetch.get('/users', { id: null, name: 'No User' });
 

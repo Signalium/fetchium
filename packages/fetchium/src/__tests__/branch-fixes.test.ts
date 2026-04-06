@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, getEntityMapSize, setupTestClient } from './utils.js';
 import { withRetry } from '../retry.js';
 import { computeConstraintHash, ConstraintMatcher, buildFieldPaths } from '../ConstraintMatcher.js';
 import type { MutationEvent } from '../types.js';
+import { QueryClient } from '../QueryClient.js';
 
 async function applyEventOutsideReactiveContext(client: QueryClient, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -21,19 +21,7 @@ async function applyEventOutsideReactiveContext(client: QueryClient, event: Muta
 }
 
 describe('Branch Fixes', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // 1. applyEntities data-driven merge
@@ -41,6 +29,7 @@ describe('Branch Fixes', () => {
 
   describe('applyEntities data-driven merge', () => {
     it('should replace record fields on update and keep same proxy', async () => {
+      const { client, mockFetch } = getClient();
       class Config extends Entity {
         __typename = t.typename('Config');
         id = t.id;
@@ -86,6 +75,7 @@ describe('Branch Fixes', () => {
     });
 
     it('should merge union object values correctly on update', async () => {
+      const { client, mockFetch } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
         id = t.id;
@@ -128,6 +118,7 @@ describe('Branch Fixes', () => {
     });
 
     it('should handle nullable nested object with null value', async () => {
+      const { client, mockFetch } = getClient();
       class Profile extends Entity {
         __typename = t.typename('Profile');
         id = t.id;
@@ -177,6 +168,7 @@ describe('Branch Fixes', () => {
 
   describe('resetFromRaw child ref release', () => {
     it('should replace old items with new ones on refetch (resetFromRaw)', async () => {
+      const { client, mockFetch } = getClient();
       class RItem extends Entity {
         __typename = t.typename('RItem');
         id = t.id;
@@ -242,6 +234,7 @@ describe('Branch Fixes', () => {
 
   describe('wrapping proxy immutability', () => {
     it('should throw when mutating a wrapped array via push', async () => {
+      const { client, mockFetch } = getClient();
       class WItem extends Entity {
         __typename = t.typename('WItem');
         id = t.id;
@@ -281,6 +274,7 @@ describe('Branch Fixes', () => {
     });
 
     it('should throw when setting index on a wrapped array', async () => {
+      const { client, mockFetch } = getClient();
       class WItem2 extends Entity {
         __typename = t.typename('WItem2');
         id = t.id;
@@ -319,6 +313,7 @@ describe('Branch Fixes', () => {
     });
 
     it('should throw when deleting from a wrapped array', async () => {
+      const { client, mockFetch } = getClient();
       class WItem3 extends Entity {
         __typename = t.typename('WItem3');
         id = t.id;
@@ -363,6 +358,7 @@ describe('Branch Fixes', () => {
 
   describe('entity proxy traps', () => {
     it('proxy.__typename returns correct typename', async () => {
+      const { client, mockFetch } = getClient();
       class EUser extends Entity {
         __typename = t.typename('EUser');
         id = t.id;
@@ -387,6 +383,7 @@ describe('Branch Fixes', () => {
     });
 
     it('"__typename" in proxy returns true', async () => {
+      const { client, mockFetch } = getClient();
       class EUser2 extends Entity {
         __typename = t.typename('EUser2');
         id = t.id;
@@ -411,6 +408,7 @@ describe('Branch Fixes', () => {
     });
 
     it('Object.keys(proxy) includes __typename', async () => {
+      const { client, mockFetch } = getClient();
       class EUser3 extends Entity {
         __typename = t.typename('EUser3');
         id = t.id;
@@ -438,6 +436,7 @@ describe('Branch Fixes', () => {
     });
 
     it('Object.getOwnPropertyDescriptor returns correct value', async () => {
+      const { client, mockFetch } = getClient();
       class EUser4 extends Entity {
         __typename = t.typename('EUser4');
         id = t.id;
@@ -469,6 +468,7 @@ describe('Branch Fixes', () => {
     });
 
     it('setting a property throws in dev mode', async () => {
+      const { client, mockFetch } = getClient();
       class EUser5 extends Entity {
         __typename = t.typename('EUser5');
         id = t.id;
@@ -496,6 +496,7 @@ describe('Branch Fixes', () => {
     });
 
     it('accessing a Symbol property returns undefined without reactive deps', async () => {
+      const { client, mockFetch } = getClient();
       class EUser6 extends Entity {
         __typename = t.typename('EUser6');
         id = t.id;
@@ -528,6 +529,7 @@ describe('Branch Fixes', () => {
 
   describe('release() underflow guard', () => {
     it('double-release throws in dev mode', async () => {
+      const { client, mockFetch } = getClient();
       class DRUser extends Entity {
         __typename = t.typename('DRUser');
         id = t.id;
@@ -566,6 +568,7 @@ describe('Branch Fixes', () => {
     });
 
     it('evict() clears entityRefs to prevent cascading damage', async () => {
+      const { client, mockFetch } = getClient();
       class EChild extends Entity {
         __typename = t.typename('EChild');
         id = t.id;
@@ -615,6 +618,7 @@ describe('Branch Fixes', () => {
 
   describe('entity ID validation', () => {
     it('entity with null id throws', async () => {
+      const { client, mockFetch } = getClient();
       class NullIdEntity extends Entity {
         __typename = t.typename('NullIdEntity');
         id = t.id;
@@ -639,6 +643,7 @@ describe('Branch Fixes', () => {
     });
 
     it('entity with boolean id throws', async () => {
+      const { client, mockFetch } = getClient();
       class BoolIdEntity extends Entity {
         __typename = t.typename('BoolIdEntity');
         id = t.id;
@@ -663,6 +668,7 @@ describe('Branch Fixes', () => {
     });
 
     it('entity with string id works', async () => {
+      const { client, mockFetch } = getClient();
       class StringIdEntity extends Entity {
         __typename = t.typename('StringIdEntity');
         id = t.id;
@@ -686,6 +692,7 @@ describe('Branch Fixes', () => {
     });
 
     it('entity with number id works', async () => {
+      const { client, mockFetch } = getClient();
       class NumIdEntity extends Entity {
         __typename = t.typename('NumIdEntity');
         id = t.id;
@@ -715,6 +722,7 @@ describe('Branch Fixes', () => {
 
   describe('satisfiesDef semantics', () => {
     it('entity with null field values still satisfies shape', async () => {
+      const { client, mockFetch } = getClient();
       class NullFieldEntity extends Entity {
         __typename = t.typename('NullFieldEntity');
         id = t.id;
@@ -739,6 +747,7 @@ describe('Branch Fixes', () => {
     });
 
     it('partial entity missing a required field does not satisfy shape for live array', async () => {
+      const { client, mockFetch } = getClient();
       class StrictItem extends Entity {
         __typename = t.typename('StrictItem');
         id = t.id;
@@ -826,6 +835,7 @@ describe('Branch Fixes', () => {
 
   describe('sorted live arrays', () => {
     it('items are sorted on initial load', async () => {
+      const { client, mockFetch } = getClient();
       class SItem extends Entity {
         __typename = t.typename('SItem');
         id = t.id;
@@ -873,6 +883,7 @@ describe('Branch Fixes', () => {
     });
 
     it('items remain sorted after add/remove events', async () => {
+      const { client, mockFetch } = getClient();
       class SItem2 extends Entity {
         __typename = t.typename('SItem2');
         id = t.id;
@@ -940,6 +951,7 @@ describe('Branch Fixes', () => {
 
   describe('LiveCollectionBinding.destroy()', () => {
     it('destroy stops events from routing to the binding', async () => {
+      const { client, mockFetch } = getClient();
       class DItem extends Entity {
         __typename = t.typename('DItem');
         id = t.id;
@@ -1009,6 +1021,7 @@ describe('Branch Fixes', () => {
 
   describe('duplicate create events', () => {
     it('two create events for same entity key produce only 1 entry', async () => {
+      const { client, mockFetch } = getClient();
       class DupItem extends Entity {
         __typename = t.typename('DupItem');
         id = t.id;
@@ -1068,12 +1081,14 @@ describe('Branch Fixes', () => {
 
   describe('withRetry validation', () => {
     it('negative retries throws in dev mode', async () => {
+      const { client, mockFetch } = getClient();
       await expect(withRetry(async () => 'ok', { retries: -1, retryDelay: () => 0 })).rejects.toThrow(
         'retries must be non-negative',
       );
     });
 
     it('zero retries runs the function once', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       const result = await withRetry(
         async () => {
@@ -1093,6 +1108,7 @@ describe('Branch Fixes', () => {
 
   describe('lazy constraint filtering', () => {
     it('entity changing constraint field disappears from original list', async () => {
+      const { client, mockFetch } = getClient();
       class LItem extends Entity {
         __typename = t.typename('LItem');
         id = t.id;

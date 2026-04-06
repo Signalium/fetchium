@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive, signal } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, sendStreamUpdate, sleep, testWithClient } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { sendStreamUpdate, sleep, testWithClient, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
 
 /**
@@ -16,24 +15,11 @@ import type { MutationEvent } from '../types.js';
  */
 
 describe('Entity Subscribe', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Subscribe', () => {
     it('should receive updates when entity is accessed reactively', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallback: ((event: MutationEvent) => void) | undefined;
       let unsubscribeCallCount = 0;
 
@@ -96,6 +82,7 @@ describe('Entity Subscribe', () => {
     });
 
     it('should only activate subscribe when entity signal is accessed', async () => {
+      const { client, mockFetch } = getClient();
       let streamActivated = false;
 
       class User extends Entity {
@@ -136,6 +123,7 @@ describe('Entity Subscribe', () => {
     });
 
     it('should subscribe and unsubscribe dynamically based on usage', async () => {
+      const { client, mockFetch } = getClient();
       let streamActivated = false;
 
       class User extends Entity {
@@ -195,6 +183,7 @@ describe('Entity Subscribe', () => {
     });
 
     it('should unsubscribe when entity is no longer watched', async () => {
+      const { client, mockFetch } = getClient();
       let unsubscribeCallCount = 0;
 
       class User extends Entity {
@@ -239,6 +228,7 @@ describe('Entity Subscribe', () => {
 
   describe('Updates via MutationEvent', () => {
     it('should update entity when subscription sends update event', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallback: ((event: MutationEvent) => void) | undefined;
 
       class User extends Entity {
@@ -299,6 +289,7 @@ describe('Entity Subscribe', () => {
     });
 
     it('should handle multiple rapid update events correctly', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallback: ((event: MutationEvent) => void) | undefined;
 
       class User extends Entity {
@@ -350,6 +341,7 @@ describe('Entity Subscribe', () => {
 
   describe('Multiple Entities', () => {
     it('should have separate subscriptions for different entity instances', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallbacks: Map<string, (event: MutationEvent) => void> = new Map();
 
       class User extends Entity {
@@ -418,6 +410,7 @@ describe('Entity Subscribe', () => {
 
   describe('No Entity Config', () => {
     it('should work normally without subscribe', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -453,6 +446,7 @@ describe('Entity Subscribe', () => {
 
   describe('Entity ID Extraction', () => {
     it('should pass correct entity ID value to subscribe function', async () => {
+      const { client, mockFetch } = getClient();
       let receivedId: string | number | undefined;
 
       class User extends Entity {
@@ -496,6 +490,7 @@ describe('Entity Subscribe', () => {
 
   describe('QueryContext', () => {
     it('should receive QueryContext with fetch function', async () => {
+      const { client, mockFetch } = getClient();
       let receivedContext: any;
 
       class User extends Entity {
@@ -533,13 +528,14 @@ describe('Entity Subscribe', () => {
 
         await sleep(20);
         expect(receivedContext).toBeDefined();
-        expect(typeof receivedContext.fetch).toBe('function');
+        expect(typeof receivedContext.log?.warn).toBe('function');
       });
     });
   });
 
   describe('Cache Invalidation', () => {
     it('should clear entity cache on subscription updates', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallback: ((event: MutationEvent) => void) | undefined;
 
       class User extends Entity {
@@ -592,6 +588,7 @@ describe('Entity Subscribe', () => {
 
   describe('Nested Entity Access', () => {
     it('should activate subscribe when accessing nested properties', async () => {
+      const { client, mockFetch } = getClient();
       let streamActivated = false;
 
       class User extends Entity {
@@ -641,6 +638,7 @@ describe('Entity Subscribe', () => {
 
   describe('Subscribe Errors', () => {
     it('should handle errors in subscribe function gracefully', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -680,6 +678,7 @@ describe('Entity Subscribe', () => {
 
   describe('Entity Methods', () => {
     it('should work correctly with entity methods', async () => {
+      const { client, mockFetch } = getClient();
       let streamCallback: ((event: MutationEvent) => void) | undefined;
 
       class User extends Entity {

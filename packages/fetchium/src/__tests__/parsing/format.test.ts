@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { t, registerFormat } from '../../typeDefs.js';
 import { Mask } from '../../types.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import {
   parseEntities,
   parseValue,

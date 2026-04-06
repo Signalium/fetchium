@@ -1,11 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
-import { RESTQuery, fetchQuery, queryKeyForClass } from '../query.js';
+import { describe, it, expect } from 'vitest';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery, queryKeyForClass } from '../query.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { hashValue } from 'signalium/utils';
 import { valueKeyFor } from '../stores/shared.js';
 import { GcManager } from '../GcManager.js';
@@ -20,24 +19,10 @@ import { GcManager } from '../GcManager.js';
  */
 
 describe('cacheTime (disk expiration)', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any, evictionMultiplier: 0.001 });
-    client.gcManager = new GcManager(client['handleEviction'], 0.001);
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient({ evictionMultiplier: 0.001 });
 
   it('should evict queries from disk after cacheTime expires', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       static cache = { cacheTime: 100 / 60_000 };
       params = { id: t.id };
@@ -79,6 +64,7 @@ describe('cacheTime (disk expiration)', () => {
   });
 
   it('should NOT evict queries with active subscribers', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       static cache = { cacheTime: 50 / 60_000 };
       path = '/active';
@@ -101,24 +87,10 @@ describe('cacheTime (disk expiration)', () => {
 });
 
 describe('GC Time (in-memory eviction)', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any, evictionMultiplier: 0.001 });
-    client.gcManager = new GcManager(client['handleEviction'], 0.001);
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient({ evictionMultiplier: 0.001 });
 
   it('should evict queries from memory after gcTime bucket rotates', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       path = '/gc-item';
       result = { value: t.string };
@@ -142,6 +114,7 @@ describe('GC Time (in-memory eviction)', () => {
   });
 
   it('should cancel eviction when reactivated before bucket fires', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       path = '/reactivate';
       result = { n: t.number };
@@ -176,6 +149,7 @@ describe('GC Time (in-memory eviction)', () => {
   });
 
   it('should evict on next tick when gcTime is 0', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       path = '/instant-gc';
       result = { v: t.number };
@@ -198,6 +172,7 @@ describe('GC Time (in-memory eviction)', () => {
   });
 
   it('should never evict when gcTime is Infinity', async () => {
+    const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       path = '/forever';
       result = { data: t.string };
@@ -219,6 +194,7 @@ describe('GC Time (in-memory eviction)', () => {
   });
 
   it('should use separate buckets for different gcTime values', async () => {
+    const { client, mockFetch } = getClient();
     class FastQuery extends RESTQuery {
       path = '/fast';
       result = { x: t.number };
@@ -254,24 +230,10 @@ describe('GC Time (in-memory eviction)', () => {
 });
 
 describe('GC with Entities', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any, evictionMultiplier: 0.001 });
-    client.gcManager = new GcManager(client['handleEviction'], 0.001);
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient({ evictionMultiplier: 0.001 });
 
   it('should evict entities from memory when query is GCd', async () => {
+    const { client, mockFetch } = getClient();
     class Post extends Entity {
       __typename = t.typename('Post');
       id = t.id;
@@ -323,6 +285,7 @@ describe('GC with Entities', () => {
   });
 
   it('should keep entities alive when referenced by multiple queries', async () => {
+    const { client, mockFetch } = getClient();
     class User extends Entity {
       __typename = t.typename('SharedUser');
       id = t.id;
@@ -361,6 +324,7 @@ describe('GC with Entities', () => {
   });
 
   it('should respect entity-level gcTime before removing', async () => {
+    const { client, mockFetch } = getClient();
     class DelayedEntity extends Entity {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
@@ -397,6 +361,7 @@ describe('GC with Entities', () => {
   });
 
   it('should cancel entity GC when re-referenced by a new query', async () => {
+    const { client, mockFetch } = getClient();
     class CancelEntity extends Entity {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
@@ -450,6 +415,7 @@ describe('GC with Entities', () => {
   });
 
   it('should respect entity gcTime when entity type is wrapped (e.g. t.optional)', async () => {
+    const { client, mockFetch } = getClient();
     class WrappedEntity extends Entity {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
@@ -486,6 +452,7 @@ describe('GC with Entities', () => {
   });
 
   it('should evict child entities when parent entity children change on refetch', async () => {
+    const { client, mockFetch } = getClient();
     class Tag extends Entity {
       __typename = t.typename('GcTag');
       id = t.id;
@@ -553,6 +520,7 @@ describe('GC with Entities', () => {
   });
 
   it('should handle entities on disk alongside LRU eviction', async () => {
+    const { client, mockFetch, kv } = getClient();
     class User extends Entity {
       __typename = t.typename('LruUser');
       id = t.id;

@@ -1,31 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { describe, it, expect } from 'vitest';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
 import { poll } from '../subscriptions/polling.js';
 import { GcManager } from '../GcManager.js';
 
 describe('poll() factory', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    client?.destroy();
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-    client.gcManager = new GcManager(() => {}, 0.001);
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient({ evictionMultiplier: 0.001 });
 
   describe('Default refetch polling', () => {
     it('should trigger refetch() at the specified interval', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/poll-refetch', () => ({ n: ++callCount }));
 
@@ -49,6 +35,7 @@ describe('poll() factory', () => {
     });
 
     it('should stop polling timer on deactivation', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/stop-poll', () => ({ n: ++callCount }));
 
@@ -71,6 +58,7 @@ describe('poll() factory', () => {
     });
 
     it('should restart polling on reactivation', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/restart-poll', () => ({ n: ++callCount }));
 
@@ -102,6 +90,7 @@ describe('poll() factory', () => {
 
   describe('getConfig subscribe', () => {
     it('supports dynamic poll interval via getConfig()', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/get-subscribe', () => ({ n: ++callCount }));
 
@@ -125,6 +114,7 @@ describe('poll() factory', () => {
     });
 
     it('getConfig subscribe overrides static config subscribe', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/precedence', () => ({ n: ++callCount }));
 
@@ -148,31 +138,11 @@ describe('poll() factory', () => {
       });
     });
 
-    it('can access this.response in getConfig', async () => {
-      let seenStatus: number | undefined;
-      mockFetch.get('/gs-response', () => ({ ok: true }));
-
-      class GetGsResponse extends RESTQuery {
-        path = '/gs-response';
-        result = { ok: t.boolean };
-
-        getConfig() {
-          seenStatus = this.response?.status;
-          return { subscribe: poll({ interval: 100 }) };
-        }
-      }
-
-      await testWithClient(client, async () => {
-        const relay = fetchQuery(GetGsResponse);
-        await relay;
-        await sleep(150);
-        expect(seenStatus).toBe(200);
-      });
-    });
   });
 
   describe('Multiple independent polls', () => {
     it('should tick independently with different intervals', async () => {
+      const { client, mockFetch } = getClient();
       let fastCount = 0;
       let slowCount = 0;
 

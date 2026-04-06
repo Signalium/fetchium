@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { describe, it, expect } from 'vitest';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
 import { GcManager } from '../GcManager.js';
 import { poll } from '../subscriptions/polling.js';
@@ -15,26 +14,11 @@ import { poll } from '../subscriptions/polling.js';
  */
 
 describe('Poll Subscribe', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    client?.destroy();
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-    client.gcManager = new GcManager(() => {}, 0.001);
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient({ evictionMultiplier: 0.001 });
 
   describe('Basic Polling', () => {
     it('should refetch at specified interval', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/counter', () => ({ count: ++callCount }));
 
@@ -58,6 +42,7 @@ describe('Poll Subscribe', () => {
     });
 
     it('should stop polling when query is no longer accessed', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/item', () => ({ n: ++callCount }));
 
@@ -84,6 +69,7 @@ describe('Poll Subscribe', () => {
     });
 
     it('should resume polling after deactivation and re-activation', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/reactivate', () => ({ n: ++callCount }));
 
@@ -116,6 +102,7 @@ describe('Poll Subscribe', () => {
 
   describe('Multiple Intervals', () => {
     it('should handle multiple queries with different intervals independently', async () => {
+      const { client, mockFetch } = getClient();
       let count1 = 0;
       let count5 = 0;
 
@@ -158,6 +145,7 @@ describe('Poll Subscribe', () => {
 
   describe('No Overlapping Fetches', () => {
     it('should wait for previous fetch to complete before next refetch', async () => {
+      const { client, mockFetch } = getClient();
       let activeFetches = 0;
       let maxConcurrent = 0;
       let fetchCount = 0;
@@ -191,6 +179,7 @@ describe('Poll Subscribe', () => {
 
   describe('Edge Cases', () => {
     it('should handle query without poll subscribe', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/no-interval', () => ({ n: ++callCount }));
 
@@ -211,6 +200,7 @@ describe('Poll Subscribe', () => {
     });
 
     it('should handle fast intervals', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/fast', () => ({ count: ++callCount }));
 
@@ -233,6 +223,7 @@ describe('Poll Subscribe', () => {
 
   describe('getConfig subscribe', () => {
     it('supports getConfig() for dynamic poll configuration', async () => {
+      const { client, mockFetch } = getClient();
       let callCount = 0;
       mockFetch.get('/gs-dynamic', () => ({ v: ++callCount }));
 
@@ -253,26 +244,5 @@ describe('Poll Subscribe', () => {
       });
     });
 
-    it('getConfig can access this.response', async () => {
-      let seenStatus: number | undefined;
-      mockFetch.get('/gs-ctx', () => ({ v: 1 }));
-
-      class GetGsCtx extends RESTQuery {
-        path = '/gs-ctx';
-        result = { v: t.number };
-
-        getConfig() {
-          seenStatus = this.response?.status;
-          return { subscribe: poll({ interval: 100 }) };
-        }
-      }
-
-      await testWithClient(client, async () => {
-        const relay = fetchQuery(GetGsCtx);
-        await relay;
-        await sleep(150);
-        expect(seenStatus).toBe(200);
-      });
-    });
   });
 });

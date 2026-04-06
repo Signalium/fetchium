@@ -1,26 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { reactive } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 
 describe('LiveValue', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Entity-level liveValue with constraints
@@ -28,6 +15,7 @@ describe('LiveValue', () => {
 
   describe('entity-level liveValue with constraints', () => {
     it('constraint isolation: server fetch does NOT trigger liveValue reducers', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -83,6 +71,7 @@ describe('LiveValue', () => {
     });
 
     it('constraint isolation: applyEntityData DOES trigger liveValue reducers', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -137,6 +126,7 @@ describe('LiveValue', () => {
     });
 
     it('should update when matching entities are created and deleted via applyEntityData/deleteEntity', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -201,6 +191,7 @@ describe('LiveValue', () => {
     });
 
     it('should start from server-provided value and not retroactively count items from initial server load', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;
@@ -251,6 +242,7 @@ describe('LiveValue', () => {
 
   describe('entity-level liveValue lifecycle', () => {
     it('should increment on create and decrement on delete via applyEntityData', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
         id = t.id;

@@ -3,6 +3,7 @@ import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { NoOpGcManager } from '../GcManager.js';
 import { createMockFetch } from './utils.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 
 /**
  * SSR Guard Tests
@@ -24,7 +25,7 @@ describe('SSR Guard', () => {
   it('should use NoOpGcManager on the server by default', () => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     const mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
     expect(client.isServer).toBe(true);
     expect(client.gcManager).toBeInstanceOf(NoOpGcManager);
@@ -35,7 +36,7 @@ describe('SSR Guard', () => {
     const mockFetch = createMockFetch();
     const customGc = new NoOpGcManager();
 
-    client = new QueryClient(store, { fetch: mockFetch as any }, undefined, customGc);
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })], networkManager: undefined, gcManager: customGc });
 
     expect(client.gcManager).toBe(customGc);
   });
@@ -43,7 +44,7 @@ describe('SSR Guard', () => {
   it('should call destroy() safely without subscription manager', () => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     const mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
 
     expect(() => client.destroy()).not.toThrow();
   });

@@ -57,7 +57,8 @@ If your app has additional providers, add them here. Fetchium has no opinions ab
 Register mock responses with `mock.when()`. The response shape is type-checked against the query's `result` definition:
 
 ```ts
-import { RESTQuery, Entity, t } from 'fetchium';
+import { Entity, t } from 'fetchium';
+import { RESTQuery } from 'fetchium/rest';
 
 class User extends Entity {
   __typename = t.typename('User');
@@ -227,7 +228,8 @@ it('renders the user name after loading', async () => {
 Mutations are mocked the same way. You can inspect what was sent using `mock.calls`:
 
 ```ts
-import { RESTMutation, getMutation, t } from 'fetchium';
+import { getMutation, t } from 'fetchium';
+import { RESTMutation } from 'fetchium/rest';
 
 class CreateUser extends RESTMutation {
   readonly params = { name: t.string, email: t.string };

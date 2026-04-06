@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { signal } from 'signalium';
-import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTQuery, fetchQuery } from '../query.js';
-import { createMockFetch, testWithClient, sleep, sendStreamUpdate } from './utils.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
+import { testWithClient, sleep, sendStreamUpdate, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
 
 /**
@@ -16,24 +15,11 @@ import type { MutationEvent } from '../types.js';
  */
 
 describe('Query Stream Option', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-  let kv: any;
-  let store: any;
-
-  beforeEach(() => {
-    kv = new MemoryPersistentStore();
-    store = new SyncQueryStore(kv);
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   describe('Basic Stream Subscription', () => {
     it('should subscribe to stream when query is activated', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamPost');
         id = t.id;
@@ -86,6 +72,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should have access to this.params inside subscribe', async () => {
+      const { client, mockFetch } = getClient();
       class Message extends Entity {
         __typename = t.typename('StreamMessage');
         id = t.id;
@@ -128,6 +115,7 @@ describe('Query Stream Option', () => {
 
   describe('Entity Updates via Stream', () => {
     it('should update entities in response when stream event arrives', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamUpdatePost');
         id = t.id;
@@ -179,6 +167,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should update nested entities in response', async () => {
+      const { client, mockFetch } = getClient();
       class StreamAuthor extends Entity {
         __typename = t.typename('StreamAuthor');
         id = t.id;
@@ -240,6 +229,7 @@ describe('Query Stream Option', () => {
 
   describe('Stream Lifecycle', () => {
     it('should unsubscribe when query is deactivated', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamLifecyclePost');
         id = t.id;
@@ -285,6 +275,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should resubscribe when query is reactivated', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamResubPost');
         id = t.id;
@@ -340,6 +331,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should not subscribe if subscribe is not overridden', async () => {
+      const { client, mockFetch } = getClient();
       let subscribeCount = 0;
 
       mockFetch.get('/posts', {
@@ -370,6 +362,7 @@ describe('Query Stream Option', () => {
 
   describe('Complex Scenarios', () => {
     it('should handle rapid successive stream events', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamRapidPost');
         id = t.id;
@@ -426,6 +419,7 @@ describe('Query Stream Option', () => {
 
   describe('Stream with this.params', () => {
     it('should unsubscribe old stream and resubscribe when Signal param changes', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('StreamResubItem');
         id = t.id;
@@ -492,6 +486,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should deliver events on the new subscription after param change', async () => {
+      const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('StreamNewSubItem');
         id = t.id;
@@ -557,6 +552,7 @@ describe('Query Stream Option', () => {
     });
 
     it('should have access to this.context inside subscribe', async () => {
+      const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamCtxPost');
         id = t.id;
@@ -590,7 +586,7 @@ describe('Query Stream Option', () => {
         await relay;
 
         expect(receivedContext).toBeDefined();
-        expect(typeof receivedContext.fetch).toBe('function');
+        expect(typeof receivedContext.log?.warn).toBe('function');
       });
     });
   });

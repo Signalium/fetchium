@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { t, CaseInsensitiveSet } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import { typeToString } from '../../errors.js';
 import {
   parseValue,

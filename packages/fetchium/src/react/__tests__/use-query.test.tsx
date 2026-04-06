@@ -6,11 +6,13 @@ import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery, fetchQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
+import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { createRenderCounter } from './utils.js';
 import { useQuery } from '../use-query.js';
 import { QueryPromise } from 'src/types.js';
+import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 /**
  * Tests for useQuery hook
@@ -28,7 +30,7 @@ describe('useQuery Hook', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   describe('Basic Cloning and Re-rendering', () => {

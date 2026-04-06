@@ -2,9 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
-import { RESTQuery, queryKeyForClass } from '../query.js';
-import { RESTMutation, mutationKeyForClass, getMutation } from '../mutation.js';
+import { RESTQuery } from '../rest/index.js';
+import { queryKeyForClass } from '../query.js';
+import { mutationKeyForClass, getMutation } from '../mutation.js';
+import { RESTMutation } from '../rest/index.js';
 import { createMockFetch, testWithClient } from './utils.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 
 /**
  * Tests for queryKeyForClass and mutationKeyForClass utilities.
@@ -17,7 +20,7 @@ describe('queryKeyForClass', () => {
   beforeEach(() => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   afterEach(() => {
@@ -90,7 +93,7 @@ describe('mutationKeyForClass', () => {
   beforeEach(() => {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   afterEach(() => {

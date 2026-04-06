@@ -2,6 +2,7 @@ import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { NoOpGcManager } from '../GcManager.js';
+import { RESTQueryController } from '../rest/RESTQueryController.js';
 import { Query } from '../query.js';
 import { Mutation } from '../mutation.js';
 import type { Entity } from '../proxy.js';
@@ -200,12 +201,13 @@ export class MockClient {
   constructor() {
     const store = new SyncQueryStore(new MemoryPersistentStore());
     const networkManager = new NetworkManager(true);
-    this._client = new QueryClient(
+    this._client = new QueryClient({
       store,
-      { fetch: this._mockFetch.bind(this) as unknown as typeof fetch, log: console },
+      log: console,
+      controllers: [new RESTQueryController({ fetch: this._mockFetch.bind(this) as any, baseUrl: 'http://localhost' })],
       networkManager,
-      new NoOpGcManager(),
-    );
+      gcManager: new NoOpGcManager(),
+    });
   }
 
   get client(): QueryClient {

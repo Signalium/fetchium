@@ -6,9 +6,10 @@ import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
-import { RESTQuery } from '../../query.js';
+import { RESTQuery } from '../../rest/index.js';
 import { useQuery } from '../use-query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
+import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 describe('LiveArray React', () => {
   let client: QueryClient;
@@ -18,7 +19,7 @@ describe('LiveArray React', () => {
     client?.destroy();
     const store = new SyncQueryStore(new MemoryPersistentStore());
     mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
+    client = new QueryClient({ store: store, controllers: [new RESTQueryController({ fetch: mockFetch as any , baseUrl: 'http://localhost' })] });
   });
 
   describe('useQuery() + entity-level live array', () => {

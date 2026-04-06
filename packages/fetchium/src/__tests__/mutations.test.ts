@@ -1,12 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { describe, it, expect } from 'vitest';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
-import { RESTMutation, getMutation } from '../mutation.js';
-import { RESTQuery, fetchQuery } from '../query.js';
+import { getMutation } from '../mutation.js';
+import { RESTMutation } from '../rest/index.js';
+import { RESTQuery } from '../rest/index.js';
+import { fetchQuery } from '../query.js';
 import { draft } from '../utils.js';
-import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
+import { testWithClient, sleep, getEntityMapSize, setupTestClient } from './utils.js';
 
 /**
  * Mutation Tests
@@ -16,18 +16,7 @@ import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './util
  */
 
 describe('Mutations', () => {
-  let client: QueryClient;
-  let mockFetch: ReturnType<typeof createMockFetch>;
-
-  beforeEach(() => {
-    const store = new SyncQueryStore(new MemoryPersistentStore());
-    mockFetch = createMockFetch();
-    client = new QueryClient(store, { fetch: mockFetch as any });
-  });
-
-  afterEach(() => {
-    client?.destroy();
-  });
+  const getClient = setupTestClient();
 
   // ============================================================
   // Basic Mutation Operations
@@ -35,6 +24,7 @@ describe('Mutations', () => {
 
   describe('Basic Mutation Operations', () => {
     it('should execute a POST mutation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 123, name: 'New User', email: 'new@example.com' });
 
       class CreateUser extends RESTMutation {
@@ -63,12 +53,13 @@ describe('Mutations', () => {
         expect(mut.isResolved).toBe(true);
         expect(mut.value?.id).toBe(123);
         expect(mut.value?.name).toBe('New User');
-        expect(mockFetch.calls[0].url).toBe('/users');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users');
         expect(mockFetch.calls[0].options.method).toBe('POST');
       });
     });
 
     it('should execute a PUT mutation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.put('/users/[id]', { id: 123, name: 'Updated User', email: 'updated@example.com' });
 
       class UpdateUser extends RESTMutation {
@@ -89,12 +80,13 @@ describe('Mutations', () => {
 
         expect(mut.isResolved).toBe(true);
         expect(mut.value?.name).toBe('Updated User');
-        expect(mockFetch.calls[0].url).toBe('/users/123');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users/123');
         expect(mockFetch.calls[0].options.method).toBe('PUT');
       });
     });
 
     it('should execute a PATCH mutation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.patch('/users/[id]', { id: 123, name: 'Patched User' });
 
       class PatchUser extends RESTMutation {
@@ -113,12 +105,13 @@ describe('Mutations', () => {
         await mut.run({ id: '123', name: 'Patched User' });
 
         expect(mut.isResolved).toBe(true);
-        expect(mockFetch.calls[0].url).toBe('/users/123');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users/123');
         expect(mockFetch.calls[0].options.method).toBe('PATCH');
       });
     });
 
     it('should execute a DELETE mutation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.delete('/users/[id]', { success: true });
 
       class DeleteUser extends RESTMutation {
@@ -136,12 +129,13 @@ describe('Mutations', () => {
 
         expect(mut.isResolved).toBe(true);
         expect(mut.value?.success).toBe(true);
-        expect(mockFetch.calls[0].url).toBe('/users/123');
+        expect(mockFetch.calls[0].url).toBe('http://localhost/users/123');
         expect(mockFetch.calls[0].options.method).toBe('DELETE');
       });
     });
 
     it('should send request body as JSON', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 });
 
       class CreateUser extends RESTMutation {
@@ -165,6 +159,7 @@ describe('Mutations', () => {
     });
 
     it('should not send a body when body is omitted', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.delete('/items/[id]', { ok: true });
 
       class DeleteItem extends RESTMutation {
@@ -185,6 +180,7 @@ describe('Mutations', () => {
     });
 
     it('should support getBody() override for dynamic body computation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 });
 
       class CreateUser extends RESTMutation {
@@ -214,6 +210,7 @@ describe('Mutations', () => {
     });
 
     it('should return the same mutation instance for same definition', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 });
       mockFetch.post('/users', { id: 2 });
 
@@ -240,6 +237,7 @@ describe('Mutations', () => {
 
   describe('Error Handling and Retry', () => {
     it('should handle network errors', async () => {
+      const { client, mockFetch } = getClient();
       const error = new Error('Network failed');
       mockFetch.post('/users', null, { error });
 
@@ -266,6 +264,7 @@ describe('Mutations', () => {
     });
 
     it('should retry on failure with configured retries', async () => {
+      const { client, mockFetch } = getClient();
       // First two calls fail, third succeeds
       let callCount = 0;
       mockFetch.post('/users', async () => {
@@ -300,6 +299,7 @@ describe('Mutations', () => {
     });
 
     it('should not retry when retry is false', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', null, { error: new Error('Failed') });
 
       class CreateUser extends RESTMutation {
@@ -333,6 +333,7 @@ describe('Mutations', () => {
 
   describe('State Management', () => {
     it('should have correct initial state before first run', async () => {
+      const { client } = getClient();
       class CreateUser extends RESTMutation {
         readonly path = '/users';
         readonly method = 'POST' as const;
@@ -352,6 +353,7 @@ describe('Mutations', () => {
     });
 
     it('should track pending state during mutation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 }, { delay: 50 });
 
       class CreateUser extends RESTMutation {
@@ -381,6 +383,7 @@ describe('Mutations', () => {
 
   describe('Draft Entity Helper', () => {
     it('should create a mutable clone of an entity', async () => {
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -472,6 +475,7 @@ describe('Mutations', () => {
 
   describe('Promise Interface', () => {
     it('should be awaitable', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1, name: 'Test' });
 
       class CreateUser extends RESTMutation {
@@ -492,6 +496,7 @@ describe('Mutations', () => {
     });
 
     it('should support .then()', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 });
 
       class CreateUser extends RESTMutation {
@@ -512,6 +517,7 @@ describe('Mutations', () => {
     });
 
     it('should support .catch()', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', null, { error: new Error('Failed') });
 
       class CreateUser extends RESTMutation {
@@ -532,6 +538,7 @@ describe('Mutations', () => {
     });
 
     it('should support .finally()', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/users', { id: 1 });
 
       class CreateUser extends RESTMutation {
@@ -561,6 +568,7 @@ describe('Mutations', () => {
 
   describe('Response Payload Parsing', () => {
     it('should parse response with typed object shape', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/items', { id: 42, name: 'Widget', active: true });
 
       class CreateItem extends RESTMutation {
@@ -582,6 +590,7 @@ describe('Mutations', () => {
     });
 
     it('should reject response that fails type validation', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/items', { id: 'not-a-number', name: 123 });
 
       class CreateItem extends RESTMutation {
@@ -634,6 +643,7 @@ describe('Mutations', () => {
     }
 
     it('should apply create effects using this.params', async () => {
+      const { client, mockFetch } = getClient();
       const { TodoItem, GetTodoList } = defineEffectEntities();
 
       mockFetch.get('/lists/[id]', {
@@ -665,6 +675,7 @@ describe('Mutations', () => {
     });
 
     it('should apply create effects using this.response', async () => {
+      const { client, mockFetch } = getClient();
       const { TodoItem, GetTodoList } = defineEffectEntities();
 
       mockFetch.get('/lists/[id]', {
@@ -706,6 +717,7 @@ describe('Mutations', () => {
     });
 
     it('should apply update effects using this.response', async () => {
+      const { client, mockFetch } = getClient();
       const { TodoItem, GetTodoList } = defineEffectEntities();
 
       mockFetch.get('/lists/[id]', {
@@ -750,6 +762,7 @@ describe('Mutations', () => {
     });
 
     it('should apply delete effects using this.params', async () => {
+      const { client, mockFetch } = getClient();
       const { TodoItem, GetTodoList } = defineEffectEntities();
 
       mockFetch.get('/lists/[id]', {
@@ -784,6 +797,7 @@ describe('Mutations', () => {
     });
 
     it('should apply effects via getEffects() using this.response', async () => {
+      const { client, mockFetch } = getClient();
       const { TodoItem, GetTodoList } = defineEffectEntities();
 
       mockFetch.get('/lists/[id]', {
@@ -834,6 +848,7 @@ describe('Mutations', () => {
 
   describe('No-effects invariant', () => {
     it('should not modify entity store when mutation has no effects', async () => {
+      const { client, mockFetch } = getClient();
       mockFetch.post('/actions', { success: true, message: 'Done' });
 
       class RunAction extends RESTMutation {
@@ -857,92 +872,4 @@ describe('Mutations', () => {
     });
   });
 
-  // ============================================================
-  // this.response (raw HTTP Response) access in mutations
-  // ============================================================
-
-  describe('this.response in getEffects()', () => {
-    it('should expose this.response with status and ok in getEffects()', async () => {
-      mockFetch.post('/items', { id: '1', name: 'Created' });
-
-      let capturedStatus: number | undefined;
-      let capturedOk: boolean | undefined;
-
-      class CreateItem extends RESTMutation {
-        readonly params = { name: t.string };
-        readonly path = '/items';
-        readonly method = 'POST' as const;
-        readonly body = { name: this.params.name };
-        readonly result = { id: t.id, name: t.string };
-
-        getEffects() {
-          capturedStatus = this.response?.status;
-          capturedOk = this.response?.ok;
-          return undefined as any;
-        }
-      }
-
-      await testWithClient(client, async () => {
-        const mut = getMutation(CreateItem);
-        await mut.run({ name: 'Created' });
-
-        expect(capturedStatus).toBe(200);
-        expect(capturedOk).toBe(true);
-      });
-    });
-
-    it('should conditionally skip effects based on this.response.ok', async () => {
-      mockFetch.post('/items', { error: 'conflict' }, { status: 409 });
-
-      let effectsApplied = false;
-
-      class CreateItem extends RESTMutation {
-        readonly params = { name: t.string };
-        readonly path = '/items';
-        readonly method = 'POST' as const;
-        readonly body = { name: this.params.name };
-        readonly result = { error: t.optional(t.string) };
-
-        getEffects() {
-          if (!this.response?.ok) return undefined as any;
-          effectsApplied = true;
-          return { creates: [] };
-        }
-      }
-
-      await testWithClient(client, async () => {
-        const mut = getMutation(CreateItem);
-        await mut.run({ name: 'Test' });
-
-        expect(effectsApplied).toBe(false);
-        expect(getEntityMapSize(client)).toBe(0);
-      });
-    });
-
-    it('should expose this.response from non-200 success responses', async () => {
-      mockFetch.post('/items', { id: '1' }, { status: 201 });
-
-      let capturedStatus: number | undefined;
-
-      class CreateItem extends RESTMutation {
-        readonly params = { name: t.string };
-        readonly path = '/items';
-        readonly method = 'POST' as const;
-        readonly body = { name: this.params.name };
-        readonly result = { id: t.id };
-
-        getEffects() {
-          capturedStatus = this.response?.status;
-          return undefined as any;
-        }
-      }
-
-      await testWithClient(client, async () => {
-        const mut = getMutation(CreateItem);
-        await mut.run({ name: 'Test' });
-
-        expect(capturedStatus).toBe(201);
-      });
-    });
-  });
 });
