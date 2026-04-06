@@ -163,9 +163,9 @@ describe('Mutations', () => {
       mockFetch.delete('/items/[id]', { ok: true });
 
       class DeleteItem extends RESTMutation {
+        readonly params = { id: t.id };
         readonly path = `/items/${this.params.id}`;
         readonly method = 'DELETE' as const;
-        readonly params = { id: t.id };
         readonly result = { ok: t.boolean };
       }
 
@@ -175,7 +175,7 @@ describe('Mutations', () => {
 
         expect(mut.isResolved).toBe(true);
         expect(mockFetch.calls[0].options.body).toBeUndefined();
-        expect(mockFetch.calls[0].options.headers?.['Content-Type']).toBeUndefined();
+        expect((mockFetch.calls[0].options.headers as Record<string, string> | undefined)?.['Content-Type']).toBeUndefined();
       });
     });
 

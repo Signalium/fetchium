@@ -11,7 +11,7 @@ import { RESTQuery } from '../../rest/index.js';
 import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { createRenderCounter } from './utils.js';
-import { QueryPromise } from 'src/types.js';
+import { QueryPromise } from '../../types.js';
 import { RESTQueryController } from '../../rest/RESTQueryController.js';
 
 /**

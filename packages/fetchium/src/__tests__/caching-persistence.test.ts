@@ -18,7 +18,7 @@ import {
   cacheTimeKeyFor,
   queueKeyFor,
 } from '../stores/shared.js';
-import { QueryResult } from 'src/types.js';
+import { QueryResult } from '../types.js';
 import { DiscriminatedReactivePromise } from 'signalium';
 
 /**
