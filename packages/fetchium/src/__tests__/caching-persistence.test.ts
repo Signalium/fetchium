@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
-import { RESTQueryController } from '../rest/index.js';
+import { RESTQueryAdapter } from '../rest/index.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
@@ -272,7 +272,7 @@ describe('Caching and Persistence', () => {
       mockFetch.get('/item', { id: 1, value: 'New Data' }, { delay: 10 });
       const client2 = new QueryClient({
         store: store,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       await testWithClient(client2, async () => {
@@ -1691,7 +1691,7 @@ describe('Caching and Persistence', () => {
       // Create a new client to simulate a fresh session (but same persistent store)
       const client2 = new QueryClient({
         store: store,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       await testWithClient(client2, async () => {

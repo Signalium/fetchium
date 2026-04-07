@@ -16,7 +16,7 @@ import {
   createExecutionContext as createExecutionContextUtil,
   type CapturedDefinition,
 } from './fieldRef.js';
-import type { QueryController } from './QueryController.js';
+import type { QueryAdapter } from './QueryAdapter.js';
 
 // ================================
 // Retry config
@@ -58,10 +58,10 @@ export function resolveRetryConfig(
 export abstract class Query {
   static cache?: QueryCacheOptions;
   /**
-   * The controller class responsible for sending requests for this query type.
+   * The adapter class responsible for sending requests for this query type.
    * Must be set on each concrete Query subclass (or inherited from a base like RESTQuery).
    */
-  static controller?: typeof QueryController;
+  static adapter?: typeof QueryAdapter;
 
   params?: Record<string, TypeDef>;
   abstract result: TypeDefShape;
@@ -101,12 +101,12 @@ export interface QueryDefinitionStatics {
   readonly cache: QueryCacheOptions | undefined;
   /** Raw fetchNext config with unresolved FieldRefs, extracted before reification. */
   readonly rawFetchNext: FetchNextConfig | undefined;
-  /** Whether the controller implements sendNext(). */
+  /** Whether the adapter implements sendNext(). */
   readonly hasSendNext: boolean;
   /** Whether the result shape is already an entity (vs synthetic wrapper). */
   readonly isEntityResult: boolean;
-  /** The controller class responsible for sending requests. */
-  readonly controllerClass: typeof QueryController;
+  /** The adapter class responsible for sending requests. */
+  readonly adapterClass: typeof QueryAdapter;
 }
 
 export class QueryDefinition<Params extends QueryParams | undefined, Result, StreamType> {
@@ -159,17 +159,17 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
       | FetchNextConfig
       | undefined;
 
-    // Resolve the controller class from the Query class static property
-    const controllerClass = (QueryClass as typeof Query).controller;
-    if (!controllerClass) {
+    // Resolve the adapter class from the Query class static property
+    const adapterClass = (QueryClass as typeof Query).adapter;
+    if (!adapterClass) {
       throw new Error(
-        `Query class "${QueryClass.name}" must define a static \`controller\` property. ` +
-          `Extend RESTQuery (from fetchium/rest) or set \`static controller = MyController\` on your query class.`,
+        `Query class "${QueryClass.name}" must define a static \`adapter\` property. ` +
+          `Extend RESTQuery (from fetchium/rest) or set \`static adapter = MyAdapter\` on your query class.`,
       );
     }
 
-    // Derive hasSendNext from the controller prototype
-    const hasSendNext = typeof controllerClass.prototype.sendNext === 'function';
+    // Derive hasSendNext from the adapter prototype
+    const hasSendNext = typeof adapterClass.prototype.sendNext === 'function';
 
     // For entity results, the root entity IS the result entity.
     // For non-entity results, create a synthetic EntityDef with QUERY_ID as idField.
@@ -185,7 +185,7 @@ export class QueryDefinition<Params extends QueryParams | undefined, Result, Str
         );
 
     queryDefinition = new QueryDefinition(
-      { id, shape: rootEntityShape, cache, rawFetchNext, hasSendNext, isEntityResult, controllerClass },
+      { id, shape: rootEntityShape, cache, rawFetchNext, hasSendNext, isEntityResult, adapterClass },
       captured,
     );
 

@@ -12,7 +12,7 @@ import { RESTQuery } from '../../rest/index.js';
 import { fetchQuery, queryKeyForClass } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { valueKeyFor } from '../../stores/shared.js';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 /**
  * React Integration Tests for AsyncQueryStore
@@ -119,11 +119,11 @@ describe('React AsyncQueryStore Integration', () => {
     mockFetch = createMockFetch();
     readerClient = new QueryClient({
       store: readerStore,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
     writerClient = new QueryClient({
       store: writerStore,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 
@@ -222,7 +222,7 @@ describe('React AsyncQueryStore Integration', () => {
       });
       const newReaderClient = new QueryClient({
         store: newReaderStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       // Second component should load from cache (async load required)
@@ -295,7 +295,7 @@ describe('React AsyncQueryStore Integration', () => {
       });
       const newReaderClient = new QueryClient({
         store: newReaderStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       // Setup mock to return updated data
@@ -579,7 +579,7 @@ describe('React AsyncQueryStore Integration', () => {
       });
       const newReaderClient = new QueryClient({
         store: newReaderStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       const NewReaderComponent = component(() => {

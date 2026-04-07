@@ -451,19 +451,19 @@ For a more in depth guide to query configuration, see the [REST Queries referenc
 
 ## Custom Queries
 
-`RESTQuery` is an adapter for JSON REST APIs. But queries as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, gRPC, WebSockets, local databases, or any other data source --- you build a **`QueryController`** that handles the transport, and a **`Query`** subclass that stays purely declarative.
+`RESTQuery` is an adapter for JSON REST APIs. But queries as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, gRPC, WebSockets, local databases, or any other data source --- you build a **`QueryAdapter`** that handles the transport, and a **`Query`** subclass that stays purely declarative.
 
-The split follows the same logic as the rest of Fetchium: the _definition_ (params, result, identity) lives on the `Query` class; the _transport_ (how to actually fetch data) lives on the controller.
+The split follows the same logic as the rest of Fetchium: the _definition_ (params, result, identity) lives on the `Query` class; the _transport_ (how to actually fetch data) lives on the adapter.
 
-### Defining a controller
+### Defining an adapter
 
-A `QueryController` handles sending requests on behalf of queries that declare it. Extend `QueryController` and implement `send(ctx, signal)`:
+A `QueryAdapter` handles sending requests on behalf of queries that declare it. Extend `QueryAdapter` and implement `send(ctx, signal)`:
 
 ```ts
-import { QueryController } from 'fetchium';
+import { QueryAdapter } from 'fetchium';
 import type { Query } from 'fetchium';
 
-class DBQueryController extends QueryController {
+class DBQueryAdapter extends QueryAdapter {
   async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const q = ctx as DBQuery;
     const db = await openDatabase();
@@ -478,24 +478,24 @@ Inside `send()`:
 - **`signal`** --- an `AbortSignal` for cancellation, passed automatically by the query lifecycle
 - **`this.queryClient`** --- the registered `QueryClient`; call `this.queryClient.getContext()` to access `log` and any other context properties you passed at setup
 
-Register the controller when creating the `QueryClient`:
+Register the adapter when creating the `QueryClient`:
 
 ```ts
 new QueryClient({
   store,
-  controllers: [new DBQueryController()],
+  adapters: [new DBQueryAdapter()],
 });
 ```
 
 ### Defining the query class
 
-The query class is purely declarative. It declares `static controller` to point at the controller, defines `params`, `result`, and `getIdentityKey()`, and can include any additional fields your controller reads:
+The query class is purely declarative. It declares `static adapter` to point at the adapter, defines `params`, `result`, and `getIdentityKey()`, and can include any additional fields your adapter reads:
 
 ```ts
 import { Query, t } from 'fetchium';
 
 abstract class DBQuery extends Query {
-  static override controller = DBQueryController;
+  static override adapter = DBQueryAdapter;
 
   abstract collection: string;
   abstract id: unknown;
@@ -520,10 +520,10 @@ class GetUser extends DBQuery {
 Here is a more complete example --- a GraphQL adapter:
 
 ```ts
-import { QueryController, Query, t } from 'fetchium';
+import { QueryAdapter, Query, t } from 'fetchium';
 
-// Controller: owns the transport
-class GraphQLController extends QueryController {
+// Adapter: owns the transport
+class GraphQLAdapter extends QueryAdapter {
   async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const q = ctx as GraphQLQuery;
     const { log } = this.queryClient!.getContext();
@@ -551,7 +551,7 @@ class GraphQLController extends QueryController {
 
 // Base query class: purely declarative
 abstract class GraphQLQuery extends Query {
-  static override controller = GraphQLController;
+  static override adapter = GraphQLAdapter;
 
   abstract query: string;
   abstract variables?: Record<string, unknown>;
@@ -575,7 +575,7 @@ class GetUser extends GraphQLQuery {
 }
 ```
 
-Custom queries participate in all the same systems as `RESTQuery` --- caching, entity normalization, live data, refetching, and pagination (via `sendNext()` and `hasNext()` on the controller). The `Query` base class provides the full reactive lifecycle; your controller only needs to implement the transport.
+Custom queries participate in all the same systems as `RESTQuery` --- caching, entity normalization, live data, refetching, and pagination (via `sendNext()` and `hasNext()` on the adapter). The `Query` base class provides the full reactive lifecycle; your adapter only needs to implement the transport.
 
 {% callout title="The identity key" type="note" %}
 `getIdentityKey()` returns a value that uniquely identifies this query's _definition_. Two query instances with the same identity key and the same params share the same cache entry and are deduplicated. For `RESTQuery`, the default is `${method}:${path}`. For custom adapters, choose a key that captures all the inputs that make a query unique.

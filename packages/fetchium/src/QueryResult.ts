@@ -43,7 +43,7 @@ export class QueryInstance<T extends Query> {
   config: QueryConfigOptions | undefined = undefined;
   retryConfig: ResolvedRetryConfig = resolveRetryConfig(undefined);
 
-  /** Controller for aborting in-flight fetches and retry waits. */
+  /** Cancels in-flight fetches and retry waits. */
   private _abortController: AbortController | undefined = undefined;
 
   /** Cached execution context, recreated only when storageKey (params) changes. */
@@ -292,12 +292,12 @@ export class QueryInstance<T extends Query> {
     }
 
     const ctx = this.getOrCreateExecutionContext();
-    const controller = this.queryClient.getController(def.statics.controllerClass);
+    const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
 
     return withRetry(
       async () => {
-        const freshData = await controller.send(ctx, signal);
+        const freshData = await adapter.send(ctx, signal);
         this.updatedAt = Date.now();
 
         const result = this.applyData(freshData, true);
@@ -357,7 +357,7 @@ export class QueryInstance<T extends Query> {
   /** In-flight fetchNext promise for deduplication. */
   private _fetchNextPromise: Promise<QueryResult<T>> | undefined = undefined;
 
-  /** Controller for aborting in-flight fetchNext requests. */
+  /** Cancels in-flight fetchNext requests. */
   private _fetchNextAbort: AbortController | undefined = undefined;
 
   fetchNext = (): Promise<QueryResult<T>> => {
@@ -392,10 +392,10 @@ export class QueryInstance<T extends Query> {
 
   private get hasNext(): boolean {
     if (this.rootEntity === undefined || !this._executionCtx) return false;
-    const controller = this.queryClient.getController(this.def.statics.controllerClass);
-    if (!controller.hasNext) return false;
+    const adapter = this.queryClient.getAdapter(this.def.statics.adapterClass);
+    if (!adapter.hasNext) return false;
     this._executionCtx.resultData = this.rootEntity.data;
-    return controller.hasNext(this._executionCtx);
+    return adapter.hasNext(this._executionCtx);
   }
 
   private async runFetchNext(): Promise<QueryResult<T>> {
@@ -404,11 +404,11 @@ export class QueryInstance<T extends Query> {
     const signal = this._fetchNextAbort.signal;
     const ctx = this.getOrCreateExecutionContext();
     ctx.resultData = this.rootEntity!.data;
-    const controller = this.queryClient.getController(def.statics.controllerClass);
+    const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
 
     return withRetry(
       async () => {
-        const freshData = await controller.sendNext!(ctx, signal);
+        const freshData = await adapter.sendNext!(ctx, signal);
         this.updatedAt = Date.now();
 
         const result = this.applyData(freshData, true, true);

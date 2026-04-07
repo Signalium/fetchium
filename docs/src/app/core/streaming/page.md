@@ -85,7 +85,7 @@ class GetPrices extends RESTQuery {
 The `subscribe` function receives an `onEvent` callback that accepts `MutationEvent` objects and returns a cleanup function. Fetchium calls `subscribe` when the query activates (a component reads it) and calls the cleanup function when the query deactivates (all observers disconnect).
 
 {% callout %}
-The `subscribe` config is a low-level building block. For polling, use the built-in `poll()` helper. For topic-based streaming (WebSocket message buses, SSE, pub/sub), use [TopicQuery](#topic-queries) --- which provides a declarative, controller-based approach.
+The `subscribe` config is a low-level building block. For polling, use the built-in `poll()` helper. For topic-based streaming (WebSocket message buses, SSE, pub/sub), use [TopicQuery](#topic-queries) --- which provides a declarative, adapter-based approach.
 {% /callout %}
 
 ### Polling
@@ -129,7 +129,7 @@ Both mechanisms feed into the same entity event system, so you can mix and match
 
 ## Topic Queries
 
-For applications with a centralized message bus --- a single WebSocket connection, an SSE endpoint, a pub/sub system --- `TopicQuery` provides a declarative adapter. Instead of manually wiring `subscribe` callbacks per query, you define _topics_ and let a controller manage the connection lifecycle.
+For applications with a centralized message bus --- a single WebSocket connection, an SSE endpoint, a pub/sub system --- `TopicQuery` provides a declarative adapter. Instead of manually wiring `subscribe` callbacks per query, you define _topics_ and let an adapter manage the connection lifecycle.
 
 ### Defining a topic query
 
@@ -164,14 +164,14 @@ class GetBalances extends MyTopicQuery {
 
 The identity key for a topic query is `topic:${topic}` --- two queries with the same topic and params share the same cache entry and are deduplicated.
 
-### Implementing a controller
+### Implementing an adapter
 
-The `TopicQueryController` is the bridge between your message bus and Fetchium. Extend it and implement two abstract methods:
+The `TopicQueryAdapter` is the bridge between your message bus and Fetchium. Extend it and implement two abstract methods:
 
 ```tsx
-import { TopicQueryController } from 'fetchium/topic';
+import { TopicQueryAdapter } from 'fetchium/topic';
 
-class MyStreamController extends TopicQueryController {
+class MyStreamAdapter extends TopicQueryAdapter {
   private ws: WebSocket;
 
   constructor(url: string) {
@@ -205,7 +205,7 @@ class MyStreamController extends TopicQueryController {
 }
 ```
 
-The controller has several protected helper methods:
+The adapter has several protected helper methods:
 
 | Method                      | Description                                                                                            |
 | --------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -215,33 +215,33 @@ The controller has several protected helper methods:
 | `clearTopic(topic)`         | Clear buffered state for a topic. Call this in `unsubscribe` to reset for the next subscription cycle. |
 | `clearAll()`                | Clear all buffered topic state. Useful when resetting the connection.                                  |
 
-### Registering the controller
+### Registering the adapter
 
-Pass the controller to `QueryClient` in the `controllers` array, the same way you register a `RESTQueryController`:
+Pass the adapter to `QueryClient` in the `adapters` array, the same way you register a `RESTQueryAdapter`:
 
 ```tsx
 import { QueryClient } from 'fetchium';
-import { RESTQueryController } from 'fetchium/rest';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 const queryClient = new QueryClient({
-  controllers: [
-    new RESTQueryController({ baseUrl: '/api' }),
-    new MyStreamController('ws://api.example.com/stream'),
+  adapters: [
+    new RESTQueryAdapter({ baseUrl: '/api' }),
+    new MyStreamAdapter('ws://api.example.com/stream'),
   ],
 });
 ```
 
-Then make your topic query classes reference the controller:
+Then make your topic query classes reference the adapter:
 
 ```tsx
 abstract class MyTopicQuery extends TopicQuery {
-  static override controller = MyStreamController;
+  static override adapter = MyStreamAdapter;
 }
 ```
 
 ### Pre-fulfillment
 
-A powerful feature of the controller is that `fulfillTopic` can be called _before_ the query activates. If your message bus proactively sends data for topics it knows the page will need, the controller can buffer that data:
+A powerful feature of the adapter is that `fulfillTopic` can be called _before_ the query activates. If your message bus proactively sends data for topics it knows the page will need, the adapter can buffer that data:
 
 ```tsx
 // Data arrives from the stream before any component subscribes
@@ -257,8 +257,8 @@ This enables smart pre-fetching strategies where the server pushes data ahead of
 
 The full lifecycle of a topic query:
 
-1. **Component reads the query** --- Fetchium calls `send()` on the controller, which creates a deferred promise and calls your `subscribe(topic)` implementation.
-2. **Controller subscribes** --- Your implementation connects to the message bus for this topic (e.g., sends a subscribe message over WebSocket).
+1. **Component reads the query** --- Fetchium calls `send()` on the adapter, which creates a deferred promise and calls your `subscribe(topic)` implementation.
+2. **Adapter subscribes** --- Your implementation connects to the message bus for this topic (e.g., sends a subscribe message over WebSocket).
 3. **Initial data arrives** --- Your `onmessage` handler calls `fulfillTopic(topic, data)`, resolving the deferred promise. The component renders with the data.
 4. **Ongoing updates** --- Your handler calls `sendMutationEvent(event)` for each update. Live arrays and live values react automatically.
 5. **Component unmounts** --- Fetchium calls your `unsubscribe(topic)` implementation. Your code disconnects from the message bus for this topic.

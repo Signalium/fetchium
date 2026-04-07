@@ -2,8 +2,8 @@ export * from './types.js';
 
 export { QueryClient, QueryClientContext } from './QueryClient.js';
 export type { QueryContext, QueryClientConfig } from './QueryClient.js';
-export { QueryController } from './QueryController.js';
-export type { IQueryClientForController } from './QueryController.js';
+export { QueryAdapter } from './QueryAdapter.js';
+export type { IQueryClientForAdapter } from './QueryAdapter.js';
 export { t, registerFormat } from './typeDefs.js';
 export { Query, fetchQuery, queryKeyForClass } from './query.js';
 export { Mutation, getMutation, mutationKeyForClass } from './mutation.js';

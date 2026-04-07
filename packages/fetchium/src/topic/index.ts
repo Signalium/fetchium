@@ -1,2 +1,2 @@
 export { TopicQuery } from './TopicQuery.js';
-export { TopicQueryController } from './TopicQueryController.js';
+export { TopicQueryAdapter } from './TopicQueryAdapter.js';

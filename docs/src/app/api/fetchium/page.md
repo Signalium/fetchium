@@ -10,7 +10,7 @@ API reference for the main `fetchium` package — a data-fetching and query laye
 ```ts
 import {
   Query,
-  QueryController,
+  QueryAdapter,
   fetchQuery,
   queryKeyForClass,
   Mutation,
@@ -30,7 +30,7 @@ import {
 } from 'fetchium';
 
 // REST adapter (JSON REST APIs)
-import { RESTQuery, RESTMutation, RESTQueryController } from 'fetchium/rest';
+import { RESTQuery, RESTMutation, RESTQueryAdapter } from 'fetchium/rest';
 ```
 
 ---
@@ -52,7 +52,7 @@ Base class for all query definitions. Extend this to define custom data-fetching
 | Property     | Type                             | Description                                                                                                                                                             |
 | ------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cache`      | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                                                                                                            |
-| `controller` | `typeof QueryController`         | **(required)** The controller class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own controller class. |
+| `adapter`    | `typeof QueryAdapter`            | **(required)** The adapter class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own adapter class. |
 
 #### Instance properties
 
@@ -88,7 +88,7 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 | `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                                |
 | `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                        |
 | `fetchNext`      | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                                  |
-| `response`       | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryController` after each request completes. Available in `getConfig()`. |
+| `response`       | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryAdapter` after each request completes. Available in `getConfig()`. |
 
 #### `getIdentityKey()` default
 
@@ -163,7 +163,7 @@ Base class for mutation definitions.
 
 | Property     | Type                     | Description                                                                                                                                                                     |
 | ------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `controller` | `typeof QueryController` | **(required)** The controller class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own controller class. |
+| `adapter`    | `typeof QueryAdapter`    | **(required)** The adapter class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own adapter class. |
 
 #### Instance properties
 
@@ -227,7 +227,7 @@ new QueryClient(config: QueryClientConfig)
 | Field                | Type                         | Default                | Description                                                                          |
 | -------------------- | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
 | `store`              | `QueryStore`                 | —                      | **(required)** Persistent storage backend.                                           |
-| `controllers`        | `QueryController[]`          | `[]`                   | Transport controllers (e.g. `new RESTQueryController({ fetch, baseUrl })`).          |
+| `adapters`           | `QueryAdapter[]`             | `[]`                   | Transport adapters (e.g. `new RESTQueryAdapter({ fetch, baseUrl })`).                |
 | `log`                | `LogContext \| undefined`    | `console`              | Logger with `error`, `warn`, `info`, `debug` methods.                                |
 | `evictionMultiplier` | `number \| undefined`        | `1`                    | Scales all GC times for testing. Set to `0.001` to make timers fire in milliseconds. |
 | `networkManager`     | `NetworkManager`             | `new NetworkManager()` | Tracks network connectivity.                                                         |
@@ -244,15 +244,15 @@ new QueryClient(config: QueryClientConfig)
 
 ---
 
-### `QueryController` (abstract)
+### `QueryAdapter` (abstract)
 
-Base class for transport adapters. A controller handles sending queries and mutations for all query/mutation classes that declare it via `static controller`. Register controllers with `QueryClient` at construction time.
+Base class for transport adapters. An adapter handles sending queries and mutations for all query/mutation classes that declare it via `static adapter`. Register adapters with `QueryClient` at construction time.
 
 #### Methods
 
 | Method                  | Signature                                                | Description                                                                                                                  |
 | ----------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `register`              | `(queryClient: IQueryClientForController): void`         | Called once when the controller is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
+| `register`              | `(queryClient: IQueryClientForAdapter): void`            | Called once when the adapter is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
 | `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                                |
 | `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                                  |
 | `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                                  |
@@ -264,15 +264,15 @@ Base class for transport adapters. A controller handles sending queries and muta
 
 | Property      | Type                                     | Description                                                                                      |
 | ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `queryClient` | `IQueryClientForController \| undefined` | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
+| `queryClient` | `IQueryClientForAdapter \| undefined`    | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
 
 #### Example
 
 ```ts
-import { QueryController } from 'fetchium';
+import { QueryAdapter } from 'fetchium';
 import type { Query } from 'fetchium';
 
-class GraphQLController extends QueryController {
+class GraphQLAdapter extends QueryAdapter {
   async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const q = ctx as GraphQLQuery;
     const response = await fetch('/graphql', {
@@ -289,22 +289,22 @@ class GraphQLController extends QueryController {
 
 new QueryClient({
   store,
-  controllers: [new GraphQLController()],
+  adapters: [new GraphQLAdapter()],
 });
 ```
 
 ---
 
-### `RESTQueryController` extends `QueryController`
+### `RESTQueryAdapter` extends `QueryAdapter`
 
-Transport controller for `RESTQuery` and `RESTMutation`. Handles URL construction, JSON serialization, search params, pagination, and `baseUrl` resolution.
+Transport adapter for `RESTQuery` and `RESTMutation`. Handles URL construction, JSON serialization, search params, pagination, and `baseUrl` resolution.
 
 Import from `fetchium/rest`.
 
 #### Constructor
 
 ```ts
-new RESTQueryController(options?: RESTQueryControllerOptions)
+new RESTQueryAdapter(options?: RESTQueryAdapterOptions)
 ```
 
 | Option    | Type                                                      | Description                                                      |

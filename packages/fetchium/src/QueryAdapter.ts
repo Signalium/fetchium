@@ -3,27 +3,27 @@ import type { Query } from './query.js';
 import type { Mutation } from './mutation.js';
 
 // ================================
-// IQueryClient — minimal interface QueryController needs from the client
-// (avoids circular import: QueryClient → QueryController → QueryClient)
+// IQueryClient — minimal interface QueryAdapter needs from the client
+// (avoids circular import: QueryClient → QueryAdapter → QueryClient)
 // ================================
 
-export interface IQueryClientForController {
+export interface IQueryClientForAdapter {
   getContext(): QueryContext;
   applyMutationEvent(event: import('./types.js').MutationEvent): void;
 }
 
 // ================================
-// QueryController base class
+// QueryAdapter base class
 // ================================
 
-export abstract class QueryController {
-  protected queryClient: IQueryClientForController | undefined;
+export abstract class QueryAdapter {
+  protected queryClient: IQueryClientForAdapter | undefined;
 
   /**
-   * Called once by QueryClient when this controller is registered.
+   * Called once by QueryClient when this adapter is registered.
    * Subclasses can override to do setup (e.g. open a WebSocket connection).
    */
-  register(queryClient: IQueryClientForController): void {
+  register(queryClient: IQueryClientForAdapter): void {
     this.queryClient = queryClient;
   }
 
@@ -47,7 +47,7 @@ export abstract class QueryController {
   abstract send(ctx: Query, signal: AbortSignal): Promise<unknown>;
 
   /**
-   * Fetch the next page of results. Only implement if the controller supports pagination.
+   * Fetch the next page of results. Only implement if the adapter supports pagination.
    * @param ctx  The query execution context. `ctx.resultData` contains the current page's data.
    * @param signal  AbortSignal to cancel the in-flight request.
    */

@@ -3,7 +3,7 @@ import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { NoOpGcManager } from '../GcManager.js';
 import { createMockFetch } from './utils.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 
 /**
  * SSR Guard Tests
@@ -27,7 +27,7 @@ describe('SSR Guard', () => {
     const mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
 
     expect(client.isServer).toBe(true);
@@ -41,7 +41,7 @@ describe('SSR Guard', () => {
 
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       networkManager: undefined,
       gcManager: customGc,
     });
@@ -54,7 +54,7 @@ describe('SSR Guard', () => {
     const mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
 
     expect(() => client.destroy()).not.toThrow();

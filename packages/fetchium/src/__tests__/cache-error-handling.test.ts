@@ -10,7 +10,7 @@ import { hashValue } from 'signalium/utils';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { valueKeyFor, refIdsKeyFor, updatedAtKeyFor } from '../stores/shared.js';
 import type { QueryStore } from '../QueryClient.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 
 /**
  * Cache Error Handling Tests
@@ -57,7 +57,7 @@ describe('Cache Error Handling', () => {
 
       const errorClient = new QueryClient({
         store: errorStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
@@ -96,7 +96,7 @@ describe('Cache Error Handling', () => {
 
       const errorClient = new QueryClient({
         store: errorStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       mockFetch.get('/items/[id]', { id: 1, name: 'Fresh Data' });
@@ -434,7 +434,7 @@ describe('Cache Error Handling', () => {
 
       const errorClient = new QueryClient({
         store: errorStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       mockFetch.get('/users/[id]', {

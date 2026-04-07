@@ -24,7 +24,7 @@ import { applyEntityRefs, type ApplyResult } from './applyEntities.js';
 import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
 import { LiveCollectionBinding } from './LiveCollection.js';
-import { QueryController } from './QueryController.js';
+import { QueryAdapter } from './QueryAdapter.js';
 import {
   type QueryContext,
   type QueryStore,
@@ -36,7 +36,7 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 
 export interface QueryClientConfig {
   store?: QueryStore;
-  controllers?: QueryController[];
+  adapters?: QueryAdapter[];
   networkManager?: NetworkManager;
   gcManager?: GcManager | NoOpGcManager;
   log?: {
@@ -78,7 +78,7 @@ export class QueryClient {
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
   private constraintRegistry = new Map<string, ConstraintMatcher>();
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
-  private controllers = new Map<typeof QueryController, QueryController>();
+  private adapters = new Map<typeof QueryAdapter, QueryAdapter>();
   private networkUnsubscribe: (() => void) | undefined;
 
   constructor(config: QueryClientConfig = {}) {
@@ -86,7 +86,7 @@ export class QueryClient {
       store = new SyncQueryStore(new MemoryPersistentStore()),
       log,
       evictionMultiplier,
-      controllers: _c,
+      adapters: _c,
       networkManager: _n,
       gcManager: _g,
       ...rest
@@ -100,20 +100,20 @@ export class QueryClient {
     this.networkManager = config.networkManager ?? new NetworkManager();
     this.entityMap = new EntityStore((key, data, refs) => this.store.saveEntity(key, data, refs));
 
-    // Register user-supplied controllers
-    for (const controller of config.controllers ?? []) {
-      this.controllers.set(controller.constructor as typeof QueryController, controller);
-      controller.register(this);
+    // Register user-supplied adapters
+    for (const adapter of config.adapters ?? []) {
+      this.adapters.set(adapter.constructor as typeof QueryAdapter, adapter);
+      adapter.register(this);
     }
 
-    // Notify controllers when network status changes
+    // Notify adapters when network status changes
     const onlineSignal = this.networkManager.getOnlineSignal();
     const networkWatcher = watcher(() => onlineSignal.value);
     this.networkUnsubscribe = networkWatcher.addListener(
       () => {
         const isOnline = onlineSignal.value;
-        for (const controller of this.controllers.values()) {
-          controller.onNetworkStatusChange?.(isOnline);
+        for (const adapter of this.adapters.values()) {
+          adapter.onNetworkStatusChange?.(isOnline);
         }
       },
       { skipInitial: true },
@@ -123,28 +123,28 @@ export class QueryClient {
   }
 
   /**
-   * Returns the registered controller instance for the given controller class.
-   * Throws if no controller of that class has been registered.
+   * Returns the registered adapter instance for the given adapter class.
+   * Throws if no adapter of that class has been registered.
    */
-  getController(controllerClass: typeof QueryController): QueryController {
-    let controller = this.controllers.get(controllerClass);
-    if (!controller) {
+  getAdapter(adapterClass: typeof QueryAdapter): QueryAdapter {
+    let adapter = this.adapters.get(adapterClass);
+    if (!adapter) {
       // Auto-instantiate with no-arg constructor as fallback.
-      // Works for controllers like RESTQueryController that default to globalThis.fetch.
-      // Controllers that require explicit configuration will throw here, prompting
+      // Works for adapters like RESTQueryAdapter that default to globalThis.fetch.
+      // Adapters that require explicit configuration will throw here, prompting
       // the user to register an instance explicitly.
       try {
-        controller = new (controllerClass as new () => QueryController)();
+        adapter = new (adapterClass as new () => QueryAdapter)();
       } catch {
         throw new Error(
-          `No controller registered for ${controllerClass.name} and auto-instantiation failed. ` +
-            `Pass an instance via QueryClient config: new QueryClient({ store, controllers: [new ${controllerClass.name}(...)] })`,
+          `No adapter registered for ${adapterClass.name} and auto-instantiation failed. ` +
+            `Pass an instance via QueryClient config: new QueryClient({ store, adapters: [new ${adapterClass.name}(...)] })`,
         );
       }
-      this.controllers.set(controllerClass, controller);
-      controller.register(this);
+      this.adapters.set(adapterClass, adapter);
+      adapter.register(this);
     }
-    return controller;
+    return adapter;
   }
 
   getContext(): QueryContext {
@@ -474,10 +474,10 @@ export class QueryClient {
     this.networkUnsubscribe?.();
     this.gcManager.destroy();
     this.networkManager.destroy();
-    for (const controller of this.controllers.values()) {
-      controller.destroy?.();
+    for (const adapter of this.adapters.values()) {
+      adapter.destroy?.();
     }
-    this.controllers.clear();
+    this.adapters.clear();
     this.queryInstances.clear();
     this.mutationInstances.clear();
     this.constraintRegistry.clear();

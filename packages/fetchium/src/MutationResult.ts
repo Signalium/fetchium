@@ -103,11 +103,11 @@ export class MutationResultImpl<Request, Result> {
 
   private executeWithRetry(request: Request): Promise<Result> {
     const retryConfig = resolveRetryConfig(this.def.config?.retry, true);
-    const controller = this.queryClient.getController(this.def.controllerClass);
+    const adapter = this.queryClient.getAdapter(this.def.adapterClass);
 
-    if (!controller.sendMutation) {
+    if (!adapter.sendMutation) {
       throw new Error(
-        `Controller "${this.def.controllerClass.name}" does not implement sendMutation(). ` +
+        `Adapter "${this.def.adapterClass.name}" does not implement sendMutation(). ` +
           `Add a sendMutation() method to handle mutations.`,
       );
     }
@@ -120,7 +120,7 @@ export class MutationResultImpl<Request, Result> {
         this.queryClient.getContext(),
       );
 
-      return (await controller.sendMutation!(ctx, abortController.signal)) as Result;
+      return (await adapter.sendMutation!(ctx, abortController.signal)) as Result;
     }, retryConfig);
   }
 }

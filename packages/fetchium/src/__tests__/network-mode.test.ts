@@ -8,7 +8,7 @@ import { NetworkMode } from '../types.js';
 import { createMockFetch, testWithClient, sleep, createTestWatcher } from './utils.js';
 import { t } from '../typeDefs.js';
 import { withContexts } from 'signalium';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 
 describe('Network Mode', () => {
   let mockFetch: ReturnType<typeof createMockFetch>;
@@ -23,7 +23,7 @@ describe('Network Mode', () => {
     networkManager = new NetworkManager(true);
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       networkManager: networkManager,
     });
   });
@@ -380,7 +380,7 @@ describe('Network Mode', () => {
 
       const serverClient = new QueryClient({
         store: serverStore,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
         networkManager: serverNetworkManager,
       });
 

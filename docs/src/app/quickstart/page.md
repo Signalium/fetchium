@@ -79,7 +79,7 @@ function App() {
 }
 ```
 
-This is the minimal setup. The store defaults to an in-memory cache and `RESTQueryController` is auto-instantiated on first use with `globalThis.fetch`. When you need a `baseUrl`, auth headers, or persistent storage, pass explicit options --- see [Project Setup](/setup/project-setup).
+This is the minimal setup. The store defaults to an in-memory cache and `RESTQueryAdapter` is auto-instantiated on first use with `globalThis.fetch`. When you need a `baseUrl`, auth headers, or persistent storage, pass explicit options --- see [Project Setup](/setup/project-setup).
 
 {% callout title="Want to go deeper?" type="note" %}
 For a complete guide to configuring `baseUrl`, auth headers, persistent stores, and project structure, see [Project Setup](/setup/project-setup).
