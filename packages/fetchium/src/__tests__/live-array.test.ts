@@ -10,7 +10,7 @@ import { testWithClient, sleep, getEntityMapSize, setupTestClient, createMockFet
 import type { MutationEvent } from '../types.js';
 import { QueryClient } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { RESTQueryController } from '../rest/index.js';
+import { RESTQueryAdapter } from '../rest/index.js';
 
 async function applyEventOutsideReactiveContext(client: QueryClient, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -437,7 +437,7 @@ describe('LiveArray', () => {
     const mockFetch1 = createMockFetch();
     const client1 = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
     });
 
     mockFetch1.get('/list/[id]', {
@@ -486,7 +486,7 @@ describe('LiveArray', () => {
     );
     const client2 = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
     });
 
     await testWithClient(client2, async () => {
@@ -527,7 +527,7 @@ describe('LiveArray', () => {
     const mockFetch1 = createMockFetch();
     const client1 = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch1 as any, baseUrl: 'http://localhost' })],
     });
 
     mockFetch1.get('/items', {
@@ -568,7 +568,7 @@ describe('LiveArray', () => {
     );
     const client2 = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch2 as any, baseUrl: 'http://localhost' })],
     });
 
     await testWithClient(client2, async () => {

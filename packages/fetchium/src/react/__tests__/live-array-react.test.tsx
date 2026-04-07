@@ -9,7 +9,7 @@ import { Entity } from '../../proxy.js';
 import { RESTQuery } from '../../rest/index.js';
 import { useQuery } from '../use-query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 describe('LiveArray React', () => {
   let client: QueryClient;
@@ -21,7 +21,7 @@ describe('LiveArray React', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 

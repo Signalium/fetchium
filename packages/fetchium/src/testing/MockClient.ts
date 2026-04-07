@@ -2,7 +2,7 @@ import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { NoOpGcManager } from '../GcManager.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { Query } from '../query.js';
 import { Mutation } from '../mutation.js';
 import type { Entity } from '../proxy.js';
@@ -204,7 +204,7 @@ export class MockClient {
     this._client = new QueryClient({
       store,
       log: console,
-      controllers: [new RESTQueryController({ fetch: this._mockFetch.bind(this) as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: this._mockFetch.bind(this) as any, baseUrl: 'http://localhost' })],
       networkManager,
       gcManager: new NoOpGcManager(),
     });

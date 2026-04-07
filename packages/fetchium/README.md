@@ -4,7 +4,7 @@ A reactive query client built on [Signalium](https://signalium.dev) that provide
 
 ## IMPORTANT NOTE: This package is still in development and the API is subject to change.
 
-v1.0.0 was published prematurely and we are not treating it as the stable v1 release from a semver perspective. APIs are not expected to change dramatically, but breaking changes may occur, and v1.1.0 will be the first stable release.
+APIs are not expected to change dramatically, but breaking changes may occur before 1.0.
 
 ## Features
 

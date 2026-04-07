@@ -12,7 +12,7 @@ import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { createRenderCounter } from './utils.js';
 import { useQuery } from '../use-query.js';
 import { QueryPromise } from '../../types.js';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 /**
  * Tests for useQuery hook
@@ -32,7 +32,7 @@ describe('useQuery Hook', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 

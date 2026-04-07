@@ -14,7 +14,7 @@ import { QueryPromise, QueryResult } from '../../types.js';
 import { poll } from '../../subscriptions/polling.js';
 
 import { userEvent } from '@vitest/browser/context';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 /**
  * React Tests for Query Package
@@ -34,7 +34,7 @@ describe('React Query Integration', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 
@@ -960,7 +960,7 @@ describe('React Query Integration', () => {
 
       const pollingClient = new QueryClient({
         store: new SyncQueryStore(new MemoryPersistentStore()),
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       class GetUser extends RESTQuery {
@@ -1039,7 +1039,7 @@ describe('React Query Integration', () => {
 
       const pollingClient = new QueryClient({
         store: new SyncQueryStore(new MemoryPersistentStore()),
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       class GetUser extends RESTQuery {

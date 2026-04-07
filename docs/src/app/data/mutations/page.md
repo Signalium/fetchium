@@ -324,15 +324,15 @@ If a mutation with optimistic updates fails, the rollback restores the entity to
 
 ## Custom Mutations
 
-`RESTMutation` is an adapter for JSON REST APIs. But mutations as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, file uploads, WebSocket messages, RPC calls --- you build a **`QueryController`** that handles the transport and a **`Mutation`** subclass that stays purely declarative.
+`RESTMutation` is an adapter for JSON REST APIs. But mutations as a concept are protocol-agnostic. When your use case doesn't fit REST --- GraphQL, file uploads, WebSocket messages, RPC calls --- you build a **`QueryAdapter`** that handles the transport and a **`Mutation`** subclass that stays purely declarative.
 
-The same controller that handles queries can also handle mutations by implementing `sendMutation(ctx, signal)`. This means custom query and mutation transports for the same protocol live in one place:
+The same adapter that handles queries can also handle mutations by implementing `sendMutation(ctx, signal)`. This means custom query and mutation transports for the same protocol live in one place:
 
 ```ts
-import { QueryController, Mutation, t } from 'fetchium';
+import { QueryAdapter, Mutation, t } from 'fetchium';
 import type { Query } from 'fetchium';
 
-class MyController extends QueryController {
+class MyAdapter extends QueryAdapter {
   async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     // ... query transport
   }
@@ -362,7 +362,7 @@ The mutation class is purely declarative:
 import { Mutation, t } from 'fetchium';
 
 class UploadAvatar extends Mutation {
-  static override controller = MyController;
+  static override adapter = MyAdapter;
 
   params = { userId: t.id, file: t.any };
   result = { url: t.string };

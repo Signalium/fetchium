@@ -10,8 +10,8 @@ import { RESTMutation } from '../rest/index.js';
 import { reifyValue } from '../fieldRef.js';
 import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
 import { TopicQuery } from '../topic/TopicQuery.js';
-import { TopicQueryController } from '../topic/TopicQueryController.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import type { MutationEvent } from '../types.js';
 import type { Query } from '../query.js';
 import type { FetchNextConfig } from '../query-types.js';
@@ -84,10 +84,10 @@ class MockStream {
 }
 
 // ============================================================
-// MockTopicQueryController — bridges MockStream ↔ TopicQueryController
+// MockTopicQueryAdapter — bridges MockStream ↔ TopicQueryAdapter
 // ============================================================
 
-class MockTopicQueryController extends TopicQueryController {
+class MockTopicQueryAdapter extends TopicQueryAdapter {
   private _stream: MockStream;
   private _fetch: (url: string, init?: RequestInit) => Promise<Response>;
   private _unsubscribers = new Map<string, () => void>();
@@ -203,11 +203,11 @@ class TopicNotFoundError extends Error {
 }
 
 // ============================================================
-// Concrete TopicQuery subclass that uses the mock controller
+// Concrete TopicQuery subclass that uses the mock adapter
 // ============================================================
 
 abstract class MockTopicQuery extends TopicQuery {
-  static override controller = MockTopicQueryController as unknown as typeof TopicQueryController;
+  static override adapter = MockTopicQueryAdapter as unknown as typeof TopicQueryAdapter;
 }
 
 // ============================================================
@@ -290,9 +290,9 @@ describe('TopicQuery', () => {
     mockStream = new MockStream();
     client = new QueryClient({
       store: store,
-      controllers: [
-        new MockTopicQueryController(mockStream, mockFetch as any),
-        new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' }),
+      adapters: [
+        new MockTopicQueryAdapter(mockStream, mockFetch as any),
+        new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' }),
       ],
     } as any);
   });

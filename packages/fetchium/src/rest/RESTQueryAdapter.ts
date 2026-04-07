@@ -1,4 +1,4 @@
-import { QueryController } from '../QueryController.js';
+import { QueryAdapter } from '../QueryAdapter.js';
 import { resolveBaseUrl } from '../query-types.js';
 import { reifyValue } from '../fieldRef.js';
 import type { Query } from '../query.js';
@@ -18,23 +18,23 @@ export interface ResolvedFetchNext {
 }
 
 // ================================
-// RESTQueryController options
+// RESTQueryAdapter options
 // ================================
 
-export interface RESTQueryControllerOptions {
+export interface RESTQueryAdapterOptions {
   fetch?: (url: string, init?: QueryRequestInit) => Promise<Response>;
   baseUrl?: BaseUrlValue;
 }
 
 // ================================
-// RESTQueryController
+// RESTQueryAdapter
 // ================================
 
-export class RESTQueryController extends QueryController {
+export class RESTQueryAdapter extends QueryAdapter {
   private readonly _fetch: (url: string, init?: QueryRequestInit) => Promise<Response>;
   private readonly _baseUrl: BaseUrlValue | undefined;
 
-  constructor(options?: RESTQueryControllerOptions) {
+  constructor(options?: RESTQueryAdapterOptions) {
     super();
     this._fetch =
       options?.fetch ?? (globalThis.fetch as unknown as (url: string, init?: QueryRequestInit) => Promise<Response>);
@@ -99,7 +99,7 @@ export class RESTQueryController extends QueryController {
    *
    * - Absolute URLs (`https://...`, `//...`) are returned as-is.
    * - Root-relative paths (`/foo`) are prepended with the resolved baseUrl.
-   *   The baseUrl priority is: per-query/mutation > controller-level > `location.origin`.
+   *   The baseUrl priority is: per-query/mutation > adapter-level > `location.origin`.
    *   If none is available and the path is root-relative, an error is thrown.
    * - Other paths (e.g. `example.com/foo`) are returned as-is.
    */
@@ -115,8 +115,8 @@ export class RESTQueryController extends QueryController {
 
       if (!base) {
         throw new Error(
-          `RESTQueryController: cannot resolve URL for path "${path}". ` +
-            `Set \`baseUrl\` on the query/mutation, pass it to \`new RESTQueryController({ baseUrl })\`, ` +
+          `RESTQueryAdapter: cannot resolve URL for path "${path}". ` +
+            `Set \`baseUrl\` on the query/mutation, pass it to \`new RESTQueryAdapter({ baseUrl })\`, ` +
             `or use an absolute URL.`,
         );
       }

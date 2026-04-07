@@ -10,7 +10,7 @@ import { RESTQuery } from '../../rest/index.js';
 import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { userEvent } from '@vitest/browser/context';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 /**
  * React Tests for Entity Streaming
@@ -29,7 +29,7 @@ describe('React Entity Stream Integration', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 

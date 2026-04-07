@@ -26,12 +26,12 @@ The `QueryClient` constructor takes a single config object. The only required fi
 ```tsx
 import { QueryClient } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
-import { RESTQueryController } from 'fetchium/rest';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 const client = new QueryClient({
   store: new SyncQueryStore(new MemoryPersistentStore()),
-  controllers: [
-    new RESTQueryController({
+  adapters: [
+    new RESTQueryAdapter({
       fetch: globalThis.fetch,
       baseUrl: 'https://api.example.com',
     }),
@@ -43,29 +43,29 @@ The store is responsible for _persistent_ caching --- saving query results and e
 
 ### QueryClientConfig options
 
-| Option        | Type                | Default                      | Description                                                                                                                  |
-| ------------- | ------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `store`       | `QueryStore`        | `SyncQueryStore` (in-memory) | Persistent storage backend for query results and entity data. Defaults to an in-memory store — data is lost on page refresh. |
-| `controllers` | `QueryController[]` | `[]`                         | Transport controllers. Register a `RESTQueryController` to configure `fetch`, `baseUrl`, and headers for REST queries.       |
-| `log`         | `object`            | `console`                    | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures.                             |
+| Option     | Type             | Default                      | Description                                                                                                                  |
+| ---------- | ---------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `store`    | `QueryStore`     | `SyncQueryStore` (in-memory) | Persistent storage backend for query results and entity data. Defaults to an in-memory store — data is lost on page refresh. |
+| `adapters` | `QueryAdapter[]` | `[]`                         | Transport adapters. Register a `RESTQueryAdapter` to configure `fetch`, `baseUrl`, and headers for REST queries.             |
+| `log`      | `object`         | `console`                    | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures.                             |
 
 ### Auto-instantiation
 
-Both the store and controllers have sensible defaults, so the minimal `QueryClient` requires no configuration at all:
+Both the store and adapters have sensible defaults, so the minimal `QueryClient` requires no configuration at all:
 
 ```tsx
-// Fully minimal — in-memory store, RESTQueryController auto-instantiated on first use
+// Fully minimal — in-memory store, RESTQueryAdapter auto-instantiated on first use
 const client = new QueryClient();
 ```
 
 - `store` defaults to `SyncQueryStore(MemoryPersistentStore)` — data lives in memory and is lost on page refresh
-- Controllers are auto-instantiated from their base class the first time a query of that type runs. `RESTQueryController` has a no-arg constructor that defaults to `globalThis.fetch`
+- Adapters are auto-instantiated from their base class the first time a query of that type runs. `RESTQueryAdapter` has a no-arg constructor that defaults to `globalThis.fetch`
 
 Once you need a `baseUrl`, auth headers, persistent storage, or a custom fetch wrapper, pass explicit options.
 
-### The RESTQueryController
+### The RESTQueryAdapter
 
-`RESTQueryController` is the transport layer for all REST queries and mutations. It accepts:
+`RESTQueryAdapter` is the transport layer for all REST queries and mutations. It accepts:
 
 | Option    | Type       | Default            | Description                                                                                                                                                     |
 | --------- | ---------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,13 +85,13 @@ The `QueryClient` is made available to your component tree through Signalium's `
 ```tsx
 import { QueryClient, QueryClientContext } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
-import { RESTQueryController } from 'fetchium/rest';
+import { RESTQueryAdapter } from 'fetchium/rest';
 import { ContextProvider } from 'signalium/react';
 
 const client = new QueryClient({
   store: new SyncQueryStore(new MemoryPersistentStore()),
-  controllers: [
-    new RESTQueryController({
+  adapters: [
+    new RESTQueryAdapter({
       fetch: globalThis.fetch,
       baseUrl: 'https://api.example.com',
     }),
@@ -248,12 +248,12 @@ A single file creates and exports the `QueryClient`. This is the place to config
 // src/api/client.ts
 import { QueryClient } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
-import { RESTQueryController } from 'fetchium/rest';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 export const queryClient = new QueryClient({
   store: new SyncQueryStore(new MemoryPersistentStore()),
-  controllers: [
-    new RESTQueryController({
+  adapters: [
+    new RESTQueryAdapter({
       fetch: globalThis.fetch,
       baseUrl: import.meta.env.VITE_API_URL ?? 'https://api.example.com',
     }),

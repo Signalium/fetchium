@@ -1,9 +1,9 @@
 import { Mutation } from '../mutation.js';
 import type { BaseUrlValue, QueryRequestOptions } from '../types.js';
-import { RESTQueryController } from './RESTQueryController.js';
+import { RESTQueryAdapter } from './RESTQueryAdapter.js';
 
 export abstract class RESTMutation extends Mutation {
-  static override controller = RESTQueryController;
+  static override adapter = RESTQueryAdapter;
 
   path?: string;
   baseUrl?: BaseUrlValue;

@@ -3,7 +3,7 @@ import { ExtractType, InternalTypeDef, MutationEffects, TypeDef, RetryConfig, Ty
 import { QueryClientContext, type QueryContext } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
 import { createDefinitionProxy, extractDefinition, type CapturedDefinition } from './fieldRef.js';
-import type { QueryController } from './QueryController.js';
+import type { QueryAdapter } from './QueryAdapter.js';
 
 // ================================
 // Mutation Definition Types
@@ -22,7 +22,7 @@ export interface MutationDefinition<Request, Response> {
   config?: MutationConfigOptions;
   effects?: MutationEffects;
   hasGetEffects: boolean;
-  controllerClass: typeof QueryController;
+  adapterClass: typeof QueryAdapter;
 }
 
 // ================================
@@ -30,7 +30,7 @@ export interface MutationDefinition<Request, Response> {
 // ================================
 
 export abstract class Mutation {
-  static controller?: typeof QueryController;
+  static adapter?: typeof QueryAdapter;
 
   readonly params?: TypeDefShape;
   readonly result?: TypeDefShape;
@@ -99,11 +99,11 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
         ? ((responseDef instanceof ValidatorDef ? responseDef : t.object(responseDef)) as unknown as InternalTypeDef)
         : undefined;
 
-    const controllerClass = (MutationClass as typeof Mutation).controller;
-    if (!controllerClass) {
+    const adapterClass = (MutationClass as typeof Mutation).adapter;
+    if (!adapterClass) {
       throw new Error(
-        `Mutation class "${MutationClass.name}" must define a static \`controller\` property. ` +
-          `Extend RESTMutation (from fetchium/rest) or set \`static controller = MyController\` on your mutation class.`,
+        `Mutation class "${MutationClass.name}" must define a static \`adapter\` property. ` +
+          `Extend RESTMutation (from fetchium/rest) or set \`static adapter = MyAdapter\` on your mutation class.`,
       );
     }
 
@@ -116,7 +116,7 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
       config: fields.config,
       effects: fields.effects,
       hasGetEffects: typeof captured.methods.getEffects === 'function',
-      controllerClass,
+      adapterClass,
     };
 
     return mutationDefinition;

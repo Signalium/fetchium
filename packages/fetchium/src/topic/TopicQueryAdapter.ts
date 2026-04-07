@@ -1,14 +1,14 @@
-import { QueryController } from '../QueryController.js';
+import { QueryAdapter } from '../QueryAdapter.js';
 import type { Query } from '../query.js';
 import type { MutationEvent } from '../types.js';
 
 // ================================
-// TopicQueryController — abstract controller for topic-based subscriptions
+// TopicQueryAdapter — abstract adapter for topic-based subscriptions
 // ================================
 
 interface TopicCtx extends Query {
   topic: string;
-  _topicController?: TopicQueryController;
+  _topicAdapter?: TopicQueryAdapter;
 }
 
 interface TopicState {
@@ -20,7 +20,7 @@ interface TopicState {
   error?: unknown;
 }
 
-export abstract class TopicQueryController extends QueryController {
+export abstract class TopicQueryAdapter extends QueryAdapter {
   private _topics = new Map<string, TopicState>();
 
   /**
@@ -91,7 +91,7 @@ export abstract class TopicQueryController extends QueryController {
 
   override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicCtx;
-    topicCtx._topicController = this;
+    topicCtx._topicAdapter = this;
     const topic = topicCtx.topic;
 
     const existing = this._topics.get(topic);

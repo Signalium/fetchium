@@ -7,7 +7,7 @@ import { queryKeyForClass } from '../query.js';
 import { mutationKeyForClass, getMutation } from '../mutation.js';
 import { RESTMutation } from '../rest/index.js';
 import { createMockFetch, testWithClient } from './utils.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 
 /**
  * Tests for queryKeyForClass and mutationKeyForClass utilities.
@@ -22,7 +22,7 @@ describe('queryKeyForClass', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 
@@ -98,7 +98,7 @@ describe('mutationKeyForClass', () => {
     mockFetch = createMockFetch();
     client = new QueryClient({
       store: store,
-      controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     });
   });
 

@@ -8,7 +8,7 @@ import type { PreloadedEntityMap } from '../../QueryClient.js';
 import type { TypeDef, ComplexTypeDef, EntityDef } from '../../types.js';
 // Import and re-export commonly used utilities from the main utils file
 import { createMockFetch, testWithClient, watchOnce, sleep } from '../utils.js';
-import { RESTQueryController } from '../../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 export { createMockFetch, testWithClient, watchOnce, sleep };
 export { parseValue } from '../../parseEntities.js';
 
@@ -106,7 +106,7 @@ export function createParsingTestContext(): ParsingTestContext {
   const mockFetch = createMockFetch();
   const client = new QueryClient({
     store: store,
-    controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
   });
 
   return { client, store, kv, mockFetch };

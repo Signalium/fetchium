@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 import { describe, it, expect, vi } from 'vitest';
-import { RESTQuery, RESTQueryController } from '../rest/index.js';
+import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
@@ -69,7 +69,7 @@ describe('StaleTime', () => {
       mockFetch.get('/item', { data: 99 }, { delay: 50 });
       const client2 = new QueryClient({
         store: store,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       await testWithClient(client2, async () => {
@@ -152,7 +152,7 @@ describe('StaleTime', () => {
       mockFetch.get('/data', { version: 2 }, { delay: 50 });
       const client2 = new QueryClient({
         store: store,
-        controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
       });
 
       await testWithClient(client2, async () => {

@@ -2,7 +2,7 @@ import { beforeEach, afterEach } from 'vitest';
 import { watchOnce, watcher, withContexts } from 'signalium';
 import { QueryClient, QueryClientContext, QueryStore } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { RESTQueryController } from '../rest/RESTQueryController.js';
+import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { GcManager } from '../GcManager.js';
 import type { NoOpGcManager } from '../GcManager.js';
@@ -63,7 +63,7 @@ export interface TestClient {
 
 /**
  * Creates a QueryClient wired up with a mock fetch, in-memory store, and
- * RESTQueryController configured for http://localhost.
+ * RESTQueryAdapter configured for http://localhost.
  *
  * @example
  * const { client, mockFetch } = createTestClient();
@@ -78,7 +78,7 @@ export function createTestClient(options: TestClientOptions = {}): TestClient {
   const store = new SyncQueryStore(kv);
   const client = new QueryClient({
     store,
-    controllers: [new RESTQueryController({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
     networkManager,
     // When evictionMultiplier is provided, always use a real GcManager (overrides isServer check)
     gcManager: gcManager ?? (evictionMultiplier !== undefined ? undefined : undefined),
