@@ -950,7 +950,7 @@ export const t: APITypes = {
   null: Mask.NULL as unknown as TypeDef<null>,
   undefined: Mask.UNDEFINED as unknown as TypeDef<undefined>,
   array: defineArray,
-  object: defineObject,
+  object: defineObject as APITypes['object'],
   record: defineRecord,
   union: defineUnion,
   nullish: defineNullish,
