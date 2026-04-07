@@ -1,5 +1,11 @@
 # fetchium
 
+## 0.2.0
+
+### Minor Changes
+
+- 2107b32: Rename *Controller to *Adapter across the entire API surface. `QueryController`, `RESTQueryController`, and `TopicQueryController` are now `QueryAdapter`, `RESTQueryAdapter`, and `TopicQueryAdapter`. The `static controller` property on Query/Mutation classes is now `static adapter`, and the `controllers` option on `QueryClient` is now `adapters`.
+
 ## 0.1.1
 
 ### Patch Changes
