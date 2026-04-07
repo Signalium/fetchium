@@ -1,5 +1,11 @@
 # fetchium
 
+## 0.1.1
+
+### Patch Changes
+
+- 610f77f: Export `TypeDefSymbol` so downstream consumers can emit `.d.ts` files without TS4029 errors when using `TypeDef<T>` in public type positions, such as when extending `Entity`.
+
 ## 0.1.0
 
 ### Minor Changes
