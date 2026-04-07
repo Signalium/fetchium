@@ -708,9 +708,7 @@ describe('BaseUrl and RequestOptions', () => {
       const store = new SyncQueryStore(new MemoryPersistentStore());
       const client = new QueryClient({
         store: store,
-        adapters: [
-          new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: () => 'https://dynamic.example.com' }),
-        ],
+        adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: () => 'https://dynamic.example.com' })],
       });
 
       class ListUsers extends RESTQuery {

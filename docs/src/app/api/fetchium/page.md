@@ -49,10 +49,10 @@ Base class for all query definitions. Extend this to define custom data-fetching
 
 #### Static properties
 
-| Property     | Type                             | Description                                                                                                                                                             |
-| ------------ | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cache`      | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                                                                                                            |
-| `adapter`    | `typeof QueryAdapter`            | **(required)** The adapter class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own adapter class. |
+| Property  | Type                             | Description                                                                                                                                                       |
+| --------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cache`   | `QueryCacheOptions \| undefined` | Class-level persistent cache settings (maxCount, cacheTime).                                                                                                      |
+| `adapter` | `typeof QueryAdapter`            | **(required)** The adapter class responsible for sending requests. Set automatically on `RESTQuery`. Custom query types must set this to their own adapter class. |
 
 #### Instance properties
 
@@ -79,15 +79,15 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 
 #### Instance properties
 
-| Property         | Type                                              | Default | Description                                                                                                                         |
-| ---------------- | ------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                                                                        |
-| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.                                                         |
-| `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                                                                            |
-| `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                                                                     |
-| `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                                |
-| `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                        |
-| `fetchNext`      | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                                  |
+| Property         | Type                                              | Default | Description                                                                                                                      |
+| ---------------- | ------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                                                                     |
+| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.                                                      |
+| `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                                                                         |
+| `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                                                                  |
+| `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                             |
+| `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                     |
+| `fetchNext`      | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                               |
 | `response`       | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryAdapter` after each request completes. Available in `getConfig()`. |
 
 #### `getIdentityKey()` default
@@ -161,9 +161,9 @@ Base class for mutation definitions.
 
 #### Static properties
 
-| Property     | Type                     | Description                                                                                                                                                                     |
-| ------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adapter`    | `typeof QueryAdapter`    | **(required)** The adapter class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own adapter class. |
+| Property  | Type                  | Description                                                                                                                                                               |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adapter` | `typeof QueryAdapter` | **(required)** The adapter class that handles sending this mutation. Set automatically on `RESTMutation`. Custom mutation types must set this to their own adapter class. |
 
 #### Instance properties
 
@@ -250,21 +250,21 @@ Base class for transport adapters. An adapter handles sending queries and mutati
 
 #### Methods
 
-| Method                  | Signature                                                | Description                                                                                                                  |
-| ----------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Method                  | Signature                                                | Description                                                                                                               |
+| ----------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `register`              | `(queryClient: IQueryClientForAdapter): void`            | Called once when the adapter is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
-| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                                |
-| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                                  |
-| `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                                  |
-| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>` | Optional. Send a mutation and return the raw response data.                                                                  |
-| `onNetworkStatusChange` | `(isOnline: boolean): void`                              | Optional. Called when the network comes online or goes offline.                                                              |
-| `destroy`               | `(): void`                                               | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.                                        |
+| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                             |
+| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                               |
+| `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                               |
+| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>` | Optional. Send a mutation and return the raw response data.                                                               |
+| `onNetworkStatusChange` | `(isOnline: boolean): void`                              | Optional. Called when the network comes online or goes offline.                                                           |
+| `destroy`               | `(): void`                                               | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.                                     |
 
 #### Protected properties
 
-| Property      | Type                                     | Description                                                                                      |
-| ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `queryClient` | `IQueryClientForAdapter \| undefined`    | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
+| Property      | Type                                  | Description                                                                                      |
+| ------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `queryClient` | `IQueryClientForAdapter \| undefined` | Set by `register()`. Use to access the shared query context via `this.queryClient.getContext()`. |
 
 #### Example
 

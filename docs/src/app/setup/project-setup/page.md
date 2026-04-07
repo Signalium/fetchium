@@ -43,11 +43,11 @@ The store is responsible for _persistent_ caching --- saving query results and e
 
 ### QueryClientConfig options
 
-| Option        | Type                | Default                      | Description                                                                                                                  |
-| ------------- | ------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `store`       | `QueryStore`        | `SyncQueryStore` (in-memory) | Persistent storage backend for query results and entity data. Defaults to an in-memory store — data is lost on page refresh. |
-| `adapters`    | `QueryAdapter[]`    | `[]`                         | Transport adapters. Register a `RESTQueryAdapter` to configure `fetch`, `baseUrl`, and headers for REST queries.       |
-| `log`         | `object`            | `console`                    | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures.                             |
+| Option     | Type             | Default                      | Description                                                                                                                  |
+| ---------- | ---------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `store`    | `QueryStore`     | `SyncQueryStore` (in-memory) | Persistent storage backend for query results and entity data. Defaults to an in-memory store — data is lost on page refresh. |
+| `adapters` | `QueryAdapter[]` | `[]`                         | Transport adapters. Register a `RESTQueryAdapter` to configure `fetch`, `baseUrl`, and headers for REST queries.             |
+| `log`      | `object`         | `console`                    | A logger with `warn` and `error` methods. Fetchium uses `log.warn` for non-fatal parse failures.                             |
 
 ### Auto-instantiation
 
