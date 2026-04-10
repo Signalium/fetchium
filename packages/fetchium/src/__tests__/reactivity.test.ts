@@ -100,7 +100,7 @@ describe('Signalium Reactivity', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetPrice);
-        // Access value to trigger the stale refetch via runDebounced
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- trigger stale refetch
         relay.value;
         await sleep(20); // Let setTimeout(0) fire so the refetch starts
         // testWithClient ends here -> watcher unsubscribes -> relay deactivates
@@ -116,6 +116,7 @@ describe('Signalium Reactivity', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetPrice);
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- trigger reactivation
         relay.value;
 
         // Wait for the recovery fetch to complete
