@@ -3,7 +3,7 @@ import { t } from '../typeDefs.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { watcher, reactive } from 'signalium';
-import { testWithClient, setupTestClient } from './utils.js';
+import { testWithClient, sleep, setupTestClient } from './utils.js';
 
 /**
  * Signalium Reactivity Tests
@@ -70,6 +70,60 @@ describe('Signalium Reactivity', () => {
 
         expect(relay.isRejected).toBe(true);
         expect(relay.error).toBe(error);
+      });
+    });
+
+    it('should recover after deactivation during in-flight refetch', async () => {
+      const { client, mockFetch } = getClient();
+
+      class GetPrice extends RESTQuery {
+        path = '/price';
+        result = { price: t.number };
+        config = { staleTime: 50, retry: false };
+      }
+
+      // Phase 1: Initial fetch succeeds
+      mockFetch.get('/price', { price: 100 });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrice);
+        await relay;
+        expect(relay.value!).toMatchObject({ price: 100 });
+      });
+
+      // Wait for staleTime to expire
+      await sleep(100);
+
+      // Phase 2: Resubscribe (triggers stale refetch), then deactivate mid-flight.
+      // The long delay ensures the fetch is still in-flight when the watcher ends.
+      mockFetch.get('/price', { price: 200 }, { delay: 500 });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrice);
+        // Access value to trigger the stale refetch via runDebounced
+        relay.value;
+        await sleep(20); // Let setTimeout(0) fire so the refetch starts
+        // testWithClient ends here -> watcher unsubscribes -> relay deactivates
+        // -> AbortController.abort() -> in-flight fetch will reject with AbortError
+      });
+
+      // Let the AbortError microtask settle
+      await sleep(50);
+
+      // Phase 3: Resubscribe again. The relay must recover and fetch fresh data
+      // instead of being permanently stuck with the AbortError.
+      mockFetch.get('/price', { price: 300 }, { delay: 50 });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrice);
+        relay.value;
+
+        // Wait for the recovery fetch to complete
+        await sleep(200);
+
+        expect(relay.isPending).toBe(false);
+        expect(relay.isRejected).toBe(false);
+        expect(relay.value!).toMatchObject({ price: 300 });
       });
     });
   });

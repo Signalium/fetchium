@@ -145,9 +145,19 @@ export class QueryInstance<T extends Query> {
               this.setupSubscription();
             }
 
-            const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
-            if (refreshStaleOnReconnect && this.isStale) {
-              this.runDebounced();
+            // If the relay shows pending but the abort controller is gone, the
+            // previous fetch was aborted during deactivation.  runDebounced()
+            // would bail out because isPending is still true from the doomed
+            // promise.  Force an immediate refetch so the new setPromise() call
+            // replaces _promise, causing the stale AbortError rejection to hit
+            // the `promise !== this._promise` guard and be silently ignored.
+            if (this.relayState.isPending && this._abortController === undefined) {
+              this.runQueryImmediately();
+            } else {
+              const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
+              if (refreshStaleOnReconnect && this.isStale) {
+                this.runDebounced();
+              }
             }
           } else if (paramsDidChange) {
             this.setupSubscription();
