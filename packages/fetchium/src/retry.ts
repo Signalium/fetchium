@@ -1,9 +1,23 @@
 import type { ResolvedRetryConfig } from './query.js';
 
+/**
+ * Safely retrieve the abort reason from a signal. Falls back to an AbortError
+ * for engines (like Hermes) where `signal.reason` is not implemented.
+ */
+function getAbortReason(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) return signal.reason;
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('The operation was aborted', 'AbortError');
+  }
+  const err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason);
+      reject(getAbortReason(signal));
       return;
     }
     const timer = setTimeout(resolve, ms);
@@ -11,7 +25,7 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       'abort',
       () => {
         clearTimeout(timer);
-        reject(signal.reason);
+        reject(getAbortReason(signal));
       },
       { once: true },
     );
@@ -29,7 +43,9 @@ export async function withRetry<T>(
   const retries = Math.max(0, config.retries);
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    signal?.throwIfAborted();
+    if (signal?.aborted) {
+      throw getAbortReason(signal);
+    }
     try {
       return await fn();
     } catch (error) {
