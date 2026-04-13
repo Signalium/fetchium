@@ -1,5 +1,11 @@
 # fetchium
 
+## 0.2.1
+
+### Patch Changes
+
+- a498bc9: Fix withRetry and sleep using AbortSignal APIs unavailable on Hermes (React Native)
+
 ## 0.2.0
 
 ### Minor Changes
