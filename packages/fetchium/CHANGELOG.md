@@ -1,5 +1,11 @@
 # fetchium
 
+## 0.2.2
+
+### Patch Changes
+
+- f1145c8: Fix relay not recovering after deactivation during in-flight refetch
+
 ## 0.2.1
 
 ### Patch Changes
