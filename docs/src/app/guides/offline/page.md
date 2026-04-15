@@ -29,7 +29,7 @@ import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
 const store = new SyncQueryStore(new MemoryPersistentStore());
 const networkManager = new NetworkManager();
 
-const client = new QueryClient(store, { fetch }, networkManager);
+const client = new QueryClient({ store, networkManager });
 ```
 
 If you do not provide a `NetworkManager`, the `QueryClient` creates one automatically.
@@ -124,7 +124,7 @@ The `SyncQueryStore` wraps a synchronous key-value store. It is the simplest opt
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
 
 const store = new SyncQueryStore(new MemoryPersistentStore());
-const client = new QueryClient(store, { fetch });
+const client = new QueryClient({ store });
 ```
 
 The `MemoryPersistentStore` keeps everything in memory --- data is lost when the page is refreshed. For persistence across sessions, implement the `SyncPersistentStore` interface with a durable backend like `localStorage`.
@@ -220,18 +220,21 @@ Here is a complete example that sets up a `QueryClient` with persistence and net
 ```tsx
 import { QueryClient, NetworkManager } from 'fetchium';
 import { SyncQueryStore } from 'fetchium/stores/sync';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 const store = new SyncQueryStore(new LocalStoragePersistentStore());
 const networkManager = new NetworkManager();
 
-const client = new QueryClient(
+const client = new QueryClient({
   store,
-  {
-    fetch: globalThis.fetch,
-    baseUrl: 'https://api.example.com',
-  },
   networkManager,
-);
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: globalThis.fetch,
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
+});
 ```
 
 With this setup:

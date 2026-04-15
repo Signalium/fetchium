@@ -171,7 +171,7 @@ class User extends Entity {
   }
 
   greet() {
-    return `Hello, ${this.name}!`;
+    return `Hello, ${this.fullName}!`;
   }
 
   isAdult() {
@@ -185,7 +185,7 @@ Methods work on entity proxies just like regular methods:
 ```tsx
 const user = result.user;
 user.fullName; // "Alice Smith"
-user.greet(); // "Hello, Alice!"
+user.greet(); // "Hello, Alice Smith!"
 user.isAdult(); // true
 ```
 

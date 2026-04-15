@@ -364,7 +364,7 @@ import { Mutation, t } from 'fetchium';
 class UploadAvatar extends Mutation {
   static override adapter = MyAdapter;
 
-  params = { userId: t.id, file: t.any };
+  params = { userId: t.id };
   result = { url: t.string };
 
   getIdentityKey() {

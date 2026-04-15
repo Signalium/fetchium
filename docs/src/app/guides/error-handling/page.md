@@ -202,7 +202,7 @@ function UserProfile({ userId }: { userId: number }) {
 
 Sometimes you need to intercept errors _before_ they reach individual queries --- for instance, redirecting to a login page on a 401, refreshing an auth token, or logging all failures to a telemetry service.
 
-The `QueryClient` accepts a `fetch` function, which is the standard place to add global error handling. You can wrap the native `fetch` with your own logic:
+The `RESTQueryAdapter` accepts a `fetch` function, which is the standard place to add global error handling. You can wrap the native `fetch` with your own logic:
 
 ```ts
 function createFetchWithErrorHandling(baseFetch: typeof fetch) {
@@ -227,15 +227,19 @@ Then pass it when constructing the client:
 ```tsx
 import { QueryClient, QueryClientContext } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
+import { RESTQueryAdapter } from 'fetchium/rest';
 import { ContextProvider } from 'signalium/react';
 
 const store = new SyncQueryStore(new MemoryPersistentStore());
 const customFetch = createFetchWithErrorHandling(fetch);
-const client = new QueryClient(store, { fetch: customFetch });
+const client = new QueryClient({
+  store,
+  adapters: [new RESTQueryAdapter({ fetch: customFetch })],
+});
 
 function App() {
   return (
-    <ContextProvider value={client} context={QueryClientContext}>
+    <ContextProvider contexts={[[QueryClientContext, client]]}>
       <YourApp />
     </ContextProvider>
   );
@@ -253,8 +257,8 @@ Non-fatal parse failures (optional fields falling back to `undefined`, array ite
 Fetchium routes these warnings through `QueryContext.log.warn`. You can plug in a custom logger when creating the `QueryClient`:
 
 ```ts
-const client = new QueryClient(store, {
-  fetch,
+const client = new QueryClient({
+  store,
   log: {
     warn: (message: string, ...args: unknown[]) => {
       console.warn(message, ...args);

@@ -72,7 +72,7 @@ const client = new QueryClient();
 
 function App() {
   return (
-    <ContextProvider value={client} context={QueryClientContext}>
+    <ContextProvider contexts={[[QueryClientContext, client]]}>
       <YourApp />
     </ContextProvider>
   );

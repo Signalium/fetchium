@@ -226,7 +226,7 @@ new QueryClient(config: QueryClientConfig)
 
 | Field                | Type                         | Default                | Description                                                                          |
 | -------------------- | ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `store`              | `QueryStore`                 | —                      | **(required)** Persistent storage backend.                                           |
+| `store`              | `QueryStore`                 | In-memory              | Persistent storage backend. Defaults to `SyncQueryStore(MemoryPersistentStore)`.     |
 | `adapters`           | `QueryAdapter[]`             | `[]`                   | Transport adapters (e.g. `new RESTQueryAdapter({ fetch, baseUrl })`).                |
 | `log`                | `LogContext \| undefined`    | `console`              | Logger with `error`, `warn`, `info`, `debug` methods.                                |
 | `evictionMultiplier` | `number \| undefined`        | `1`                    | Scales all GC times for testing. Set to `0.001` to make timers fire in milliseconds. |
@@ -604,7 +604,7 @@ The `t` object provides a declarative type definition DSL for describing query p
 | `QueryCacheOptions`             | `{ maxCount?: number; cacheTime?: number }`                                                                               | Persistent storage cache settings. `cacheTime` is in minutes (default: 1440 / 24 hours). `maxCount` is the LRU queue size. |
 | `QueryConfigOptions`            | `{ gcTime?, staleTime?, debounce?, networkMode?, retry?, refreshStaleOnReconnect?, subscribe? }`                          | Instance-level query configuration. See property table below.                                                              |
 | `QueryRequestOptions`           | `{ baseUrl?, credentials?, mode?, cache?, redirect?, referrer?, referrerPolicy?, integrity?, keepalive?, signal? }`       | Extended fetch options for individual queries.                                                                             |
-| `QueryContext`                  | `{ fetch, baseUrl?, log?, evictionMultiplier? }`                                                                          | Context object provided to the `QueryClient`.                                                                              |
+| `QueryContext`                  | `{ log?, evictionMultiplier? }`                                                                                           | Context object provided to the `QueryClient`.                                                                              |
 | `QueryParams`                   | `Record<string, string \| number \| boolean \| undefined \| null \| Signal<...> \| unknown[] \| Record<string, unknown>>` | The shape of query parameters at runtime.                                                                                  |
 | `FetchNextConfig`               | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
 

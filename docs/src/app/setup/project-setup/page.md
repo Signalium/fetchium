@@ -67,10 +67,10 @@ Once you need a `baseUrl`, auth headers, persistent storage, or a custom fetch w
 
 `RESTQueryAdapter` is the transport layer for all REST queries and mutations. It accepts:
 
-| Option    | Type       | Default            | Description                                                                                                                                                     |
-| --------- | ---------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `fetch`   | `Function` | `globalThis.fetch` | The fetch function used for all network requests. Pass a custom wrapper for auth headers, logging, or testing.                                                  |
-| `baseUrl` | `string`   | `''`               | Prepended to every query path. Set this to your API root (`https://api.example.com`) so your query paths can be relative (`/users/42` instead of the full URL). |
+| Option    | Type           | Default            | Description                                                                                                                                                                                                                                   |
+| --------- | -------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetch`   | `Function`     | `globalThis.fetch` | The fetch function used for all network requests. Pass a custom wrapper for auth headers, logging, or testing.                                                                                                                                |
+| `baseUrl` | `BaseUrlValue` | `undefined`        | Prepended to every query path. Set this to your API root (`https://api.example.com`) so your query paths can be relative (`/users/42` instead of the full URL). Accepts a string, a Signalium `Signal<string>`, or a `() => string` function. |
 
 `fetch` is the _single point of control_ for how Fetchium makes network requests. Every REST query and mutation flows through this function, which means you can add authentication, logging, retry logic, or any other cross-cutting concern in one place. We cover this in depth in the [Auth & Headers](/guides/auth) guide.
 
@@ -100,7 +100,7 @@ const client = new QueryClient({
 
 function App() {
   return (
-    <ContextProvider value={client} context={QueryClientContext}>
+    <ContextProvider contexts={[[QueryClientContext, client]]}>
       <YourApp />
     </ContextProvider>
   );

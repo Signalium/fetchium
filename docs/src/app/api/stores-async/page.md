@@ -181,6 +181,7 @@ type StoreMessage =
 ```ts
 import { QueryClient } from 'fetchium';
 import { AsyncQueryStore } from 'fetchium/stores/async';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 const worker = new Worker('./store-worker.js');
 
@@ -194,9 +195,14 @@ const store = new AsyncQueryStore({
   },
 });
 
-const client = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  store,
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: globalThis.fetch,
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 

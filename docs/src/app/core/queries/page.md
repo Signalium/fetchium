@@ -163,17 +163,16 @@ interface ReactivePromise<T> {
 
 ```ts
 type QueryResult<Q extends Query> = Q['result'] & {
-  __refetch(): Promise<Q['result']>;
+  __refetch(): QueryPromise<Q>;
   __fetchNext(): Promise<Q['result']>;
+  __hasNext: boolean;
+  __isFetchingNext: boolean;
 };
 
 declare function useQuery<Q extends Query>(
-  query: Q,
-  params: Q['params'],
-  opts?: {
-    suspended?: boolean;
-  },
-): ReactivePromise<QueryResult<Q>>;
+  QueryClass: new () => Q,
+  params?: ExtractQueryParams<Q>,
+): QueryPromise<Q>;
 ```
 
 The reason `__refetch` and `__fetchNext` are defined on the _result_ of the query and not the `ReactivePromise` is about composability, which leads us into usage within Signalium.
@@ -190,26 +189,20 @@ import { GetCurrentUser, GetUserProfile } from './queries';
 
 export function UserProfile() {
   const userResult = useQuery(GetCurrentUser);
-  const userProfileResult = useQuery(
-    GetUserProfile,
-    { user },
-    { suspended: !user },
+  const userProfileResult = useQuery(GetUserProfile, {
+    user: userResult.value,
   });
 
   if (userResult.isRejected || userProfileResult.isRejected) {
     const message =
-      userResult.error?.message ||
-      userProfileResult.error?.message;
+      userResult.error?.message || userProfileResult.error?.message;
 
-    return <div>
-	    Error: {message}
-	</div>;
+    return <div>Error: {message}</div>;
   }
 
   if (!userResult.isReady || !userProfileResult.isReady) {
-	return <div>Loading...</div>;
+    return <div>Loading...</div>;
   }
-
 
   return (
     <div>
@@ -344,7 +337,7 @@ class GetUser extends RESTQuery {
 }
 ```
 
-By convention, every field provided by `RESTQuery` and other query implementations has a corresponding `get*` method. So for `path` there is `getPath`, for `headers` there is `getHeaders`, etc.
+By convention, most fields provided by `RESTQuery` and other query implementations have a corresponding `get*` method. So for `path` there is `getPath`, for `searchParams` there is `getSearchParams`, for `body` there is `getBody`, and so on.
 
 {% callout title="API design by TypeScript limitations" type="note" %}
 The original API design for this feature allowed getters in place of fields, so `get path() {}` would work as well. The issue was that TypeScript does not allow this specific combination on abstract classes at the moment. See [this issue](https://github.com/microsoft/TypeScript/issues/40635) for more information.

@@ -41,7 +41,7 @@ export function renderApp(
   { client }: { client: QueryClient },
 ) {
   return render(
-    <ContextProvider value={client} context={QueryClientContext}>
+    <ContextProvider contexts={[[QueryClientContext, client]]}>
       {ui}
     </ContextProvider>,
   );
