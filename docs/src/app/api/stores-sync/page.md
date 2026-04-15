@@ -121,13 +121,19 @@ Internally, `SyncQueryStore` uses the following key prefixes in the underlying `
 ```ts
 import { QueryClient } from 'fetchium';
 import { SyncQueryStore, MemoryPersistentStore } from 'fetchium/stores/sync';
+import { RESTQueryAdapter } from 'fetchium/rest';
 
 // Create an in-memory store
 const store = new SyncQueryStore(new MemoryPersistentStore());
 
 // Create the query client
-const client = new QueryClient(store, {
-  fetch: globalThis.fetch,
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  store,
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: globalThis.fetch,
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```

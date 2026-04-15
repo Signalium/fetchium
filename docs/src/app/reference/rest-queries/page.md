@@ -32,15 +32,15 @@ class GetUserPosts extends RESTQuery {
 
 ### Method reference
 
-| Method                | Returns                       | Description                        |
-| --------------------- | ----------------------------- | ---------------------------------- |
-| `getPath()`           | `string \| undefined`         | Dynamic path override              |
-| `getMethod()`         | `string`                      | Dynamic HTTP method                |
-| `getSearchParams()`   | `Record \| undefined`         | Dynamic search params              |
-| `getBody()`           | `Record \| undefined`         | Dynamic request body               |
-| `getHeaders()`        | `HeadersInit \| undefined`    | Dynamic request headers            |
-| `getRequestOptions()` | `RequestOptions \| undefined` | Dynamic fetch options              |
-| `getConfig()`         | `ConfigOptions \| undefined`  | Dynamic cache/retry/network config |
+| Method                | Returns                            | Description                        |
+| --------------------- | ---------------------------------- | ---------------------------------- |
+| `getPath()`           | `string \| undefined`              | Dynamic path override              |
+| `getMethod()`         | `string`                           | Dynamic HTTP method                |
+| `getSearchParams()`   | `Record \| undefined`              | Dynamic search params              |
+| `getBody()`           | `Record \| undefined`              | Dynamic request body               |
+| `getRequestOptions()` | `QueryRequestOptions \| undefined` | Dynamic fetch options              |
+| `getFetchNext()`      | `FetchNextConfig \| undefined`     | Dynamic pagination config          |
+| `getConfig()`         | `QueryConfigOptions \| undefined`  | Dynamic cache/retry/network config |
 
 ---
 

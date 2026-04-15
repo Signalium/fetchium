@@ -2,7 +2,7 @@
 title: Auth & Headers
 ---
 
-In most data-fetching libraries, authentication is handled through interceptors, middleware chains, or framework-specific hooks. Fetchium takes a different approach: authentication is handled through the `fetch` function you pass to the `QueryClient`.
+In most data-fetching libraries, authentication is handled through interceptors, middleware chains, or framework-specific hooks. Fetchium takes a different approach: authentication is handled through the `fetch` function you pass to the `RESTQueryAdapter`.
 
 This is intentional. Rather than adding a framework-specific interceptor system, Fetchium leverages the web platform's standard `fetch` API. Your auth logic is a _plain JavaScript function_ --- testable, portable, and completely decoupled from the library. You can unit test it without importing Fetchium, reuse it across projects, or swap it out without touching a single query definition.
 
@@ -12,7 +12,7 @@ This page covers the common patterns for adding authentication and custom header
 
 ## Global Headers via a Fetch Wrapper
 
-The simplest and most common pattern is wrapping the native `fetch` with a function that injects your auth token on every request. You pass this wrapper to the `QueryClient` at setup time, and every query uses it automatically.
+The simplest and most common pattern is wrapping the native `fetch` with a function that injects your auth token on every request. You pass this wrapper to the `RESTQueryAdapter` at setup time, and every query uses it automatically.
 
 ```ts
 function createAuthFetch(getToken: () => string | null) {
@@ -28,9 +28,13 @@ function createAuthFetch(getToken: () => string | null) {
   };
 }
 
-const client = new QueryClient(store, {
-  fetch: createAuthFetch(() => localStorage.getItem('auth_token')),
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: createAuthFetch(() => localStorage.getItem('auth_token')),
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 
@@ -45,13 +49,17 @@ Notice that `createAuthFetch` accepts a _getter function_ rather than the token 
 If your API uses a static key rather than a user token, the pattern is even simpler:
 
 ```ts
-const client = new QueryClient(store, {
-  fetch: async (url, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set('X-API-Key', process.env.API_KEY!);
-    return fetch(url, { ...init, headers });
-  },
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: async (url, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set('X-API-Key', process.env.API_KEY!);
+        return fetch(url, { ...init, headers });
+      },
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 
@@ -93,9 +101,13 @@ function createReactiveAuthFetch() {
   };
 }
 
-const client = new QueryClient(store, {
-  fetch: createReactiveAuthFetch(),
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: createReactiveAuthFetch(),
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 
@@ -132,7 +144,7 @@ class UploadAvatar extends RESTQuery {
 
 The layering is straightforward: your global fetch wrapper handles _auth_ (the concern that applies everywhere), and per-query headers handle _API-specific needs_ (the concerns that vary by endpoint). The two are composed naturally --- `headers` from the query class are passed through `init.headers` to your fetch wrapper, which can merge them with auth headers using `new Headers(init?.headers)`.
 
-For dynamic per-query headers that depend on runtime conditions, use the `getHeaders()` method:
+For dynamic per-query headers that depend on runtime conditions, use `getRequestOptions()` to include headers as part of the fetch options:
 
 ```ts
 class GetReport extends RESTQuery {
@@ -143,14 +155,11 @@ class GetReport extends RESTQuery {
 
   path = `/reports/${this.params.reportId}`;
 
-  getHeaders() {
-    const headers: Record<string, string> = {};
-
+  getRequestOptions() {
     if (this.params.format === 'csv') {
-      headers['Accept'] = 'text/csv';
+      return { headers: { Accept: 'text/csv' } };
     }
-
-    return headers;
+    return undefined;
   }
 
   result = {
@@ -159,7 +168,7 @@ class GetReport extends RESTQuery {
 }
 ```
 
-As described in the [Queries](/core/queries) guide, every field on `RESTQuery` has a corresponding `get*()` method for when you need logic that goes beyond simple references and interpolations.
+As described in the [Queries](/core/queries) guide, most fields on `RESTQuery` have a corresponding `get*()` method for when you need logic that goes beyond simple references and interpolations.
 
 ---
 
@@ -215,13 +224,17 @@ A few things to note in this pattern:
 Wire it into your client the same way:
 
 ```ts
-const client = new QueryClient(store, {
-  fetch: createAuthFetchWithRefresh(
-    () => authToken.value,
-    () => api.refreshSession(),
-    (token) => authToken.set(token),
-  ),
-  baseUrl: 'https://api.example.com',
+const client = new QueryClient({
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: createAuthFetchWithRefresh(
+        () => authToken.value,
+        () => api.refreshSession(),
+        (token) => authToken.set(token),
+      ),
+      baseUrl: 'https://api.example.com',
+    }),
+  ],
 });
 ```
 
@@ -236,18 +249,28 @@ If your application talks to multiple APIs with different auth schemes --- for i
 The cleanest approach is creating a dedicated `QueryClient` for each backend:
 
 ```ts
-const appClient = new QueryClient(appStore, {
-  fetch: createAuthFetch(() => authToken.value),
-  baseUrl: 'https://api.myapp.com',
+const appClient = new QueryClient({
+  store: appStore,
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: createAuthFetch(() => authToken.value),
+      baseUrl: 'https://api.myapp.com',
+    }),
+  ],
 });
 
-const analyticsClient = new QueryClient(analyticsStore, {
-  fetch: async (url, init) => {
-    const headers = new Headers(init?.headers);
-    headers.set('X-API-Key', ANALYTICS_API_KEY);
-    return fetch(url, { ...init, headers });
-  },
-  baseUrl: 'https://analytics.example.com',
+const analyticsClient = new QueryClient({
+  store: analyticsStore,
+  adapters: [
+    new RESTQueryAdapter({
+      fetch: async (url, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set('X-API-Key', ANALYTICS_API_KEY);
+        return fetch(url, { ...init, headers });
+      },
+      baseUrl: 'https://analytics.example.com',
+    }),
+  ],
 });
 ```
 
@@ -294,12 +317,12 @@ This is a deliberate design decision. Fetchium favors _composition over configur
 | Global fetch wrapper               | Auth that applies to all requests (JWT, session cookies, API keys) |
 | Reactive signal token              | SPAs where auth state changes at runtime (login/logout)            |
 | Per-query `headers`                | Endpoint-specific headers (content types, API versions)            |
-| `getHeaders()` method              | Dynamic per-query headers based on runtime conditions              |
+| `getRequestOptions()` method       | Dynamic per-query headers based on runtime conditions              |
 | 401 catch + refresh + retry        | Token expiration with automatic renewal                            |
 | Multiple `QueryClient` instances   | Different APIs with different auth schemes or stores               |
 | Per-query `requestOptions.baseUrl` | Same auth, different host                                          |
 
-The common thread is that Fetchium does not own your auth logic. It provides the _seam_ --- the `fetch` option on `QueryClient` --- and you fill it with whatever your application needs. This keeps the library small, your auth testable, and your options open.
+The common thread is that Fetchium does not own your auth logic. It provides the _seam_ --- the `fetch` option on `RESTQueryAdapter` --- and you fill it with whatever your application needs. This keeps the library small, your auth testable, and your options open.
 
 ---
 
