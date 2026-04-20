@@ -16,7 +16,7 @@ import {
   createExecutionContext as createExecutionContextUtil,
   type CapturedDefinition,
 } from './fieldRef.js';
-import type { QueryAdapter } from './QueryAdapter.js';
+import type { QueryAdapter, QueryAdapterClass } from './QueryAdapter.js';
 
 // ================================
 // Retry config
@@ -61,7 +61,7 @@ export abstract class Query {
    * The adapter class responsible for sending requests for this query type.
    * Must be set on each concrete Query subclass (or inherited from a base like RESTQuery).
    */
-  static adapter?: typeof QueryAdapter;
+  static adapter?: QueryAdapterClass;
 
   params?: Record<string, TypeDef>;
   abstract result: TypeDefShape;
@@ -106,7 +106,7 @@ export interface QueryDefinitionStatics {
   /** Whether the result shape is already an entity (vs synthetic wrapper). */
   readonly isEntityResult: boolean;
   /** The adapter class responsible for sending requests. */
-  readonly adapterClass: typeof QueryAdapter;
+  readonly adapterClass: QueryAdapterClass;
 }
 
 export class QueryDefinition<Params extends QueryParams | undefined, Result, StreamType> {

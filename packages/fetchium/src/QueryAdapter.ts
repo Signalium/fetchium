@@ -13,6 +13,22 @@ export interface IQueryClientForAdapter {
 }
 
 // ================================
+// QueryAdapterClass — constructor reference for an adapter class
+// ================================
+
+/**
+ * A reference to an adapter class (abstract or concrete) with any constructor
+ * signature. Used as the type of `static adapter` properties on Query/Mutation
+ * classes, so that subclasses with required constructor arguments can be
+ * assigned directly without casts.
+ *
+ * The framework never instantiates these classes via this type (adapters are
+ * registered as pre-built instances on the QueryClient); it only uses the
+ * reference as a map key and for prototype/name introspection.
+ */
+export type QueryAdapterClass<T extends QueryAdapter = QueryAdapter> = abstract new (...args: any[]) => T;
+
+// ================================
 // QueryAdapter base class
 // ================================
 

@@ -3,7 +3,7 @@ import { ExtractType, InternalTypeDef, MutationEffects, TypeDef, RetryConfig, Ty
 import { QueryClientContext, type QueryContext } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
 import { createDefinitionProxy, extractDefinition, type CapturedDefinition } from './fieldRef.js';
-import type { QueryAdapter } from './QueryAdapter.js';
+import type { QueryAdapter, QueryAdapterClass } from './QueryAdapter.js';
 
 // ================================
 // Mutation Definition Types
@@ -22,7 +22,7 @@ export interface MutationDefinition<Request, Response> {
   config?: MutationConfigOptions;
   effects?: MutationEffects;
   hasGetEffects: boolean;
-  adapterClass: typeof QueryAdapter;
+  adapterClass: QueryAdapterClass;
 }
 
 // ================================
@@ -30,7 +30,7 @@ export interface MutationDefinition<Request, Response> {
 // ================================
 
 export abstract class Mutation {
-  static adapter?: typeof QueryAdapter;
+  static adapter?: QueryAdapterClass;
 
   readonly params?: TypeDefShape;
   readonly result?: TypeDefShape;
