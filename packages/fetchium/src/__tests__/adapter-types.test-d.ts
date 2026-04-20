@@ -115,9 +115,7 @@ class BadQuery extends Query {
 }
 
 // ============================================================
-// Mutation.adapter — shares the same type as Query.adapter, so a single
-// positive case is sufficient. (The Query negative above already pins
-// the shared base constraint.)
+// Mutation.adapter — accepts any QueryAdapter subclass, rejects non-adapters
 // ============================================================
 
 class UpdateUser extends Mutation {
@@ -130,6 +128,15 @@ class UpdateUser extends Mutation {
   }
 }
 
+// @ts-expect-error — NotAnAdapter does not extend QueryAdapter
+class BadMutation extends Mutation {
+  static override adapter = NotAnAdapter;
+
+  getIdentityKey() {
+    return 'bad-mutation';
+  }
+}
+
 // Prevent "declared but unused" diagnostics for the fixtures above.
 export type _AdapterTypeTests =
   | typeof GetPrices
@@ -139,4 +146,5 @@ export type _AdapterTypeTests =
   | typeof BadRandomClass
   | typeof FetchUser
   | typeof BadQuery
-  | typeof UpdateUser;
+  | typeof UpdateUser
+  | typeof BadMutation;
