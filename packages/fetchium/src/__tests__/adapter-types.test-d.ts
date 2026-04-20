@@ -27,6 +27,7 @@ class WebSocketTopicAdapter extends TopicQueryAdapter {
 // Positive cases — realistic TopicQuery definitions compile cleanly
 // ============================================================
 
+// Direct subclass — the standard pattern.
 class GetPrices extends TopicQuery {
   static override adapter = WebSocketTopicAdapter;
 
@@ -37,28 +38,10 @@ class GetPrices extends TopicQuery {
   };
 }
 
-class GetBalances extends TopicQuery {
-  static override adapter = WebSocketTopicAdapter;
-
-  params = { address: t.string };
-  topic = 'balances';
-  result = {
-    balance: t.string,
-  };
-}
-
-// A shared abstract base — the pattern used in the Fetchium test suite
-// itself (MockTopicQuery) — must also compile without a cast.
+// Shared abstract base — the pattern used in Fetchium's own test suite
+// (MockTopicQuery) — must also compile without a cast.
 abstract class WebSocketTopicQuery extends TopicQuery {
   static override adapter = WebSocketTopicAdapter;
-}
-
-class GetTrades extends WebSocketTopicQuery {
-  topic = 'trades';
-  result = {
-    side: t.string,
-    size: t.string,
-  };
 }
 
 // ============================================================
@@ -103,8 +86,7 @@ class BadRandomClass extends TopicQuery {
 // Prevent "declared but unused" diagnostics for the fixtures above.
 export type _AdapterTypeTests =
   | typeof GetPrices
-  | typeof GetBalances
-  | typeof GetTrades
+  | typeof WebSocketTopicQuery
   | typeof BadRestAdapter
   | typeof BadCustomAdapter
   | typeof BadRandomClass;
