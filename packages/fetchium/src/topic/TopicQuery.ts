@@ -1,5 +1,6 @@
 import { Query } from '../query.js';
 import type { TopicQueryAdapter } from './TopicQueryAdapter.js';
+import type { QueryAdapterClass } from '../QueryAdapter.js';
 import type { QueryConfigOptions } from '../query-types.js';
 
 // ================================
@@ -7,7 +8,7 @@ import type { QueryConfigOptions } from '../query-types.js';
 // ================================
 
 export abstract class TopicQuery extends Query {
-  static override adapter: typeof TopicQueryAdapter;
+  static override adapter: QueryAdapterClass<TopicQueryAdapter>;
 
   abstract topic: string;
 

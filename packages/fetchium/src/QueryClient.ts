@@ -24,7 +24,7 @@ import { applyEntityRefs, type ApplyResult } from './applyEntities.js';
 import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
 import { LiveCollectionBinding } from './LiveCollection.js';
-import { QueryAdapter } from './QueryAdapter.js';
+import { QueryAdapter, type QueryAdapterClass } from './QueryAdapter.js';
 import {
   type QueryContext,
   type QueryStore,
@@ -78,7 +78,7 @@ export class QueryClient {
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
   private constraintRegistry = new Map<string, ConstraintMatcher>();
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
-  private adapters = new Map<typeof QueryAdapter, QueryAdapter>();
+  private adapters = new Map<QueryAdapterClass, QueryAdapter>();
   private networkUnsubscribe: (() => void) | undefined;
 
   constructor(config: QueryClientConfig = {}) {
@@ -102,7 +102,7 @@ export class QueryClient {
 
     // Register user-supplied adapters
     for (const adapter of config.adapters ?? []) {
-      this.adapters.set(adapter.constructor as typeof QueryAdapter, adapter);
+      this.adapters.set(adapter.constructor as QueryAdapterClass, adapter);
       adapter.register(this);
     }
 
@@ -126,7 +126,7 @@ export class QueryClient {
    * Returns the registered adapter instance for the given adapter class.
    * Throws if no adapter of that class has been registered.
    */
-  getAdapter(adapterClass: typeof QueryAdapter): QueryAdapter {
+  getAdapter(adapterClass: QueryAdapterClass): QueryAdapter {
     let adapter = this.adapters.get(adapterClass);
     if (!adapter) {
       // Auto-instantiate with no-arg constructor as fallback.

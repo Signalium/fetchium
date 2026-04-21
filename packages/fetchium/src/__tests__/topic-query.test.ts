@@ -207,7 +207,7 @@ class TopicNotFoundError extends Error {
 // ============================================================
 
 abstract class MockTopicQuery extends TopicQuery {
-  static override adapter = MockTopicQueryAdapter as unknown as typeof TopicQueryAdapter;
+  static override adapter = MockTopicQueryAdapter;
 }
 
 // ============================================================
