@@ -1,5 +1,13 @@
 # fetchium
 
+## 0.2.2
+
+### Patch Changes
+
+- 306cb3c: Allow concrete adapter subclasses with required constructor args to be assigned to `static adapter` without casts
+- f1145c8: Fix relay not recovering after deactivation during in-flight refetch
+- 8b327ae: Accept `NoOpNetworkManager` in `QueryClientConfig.networkManager` without a cast, mirroring the existing `gcManager` pattern
+
 ## 0.2.1
 
 ### Patch Changes
