@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient } from '../QueryClient.js';
 import { NoOpGcManager } from '../GcManager.js';
+import { NoOpNetworkManager } from '../NetworkManager.js';
 import { createMockFetch } from './utils.js';
 import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 
@@ -47,6 +48,22 @@ describe('SSR Guard', () => {
     });
 
     expect(client.gcManager).toBe(customGc);
+  });
+
+  it('should accept NoOpNetworkManager without a cast', () => {
+    const store = new SyncQueryStore(new MemoryPersistentStore());
+    const mockFetch = createMockFetch();
+    const noOpNetwork = new NoOpNetworkManager();
+
+    client = new QueryClient({
+      store,
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      networkManager: noOpNetwork,
+    });
+
+    expect(client.networkManager).toBe(noOpNetwork);
+    expect(client.networkManager.getOnlineSignal().value).toBe(true);
+    expect(() => client.destroy()).not.toThrow();
   });
 
   it('should call destroy() safely without subscription manager', () => {

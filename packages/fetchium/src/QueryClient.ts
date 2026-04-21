@@ -12,7 +12,7 @@ import {
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
 import { EntityInstance } from './EntityInstance.js';
-import { NetworkManager } from './NetworkManager.js';
+import { NetworkManager, NoOpNetworkManager } from './NetworkManager.js';
 import { QueryInstance } from './QueryResult.js';
 import { MutationResultImpl } from './MutationResult.js';
 import { MutationDefinition } from './mutation.js';
@@ -37,7 +37,7 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 export interface QueryClientConfig {
   store?: QueryStore;
   adapters?: QueryAdapter[];
-  networkManager?: NetworkManager;
+  networkManager?: NetworkManager | NoOpNetworkManager;
   gcManager?: GcManager | NoOpGcManager;
   log?: {
     error?: (message: string, error?: unknown) => void;
@@ -68,7 +68,7 @@ export class QueryClient {
   queryInstances = new Map<number, QueryInstance<any>>();
   mutationInstances = new Map<string, MutationResultImpl<unknown, unknown>>();
   gcManager: GcManager | NoOpGcManager;
-  networkManager: NetworkManager;
+  networkManager: NetworkManager | NoOpNetworkManager;
   isServer: boolean;
   store: QueryStore;
 

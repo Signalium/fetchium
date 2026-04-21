@@ -4,6 +4,7 @@ import { QueryClient, QueryClientContext, QueryStore } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { NetworkManager } from '../NetworkManager.js';
+import type { NoOpNetworkManager } from '../NetworkManager.js';
 import { GcManager } from '../GcManager.js';
 import type { NoOpGcManager } from '../GcManager.js';
 import { EntityStore } from '../EntityStore.js';
@@ -47,7 +48,7 @@ interface MockRoute {
 // ================================
 
 export interface TestClientOptions {
-  networkManager?: NetworkManager;
+  networkManager?: NetworkManager | NoOpNetworkManager;
   gcManager?: GcManager | NoOpGcManager;
   evictionMultiplier?: number;
   /** Extra config keys passed through to QueryContext (e.g. stream) */
