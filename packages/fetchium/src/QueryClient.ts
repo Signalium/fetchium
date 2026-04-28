@@ -124,26 +124,56 @@ export class QueryClient {
 
   /**
    * Returns the registered adapter instance for the given adapter class.
-   * Throws if no adapter of that class has been registered.
+   *
+   * Resolution order:
+   * 1. Exact class match in the registered adapters.
+   * 2. Subclass match — if any registered adapter is an `instanceof adapterClass`,
+   *    return it. This lets queries declare an abstract base adapter (e.g.
+   *    `TopicQueryAdapter`) and have the consumer-supplied concrete subclass
+   *    (e.g. a `WebSocket`-backed adapter) resolve to it.
+   * 3. Auto-instantiate via the no-arg constructor (for adapters like
+   *    `RESTQueryAdapter` that default to `globalThis.fetch`).
+   *
+   * In dev builds, step 2 verifies that at most one registered adapter
+   * matches the lookup and throws otherwise. The dev-only check is stripped
+   * from production builds.
+   *
+   * Throws if none of those succeed.
    */
   getAdapter(adapterClass: QueryAdapterClass): QueryAdapter {
-    let adapter = this.adapters.get(adapterClass);
-    if (!adapter) {
-      // Auto-instantiate with no-arg constructor as fallback.
-      // Works for adapters like RESTQueryAdapter that default to globalThis.fetch.
-      // Adapters that require explicit configuration will throw here, prompting
-      // the user to register an instance explicitly.
-      try {
-        adapter = new (adapterClass as new () => QueryAdapter)();
-      } catch {
-        throw new Error(
-          `No adapter registered for ${adapterClass.name} and auto-instantiation failed. ` +
-            `Pass an instance via QueryClient config: new QueryClient({ store, adapters: [new ${adapterClass.name}(...)] })`,
-        );
+    const exact = this.adapters.get(adapterClass);
+    if (exact) return exact;
+
+    let match: QueryAdapter | undefined;
+    for (const registered of this.adapters.values()) {
+      if (registered instanceof adapterClass) {
+        if (IS_DEV && match !== undefined) {
+          throw new Error(
+            `Adapter lookup for ${adapterClass.name} matches multiple registered adapters: ` +
+              `${match.constructor.name} and ${registered.constructor.name}. ` +
+              `Register only one adapter per lookup base on a single QueryClient, ` +
+              `or split into separate QueryClients.`,
+          );
+        }
+        match ??= registered;
       }
-      this.adapters.set(adapterClass, adapter);
-      adapter.register(this);
     }
+    if (match !== undefined) {
+      this.adapters.set(adapterClass, match);
+      return match;
+    }
+
+    let adapter: QueryAdapter;
+    try {
+      adapter = new (adapterClass as new () => QueryAdapter)();
+    } catch {
+      throw new Error(
+        `No adapter registered for ${adapterClass.name} and auto-instantiation failed. ` +
+          `Pass an instance via QueryClient config: new QueryClient({ store, adapters: [new ${adapterClass.name}(...)] })`,
+      );
+    }
+    this.adapters.set(adapterClass, adapter);
+    adapter.register(this);
     return adapter;
   }
 

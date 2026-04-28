@@ -2071,4 +2071,73 @@ describe('TopicQuery', () => {
       });
     });
   });
+
+  // ============================================================
+  // Section 6: Generated TopicQuery (no static adapter override)
+  // ============================================================
+
+  describe('Generated TopicQuery without static adapter override', () => {
+    it('should resolve via subclass-aware adapter lookup when subclass inherits TopicQueryAdapter from base', async () => {
+      // GetPricesGenerated extends TopicQuery directly and does NOT set
+      // `static adapter`, so it inherits `adapter = TopicQueryAdapter` (the
+      // abstract base) from TopicQuery. The outer beforeEach above registers
+      // a MockTopicQueryAdapter instance on the QueryClient — which extends
+      // TopicQueryAdapter — and QueryClient.getAdapter() resolves the lookup
+      // for TopicQueryAdapter to that instance via its `instanceof` scan.
+      class GetPricesGenerated extends TopicQuery {
+        topic = 'prices:generated';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:generated', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPricesGenerated);
+        await relay;
+
+        expect(relay.isResolved).toBe(true);
+        expect(relay.value!.items).toHaveLength(1);
+        expect(relay.value!.items[0].token).toBe('BTC');
+      });
+    });
+
+    it('should expose TopicQueryAdapter as the inherited static adapter on the base class', () => {
+      expect(TopicQuery.adapter).toBe(TopicQueryAdapter);
+
+      class GetPricesGenerated extends TopicQuery {
+        topic = 'prices:generated';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      expect(GetPricesGenerated.adapter).toBe(TopicQueryAdapter);
+    });
+
+    it('should throw in dev when multiple registered adapters match the same lookup', () => {
+      // Two distinct TopicQueryAdapter subclasses registered on one QueryClient
+      // creates an ambiguous lookup for `getAdapter(TopicQueryAdapter)` — the
+      // instanceof scan would pick whichever was registered first. The dev-mode
+      // check catches this misconfiguration up front.
+      class SecondTopicAdapter extends TopicQueryAdapter {
+        subscribe(_topic: string): void {}
+        unsubscribe(_topic: string): void {}
+      }
+
+      const ambiguousClient = new QueryClient({
+        store: new SyncQueryStore(new MemoryPersistentStore()),
+        adapters: [new MockTopicQueryAdapter(mockStream, mockFetch as any), new SecondTopicAdapter()],
+      } as any);
+
+      try {
+        expect(() => ambiguousClient.getAdapter(TopicQueryAdapter)).toThrow(/matches multiple registered adapters/);
+      } finally {
+        ambiguousClient.destroy();
+      }
+    });
+  });
 });

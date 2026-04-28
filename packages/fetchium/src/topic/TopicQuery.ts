@@ -1,5 +1,5 @@
 import { Query } from '../query.js';
-import type { TopicQueryAdapter } from './TopicQueryAdapter.js';
+import { TopicQueryAdapter } from './TopicQueryAdapter.js';
 import type { QueryAdapterClass } from '../QueryAdapter.js';
 import type { QueryConfigOptions } from '../query-types.js';
 
@@ -8,7 +8,8 @@ import type { QueryConfigOptions } from '../query-types.js';
 // ================================
 
 export abstract class TopicQuery extends Query {
-  static override adapter: QueryAdapterClass<TopicQueryAdapter>;
+  // Explicit type lets subclasses override with adapters that take constructor args.
+  static override adapter: QueryAdapterClass<TopicQueryAdapter> = TopicQueryAdapter;
 
   abstract topic: string;
 
