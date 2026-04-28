@@ -2078,10 +2078,12 @@ describe('TopicQuery', () => {
 
   describe('Generated TopicQuery without static adapter override', () => {
     it('should resolve via subclass-aware adapter lookup when subclass inherits TopicQueryAdapter from base', async () => {
-      // Generated TopicQuery classes (e.g. from @phantom/fetchium-client codegen)
-      // do not set `static adapter`. They rely on inheriting `TopicQueryAdapter`
-      // from the TopicQuery base, and on the QueryClient resolving a registered
-      // concrete subclass (e.g. MockTopicQueryAdapter) via instanceof match.
+      // GetPricesGenerated extends TopicQuery directly and does NOT set
+      // `static adapter`, so it inherits `adapter = TopicQueryAdapter` (the
+      // abstract base) from TopicQuery. The outer beforeEach above registers
+      // a MockTopicQueryAdapter instance on the QueryClient — which extends
+      // TopicQueryAdapter — and QueryClient.getAdapter() resolves the lookup
+      // for TopicQueryAdapter to that instance via its `instanceof` scan.
       class GetPricesGenerated extends TopicQuery {
         topic = 'prices:generated';
         result = {
