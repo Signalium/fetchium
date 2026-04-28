@@ -231,21 +231,7 @@ const queryClient = new QueryClient({
 });
 ```
 
-Topic query classes that extend `TopicQuery` directly resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` declares `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup.
-
-If you register **multiple** `TopicQueryAdapter` subclasses (for example, one WebSocket adapter and one SSE adapter) and need different queries to use different ones, declare `static override adapter` on each query (or on a shared abstract base) to disambiguate:
-
-```tsx
-abstract class WebSocketTopicQuery extends TopicQuery {
-  static override adapter = MyStreamAdapter;
-}
-
-abstract class SSETopicQuery extends TopicQuery {
-  static override adapter = MySSEAdapter;
-}
-```
-
-For the common single-adapter case, the override is unnecessary.
+Topic query classes that extend `TopicQuery` directly resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` declares `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup. If your app needs more than one streaming protocol, use a separate `QueryClient` for each.
 
 ### Pre-fulfillment
 
