@@ -2117,5 +2117,29 @@ describe('TopicQuery', () => {
 
       expect(GetPricesGenerated.adapter).toBe(TopicQueryAdapter);
     });
+
+    it('should throw in dev when multiple registered adapters match the same lookup', () => {
+      // Two distinct TopicQueryAdapter subclasses registered on one QueryClient
+      // creates an ambiguous lookup for `getAdapter(TopicQueryAdapter)` — the
+      // instanceof scan would pick whichever was registered first. The dev-mode
+      // check catches this misconfiguration up front.
+      class SecondTopicAdapter extends TopicQueryAdapter {
+        subscribe(_topic: string): void {}
+        unsubscribe(_topic: string): void {}
+      }
+
+      const ambiguousClient = new QueryClient({
+        store: new SyncQueryStore(new MemoryPersistentStore()),
+        adapters: [new MockTopicQueryAdapter(mockStream, mockFetch as any), new SecondTopicAdapter()],
+      } as any);
+
+      try {
+        expect(() => ambiguousClient.getAdapter(TopicQueryAdapter)).toThrow(
+          /matches multiple registered adapters/,
+        );
+      } finally {
+        ambiguousClient.destroy();
+      }
+    });
   });
 });

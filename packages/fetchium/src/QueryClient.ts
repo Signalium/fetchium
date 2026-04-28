@@ -134,17 +134,35 @@ export class QueryClient {
    * 3. Auto-instantiate via the no-arg constructor (for adapters like
    *    `RESTQueryAdapter` that default to `globalThis.fetch`).
    *
+   * In dev builds, step 2 verifies that at most one registered adapter
+   * matches the lookup and throws otherwise. The dev-only check is stripped
+   * from production builds.
+   *
    * Throws if none of those succeed.
    */
   getAdapter(adapterClass: QueryAdapterClass): QueryAdapter {
     const exact = this.adapters.get(adapterClass);
     if (exact) return exact;
 
+    let match: QueryAdapter | undefined;
     for (const registered of this.adapters.values()) {
       if (registered instanceof adapterClass) {
-        this.adapters.set(adapterClass, registered);
-        return registered;
+        if (match === undefined) {
+          match = registered;
+          if (!IS_DEV) break;
+        } else if (IS_DEV) {
+          throw new Error(
+            `Adapter lookup for ${adapterClass.name} matches multiple registered adapters: ` +
+              `${match.constructor.name} and ${registered.constructor.name}. ` +
+              `Register only one adapter per lookup base on a single QueryClient, ` +
+              `or split into separate QueryClients.`,
+          );
+        }
       }
+    }
+    if (match !== undefined) {
+      this.adapters.set(adapterClass, match);
+      return match;
     }
 
     let adapter: QueryAdapter;
