@@ -139,7 +139,7 @@ A topic query extends `TopicQuery` and provides a `topic` field and a `result` s
 import { t } from 'fetchium';
 import { TopicQuery } from 'fetchium/topic';
 
-class GetPrices extends MyTopicQuery {
+class GetPrices extends TopicQuery {
   topic = 'prices:live';
 
   result = {
@@ -151,7 +151,7 @@ class GetPrices extends MyTopicQuery {
 Topics can be parameterized using `this.params`, just like paths in `RESTQuery`:
 
 ```tsx
-class GetBalances extends MyTopicQuery {
+class GetBalances extends TopicQuery {
   params = { walletId: t.string };
 
   topic = `balances:${this.params.walletId}`;
@@ -231,13 +231,21 @@ const queryClient = new QueryClient({
 });
 ```
 
-Then make your topic query classes reference the adapter:
+That's it --- topic query classes that extend `TopicQuery` directly will resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` has `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup.
+
+If you register **multiple** `TopicQueryAdapter` subclasses (for example, one WebSocket adapter and one SSE adapter) and need different queries to use different ones, declare `static override adapter` on each query (or on a shared abstract base) to disambiguate:
 
 ```tsx
-abstract class MyTopicQuery extends TopicQuery {
+abstract class WebSocketTopicQuery extends TopicQuery {
   static override adapter = MyStreamAdapter;
 }
+
+abstract class SSETopicQuery extends TopicQuery {
+  static override adapter = MySSEAdapter;
+}
 ```
+
+For the common single-adapter case, the override is unnecessary.
 
 ### Pre-fulfillment
 
@@ -515,7 +523,7 @@ In practice, most applications combine multiple real-time strategies:
 
 ```tsx
 // Topic-based streaming for live market data
-class GetPrices extends MyTopicQuery {
+class GetPrices extends TopicQuery {
   topic = 'prices:live';
   result = { prices: t.liveArray(Price) };
 }
