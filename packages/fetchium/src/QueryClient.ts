@@ -147,10 +147,7 @@ export class QueryClient {
     let match: QueryAdapter | undefined;
     for (const registered of this.adapters.values()) {
       if (registered instanceof adapterClass) {
-        if (match === undefined) {
-          match = registered;
-          if (!IS_DEV) break;
-        } else if (IS_DEV) {
+        if (IS_DEV && match !== undefined) {
           throw new Error(
             `Adapter lookup for ${adapterClass.name} matches multiple registered adapters: ` +
               `${match.constructor.name} and ${registered.constructor.name}. ` +
@@ -158,6 +155,7 @@ export class QueryClient {
               `or split into separate QueryClients.`,
           );
         }
+        match ??= registered;
       }
     }
     if (match !== undefined) {
