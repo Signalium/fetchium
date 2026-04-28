@@ -233,6 +233,10 @@ const queryClient = new QueryClient({
 
 Topic query classes that extend `TopicQuery` directly resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` declares `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup.
 
+{% callout title="One streaming adapter per QueryClient" %}
+Register at most one `TopicQueryAdapter` subclass on a given `QueryClient`. If your app needs multiple streaming protocols, create a separate `QueryClient` for each. Dev builds throw a clear error if more than one registered adapter satisfies the same lookup; in production, the first registered match wins, which is brittle to register order.
+{% /callout %}
+
 ### Pre-fulfillment
 
 A powerful feature of the adapter is that `fulfillTopic` can be called _before_ the query activates. If your message bus proactively sends data for topics it knows the page will need, the adapter can buffer that data:
