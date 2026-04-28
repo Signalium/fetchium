@@ -2,4 +2,4 @@
 "fetchium": patch
 ---
 
-Resolve `TopicQuery` adapter via subclass-aware lookup. `TopicQuery` now assigns `static adapter = TopicQueryAdapter` so subclasses inherit a runtime value without per-class overrides, and `QueryClient.getAdapter()` falls back to an `instanceof` scan over registered adapters before auto-instantiating, so an abstract base on a query resolves to the consumer-registered concrete subclass. In dev builds, the lookup throws when more than one registered adapter would match the same lookup, surfacing ambiguous registrations early; the check is stripped in production builds.
+`TopicQuery` subclasses now inherit their adapter from the base, and `QueryClient.getAdapter()` resolves an abstract adapter class on a query to a consumer-registered concrete subclass. Generated and hand-authored `TopicQuery` classes no longer need a per-class `static adapter` override. In dev, ambiguous registrations (more than one adapter that matches the same lookup) throw with a clear error.
