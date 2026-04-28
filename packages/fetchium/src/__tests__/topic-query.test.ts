@@ -2134,9 +2134,7 @@ describe('TopicQuery', () => {
       } as any);
 
       try {
-        expect(() => ambiguousClient.getAdapter(TopicQueryAdapter)).toThrow(
-          /matches multiple registered adapters/,
-        );
+        expect(() => ambiguousClient.getAdapter(TopicQueryAdapter)).toThrow(/matches multiple registered adapters/);
       } finally {
         ambiguousClient.destroy();
       }
