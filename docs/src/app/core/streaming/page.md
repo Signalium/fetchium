@@ -231,7 +231,7 @@ const queryClient = new QueryClient({
 });
 ```
 
-Topic query classes that extend `TopicQuery` directly resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` declares `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup. If your app needs more than one streaming protocol, use a separate `QueryClient` for each.
+Topic query classes that extend `TopicQuery` directly resolve to the registered `MyStreamAdapter` automatically. Internally, `TopicQuery` declares `static adapter = TopicQueryAdapter` (the abstract base), and `QueryClient` looks up registered adapters by `instanceof` match, so any subclass of `TopicQueryAdapter` you register fulfills the lookup.
 
 ### Pre-fulfillment
 
