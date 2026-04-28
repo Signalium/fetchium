@@ -1,5 +1,5 @@
 import { Query } from '../query.js';
-import type { TopicQueryAdapter } from './TopicQueryAdapter.js';
+import { TopicQueryAdapter } from './TopicQueryAdapter.js';
 import type { QueryAdapterClass } from '../QueryAdapter.js';
 import type { QueryConfigOptions } from '../query-types.js';
 
@@ -8,7 +8,12 @@ import type { QueryConfigOptions } from '../query-types.js';
 // ================================
 
 export abstract class TopicQuery extends Query {
-  static override adapter: QueryAdapterClass<TopicQueryAdapter>;
+  // The type is widened to `QueryAdapterClass<TopicQueryAdapter>` so subclasses
+  // can override with concrete adapters whose constructors require arguments
+  // (e.g. `new (url, token) => WebSocketTopicAdapter`). The value defaults to
+  // the abstract base, which `QueryClient.getAdapter()` resolves via
+  // subclass-aware lookup against any registered concrete subclass.
+  static override adapter: QueryAdapterClass<TopicQueryAdapter> = TopicQueryAdapter;
 
   abstract topic: string;
 

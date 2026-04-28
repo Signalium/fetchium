@@ -2071,4 +2071,49 @@ describe('TopicQuery', () => {
       });
     });
   });
+
+  // ============================================================
+  // Section 6: Generated TopicQuery (no static adapter override)
+  // ============================================================
+
+  describe('Generated TopicQuery without static adapter override', () => {
+    it('should resolve via subclass-aware adapter lookup when subclass inherits TopicQueryAdapter from base', async () => {
+      // Generated TopicQuery classes (e.g. from @phantom/fetchium-client codegen)
+      // do not set `static adapter`. They rely on inheriting `TopicQueryAdapter`
+      // from the TopicQuery base, and on the QueryClient resolving a registered
+      // concrete subclass (e.g. MockTopicQueryAdapter) via instanceof match.
+      class GetPricesGenerated extends TopicQuery {
+        topic = 'prices:generated';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:generated', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPricesGenerated);
+        await relay;
+
+        expect(relay.isResolved).toBe(true);
+        expect(relay.value!.items).toHaveLength(1);
+        expect(relay.value!.items[0].token).toBe('BTC');
+      });
+    });
+
+    it('should expose TopicQueryAdapter as the inherited static adapter on the base class', () => {
+      expect(TopicQuery.adapter).toBe(TopicQueryAdapter);
+
+      class GetPricesGenerated extends TopicQuery {
+        topic = 'prices:generated';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      expect(GetPricesGenerated.adapter).toBe(TopicQueryAdapter);
+    });
+  });
 });
