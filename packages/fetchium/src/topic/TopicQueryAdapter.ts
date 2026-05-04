@@ -96,18 +96,21 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
     const existing = this._topics.get(topic);
 
-    if (existing) {
-      switch (existing.status) {
-        case 'fulfilled':
-          return existing.data;
-        case 'rejected':
-          throw existing.error;
-        case 'pending':
-          return existing.promise;
-      }
+    // Dedupe: an in-flight subscribe is already racing to deliver data.
+    if (existing?.status === 'pending') {
+      return existing.promise;
     }
 
-    // No state yet — create a deferred and subscribe
+    // Refetch / retry path: a prior subscription resolved or rejected and the
+    // consumer is asking again. Tear down the previous subscription so the
+    // subclass can re-snapshot, then fall through to the fresh subscribe path.
+    // clearTopic is called defensively in case the subclass's unsubscribe
+    // doesn't clear state.
+    if (existing !== undefined) {
+      this.unsubscribe(topic);
+      this.clearTopic(topic);
+    }
+
     let resolve!: (data: unknown) => void;
     let reject!: (error: unknown) => void;
     const promise = new Promise<unknown>((res, rej) => {

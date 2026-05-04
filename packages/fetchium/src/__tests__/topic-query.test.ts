@@ -2140,4 +2140,138 @@ describe('TopicQuery', () => {
       }
     });
   });
+
+  // ============================================================
+  // Section: Refetch (COR2-706)
+  // ============================================================
+
+  describe('Refetch', () => {
+    it('should re-snapshot via subscribe when __refetch is called on a fulfilled topic', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+        expect(relay.value!.items[0].value).toBe(50000);
+
+        const refetchPromise = (relay.value as any).__refetch();
+        // Adapter has now torn down the previous subscription and re-subscribed
+        // synchronously. Push a fresh snapshot to the new subscription.
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 60000, change24h: 5.0 }],
+        });
+        await refetchPromise;
+
+        expect(relay.value!.items[0].value).toBe(60000);
+        expect(relay.value!.items[0].change24h).toBe(5.0);
+      });
+    });
+
+    it('should surface a new optional non-entity field added to the result shape on refetch', async () => {
+      // Mirrors the schema-change scenario from the bug report: an existing
+      // topic query gets a new optional field, and clients should see it after
+      // refetch without needing to wipe the cache.
+      class GetWalletV1 extends MockTopicQuery {
+        topic = 'wallet:main';
+        result = {
+          name: t.string,
+          totalValue: t.number,
+        };
+      }
+
+      mockStream.pushTopicData('wallet:main', {
+        name: 'My Wallet',
+        totalValue: 100000,
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetWalletV1);
+        await relay;
+        expect(relay.value!.name).toBe('My Wallet');
+
+        const refetchPromise = (relay.value as any).__refetch();
+        mockStream.pushTopicData('wallet:main', {
+          name: 'My Wallet',
+          totalValue: 150000,
+        });
+        await refetchPromise;
+
+        expect(relay.value!.totalValue).toBe(150000);
+      });
+    });
+
+    it('should dedupe a __refetch call while a previous fetch is still pending', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+
+        // First refetch suspends until the next push.
+        const first = (relay.value as any).__refetch();
+        // Second refetch while first is in flight — should resolve with the
+        // same data, not trigger a duplicate teardown/resubscribe race.
+        const second = (relay.value as any).__refetch();
+
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 75000, change24h: 1.0 }],
+        });
+
+        const [r1, r2] = await Promise.all([first, second]);
+        expect(r1).toBe(r2);
+        expect(relay.value!.items[0].value).toBe(75000);
+      });
+    });
+
+    it('should keep ongoing mutation events flowing after refetch', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+
+        const refetchPromise = (relay.value as any).__refetch();
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 60000, change24h: 3.0 }],
+        });
+        await refetchPromise;
+
+        // The new subscription should still receive entity updates.
+        await pushUpdateOutsideReactiveContext(mockStream, 'prices:live', {
+          type: 'update',
+          typename: 'TopicPrice',
+          data: { id: '1', value: 65000 },
+        });
+
+        expect(relay.value!.items[0].value).toBe(65000);
+      });
+    });
+  });
 });
