@@ -330,6 +330,11 @@ export class QueryInstance<T extends Query> {
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
     this._fetchNextPromise = undefined;
+    // Drop any adapter-internal cached state for this query so the upcoming
+    // send() delivers fresh data. No-op for stateless adapters (REST).
+    const ctx = this.getOrCreateExecutionContext();
+    const adapter = this.queryClient.getAdapter(this.def.statics.adapterClass);
+    adapter.invalidate?.(ctx);
     this.relayState.setPromise(this.runQuery());
   }
 
@@ -358,6 +363,12 @@ export class QueryInstance<T extends Query> {
 
   markStale(): void {
     this.updatedAt = 0;
+    // If a consumer is currently mounted, kick a refetch so they see fresh
+    // data without having to deactivate/reactivate. runDebounced bails when a
+    // fetch is already in flight, so duplicate invalidations dedupe.
+    if (this._relayState !== undefined && !this.isPaused) {
+      this.runDebounced();
+    }
   }
 
   get resolvedParams(): QueryParams | undefined {

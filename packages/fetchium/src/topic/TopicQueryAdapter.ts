@@ -32,8 +32,10 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
   abstract subscribe(topic: string): void;
 
   /**
-   * Called when the query deactivates. Implementations should
-   * tear down any resources for this topic.
+   * Called when the query deactivates or is invalidated. Implementations
+   * must tear down resources for this topic AND call `clearTopic(topic)`
+   * to drop the cached subscription state — otherwise subsequent `send()`
+   * calls will return stale data instead of re-subscribing.
    */
   abstract unsubscribe(topic: string): void;
 
@@ -87,6 +89,11 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
   protected clearAll(): void {
     this._topics.clear();
+  }
+
+  override invalidate(ctx: Query): void {
+    const topic = (ctx as TopicCtx).topic;
+    this.unsubscribe(topic);
   }
 
   override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {

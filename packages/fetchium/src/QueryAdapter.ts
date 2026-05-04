@@ -81,4 +81,11 @@ export abstract class QueryAdapter {
    * @param signal  AbortSignal to cancel the in-flight request.
    */
   sendMutation?(ctx: Mutation, signal: AbortSignal): Promise<unknown>;
+
+  /**
+   * Drop any adapter-internal cached state for this query so the next `send()`
+   * delivers fresh data. Called by `QueryInstance` on refetch / invalidate.
+   * Optional — stateless adapters (e.g. REST) don't need to implement this.
+   */
+  invalidate?(ctx: Query): void;
 }

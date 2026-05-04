@@ -2140,4 +2140,139 @@ describe('TopicQuery', () => {
       }
     });
   });
+
+  // ============================================================
+  // Section: Refetch
+  // ============================================================
+
+  describe('Refetch', () => {
+    it('should re-subscribe and deliver fresh data when __refetch is called on a fulfilled topic', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+        expect(relay.value!.items[0].value).toBe(50000);
+
+        const refetchPromise = (relay.value as any).__refetch();
+        // Adapter has now torn down the previous subscription and re-subscribed
+        // synchronously. Push fresh data to the new subscription.
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 60000, change24h: 5.0 }],
+        });
+        await refetchPromise;
+
+        expect(relay.value!.items[0].value).toBe(60000);
+        expect(relay.value!.items[0].change24h).toBe(5.0);
+      });
+    });
+
+    it('should dedupe a __refetch call while a previous fetch is still pending', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+
+        // First refetch suspends until the next push.
+        const first = (relay.value as any).__refetch();
+        // Second refetch while first is in flight — should resolve with the
+        // same data, not trigger a duplicate teardown/resubscribe race.
+        const second = (relay.value as any).__refetch();
+
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 75000, change24h: 1.0 }],
+        });
+
+        const [r1, r2] = await Promise.all([first, second]);
+        expect(r1).toBe(r2);
+        expect(relay.value!.items[0].value).toBe(75000);
+      });
+    });
+
+    it('should keep ongoing mutation events flowing after refetch', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+
+        const refetchPromise = (relay.value as any).__refetch();
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 60000, change24h: 3.0 }],
+        });
+        await refetchPromise;
+
+        // The new subscription should still receive entity updates.
+        await pushUpdateOutsideReactiveContext(mockStream, 'prices:live', {
+          type: 'update',
+          typename: 'TopicPrice',
+          data: { id: '1', value: 65000 },
+        });
+
+        expect(relay.value!.items[0].value).toBe(65000);
+      });
+    });
+
+    it('should refetch a still-mounted consumer when invalidateQueries is called', async () => {
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:live';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      mockStream.pushTopicData('prices:live', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+        expect(relay.value!.items[0].value).toBe(50000);
+
+        // Mounted consumer; no remount, just invalidate.
+        client.invalidateQueries([GetPrices]);
+
+        // markStale schedules the refetch via setTimeout (runDebounced); wait
+        // for that to fire so the adapter has torn down the old subscription
+        // and re-subscribed before the stream pushes new data.
+        await sleep(1);
+
+        mockStream.pushTopicData('prices:live', {
+          items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 80000, change24h: 4.0 }],
+        });
+
+        await sleep(20);
+        expect(relay.value!.items[0].value).toBe(80000);
+      });
+    });
+  });
 });
