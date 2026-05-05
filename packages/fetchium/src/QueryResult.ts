@@ -35,6 +35,7 @@ export class QueryInstance<T extends Query> {
   private unsubscribe?: () => void = undefined;
 
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
+  private _isActive: boolean = false;
   private wasPaused: boolean = false;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -97,6 +98,8 @@ export class QueryInstance<T extends Query> {
         this._relayState = state;
 
         const deactivate = () => {
+          this._isActive = false;
+
           clearTimeout(this.debounceTimer);
           this.debounceTimer = undefined;
 
@@ -122,6 +125,8 @@ export class QueryInstance<T extends Query> {
             deactivate();
             return;
           }
+
+          this._isActive = true;
 
           const newExtractedParams = extractParamsForKey(this.params);
           const newStorageKey = queryKeyFor(this.def, newExtractedParams);
@@ -358,6 +363,11 @@ export class QueryInstance<T extends Query> {
 
   markStale(): void {
     this.updatedAt = 0;
+    // Active consumers refetch now; inactive ones pick up the refetch on next
+    // activation via the stale check. runDebounced dedupes against in-flight.
+    if (this._isActive && !this.isPaused) {
+      this.runDebounced();
+    }
   }
 
   get resolvedParams(): QueryParams | undefined {
