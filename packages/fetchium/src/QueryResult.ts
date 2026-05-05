@@ -363,8 +363,6 @@ export class QueryInstance<T extends Query> {
 
   markStale(): void {
     this.updatedAt = 0;
-    // Active consumers refetch now; inactive ones pick up the refetch on next
-    // activation via the stale check. runDebounced dedupes against in-flight.
     if (this._isActive && !this.isPaused) {
       this.runDebounced();
     }
