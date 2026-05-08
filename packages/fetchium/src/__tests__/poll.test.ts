@@ -169,7 +169,7 @@ describe('poll() factory', () => {
       });
     });
 
-    it('stops polling when getConfig() switches subscribe to undefined after a 404', async () => {
+    it('stops polling when getConfig() switches subscribe to undefined after an error', async () => {
       const { client, mockFetch } = getClient();
       let callCount = 0;
       // First call: 200 OK.
