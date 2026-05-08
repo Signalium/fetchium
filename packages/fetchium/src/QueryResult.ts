@@ -33,6 +33,7 @@ export class QueryInstance<T extends Query> {
   private params: QueryParams | undefined = undefined;
 
   private unsubscribe?: () => void = undefined;
+  private lastSubscribeFn: QueryConfigOptions['subscribe'] = undefined;
 
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
@@ -112,6 +113,7 @@ export class QueryInstance<T extends Query> {
 
           this.unsubscribe?.();
           this.unsubscribe = undefined;
+          this.lastSubscribeFn = undefined;
 
           const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
           this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
@@ -165,6 +167,8 @@ export class QueryInstance<T extends Query> {
               }
             }
           } else if (paramsDidChange) {
+            // Force rebuild: the running subscriber captured the old params.
+            this.lastSubscribeFn = undefined;
             this.setupSubscription();
             this.runDebounced();
           }
@@ -264,10 +268,13 @@ export class QueryInstance<T extends Query> {
   }
 
   private setupSubscription(): void {
+    const subscribeFn = this.config?.subscribe;
+    if (subscribeFn === this.lastSubscribeFn) return;
+
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.lastSubscribeFn = subscribeFn;
 
-    const subscribeFn = this.config?.subscribe;
     if (!subscribeFn) return;
 
     const ctx = this._executionCtx;
@@ -318,9 +325,11 @@ export class QueryInstance<T extends Query> {
         const result = this.applyData(freshData, true);
         this.saveQueryMetadata();
 
-        if (this.unsubscribe === undefined) {
-          this.setupSubscription();
-        }
+        // getConfig() can read this.response; the pre-fetch resolve in
+        // getOrCreateExecutionContext saw it as undefined. Resolve again so
+        // setupSubscription sees the post-fetch value.
+        this.resolveAndApplyOptions();
+        this.setupSubscription();
 
         return result;
       },

@@ -206,6 +206,41 @@ describe('poll() factory', () => {
   });
 
   describe('Multiple independent polls', () => {
+    it('should tick independently when two queries share the same interval', async () => {
+      const { client, mockFetch } = getClient();
+      let aCount = 0;
+      let bCount = 0;
+
+      mockFetch.get('/poll-shared-a', () => ({ n: ++aCount }));
+      mockFetch.get('/poll-shared-b', () => ({ n: ++bCount }));
+
+      class GetSharedA extends RESTQuery {
+        path = '/poll-shared-a';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 100 }) };
+      }
+
+      class GetSharedB extends RESTQuery {
+        path = '/poll-shared-b';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 100 }) };
+      }
+
+      await testWithClient(client, async () => {
+        const relayA = fetchQuery(GetSharedA);
+        const relayB = fetchQuery(GetSharedB);
+        await relayA;
+        await relayB;
+
+        await sleep(250);
+
+        // Each query refetches its own path on its own ticker, even though
+        // both share the same memoized poll() reference.
+        expect(aCount).toBeGreaterThanOrEqual(2);
+        expect(bCount).toBeGreaterThanOrEqual(2);
+      });
+    });
+
     it('should tick independently with different intervals', async () => {
       const { client, mockFetch } = getClient();
       let fastCount = 0;

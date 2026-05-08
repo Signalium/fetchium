@@ -16,10 +16,21 @@ function clampInterval(interval: number): number {
   return interval;
 }
 
-export function poll(config: PollConfig): (this: any, onEvent: (event: MutationEvent) => void) => () => void {
+type PollSubscribe = (this: any, onEvent: (event: MutationEvent) => void) => () => void;
+
+// Memoize so re-evaluating `getConfig()` with the same interval returns a
+// stable reference. Without this, the canonical use case
+// (`subscribe: poll({ interval: this.response?.ok ? 100 : 5000 })`) would
+// tear down and rebuild the subscriber on every fetch in steady state.
+const pollCache = new Map<number, PollSubscribe>();
+
+export function poll(config: PollConfig): PollSubscribe {
   const interval = clampInterval(config.interval);
 
-  return function subscribe(this: any, _onEvent: (event: MutationEvent) => void): () => void {
+  let subscribe = pollCache.get(interval);
+  if (subscribe !== undefined) return subscribe;
+
+  subscribe = function (this: any, _onEvent: (event: MutationEvent) => void): () => void {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -47,4 +58,7 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
       }
     };
   };
+
+  pollCache.set(interval, subscribe);
+  return subscribe;
 }
