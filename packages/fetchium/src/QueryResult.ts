@@ -325,9 +325,12 @@ export class QueryInstance<T extends Query> {
         const result = this.applyData(freshData, true);
         this.saveQueryMetadata();
 
-        // getConfig() can read this.response; the pre-fetch resolve in
-        // getOrCreateExecutionContext saw it as undefined. Resolve again so
-        // setupSubscription sees the post-fetch value.
+        // adapter.send just populated this.response on the execution context.
+        // getConfig() implementations may branch on it to choose subscribe
+        // (e.g. poll interval based on response.ok), so the earlier resolve
+        // (via getOrCreateExecutionContext, before the fetch) produced a
+        // config computed against an undefined this.response. Re-resolve
+        // here so setupSubscription installs the response-aware subscribe.
         this.resolveAndApplyOptions();
         this.setupSubscription();
 
