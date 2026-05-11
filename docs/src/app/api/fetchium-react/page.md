@@ -24,7 +24,7 @@ function useQuery<T extends Query>(
 ): QueryPromise<T>;
 ```
 
-React hook for fetching a query. Subscribes the component to the query's reactive state, re-rendering when the query result changes. Internally uses Signalium's `useReactive` to bridge the reactive signal system with React's rendering cycle.
+React hook for fetching a query. Subscribes the component to the query's reactive state, re-rendering when the query result changes. Internally uses Signalium's `useReactive` (deep-by-default in v3) to bridge the reactive signal system with React's rendering cycle.
 
 #### Parameters
 
@@ -35,7 +35,7 @@ React hook for fetching a query. Subscribes the component to the query's reactiv
 
 #### Returns
 
-`QueryPromise<T>` — a `DiscriminatedReactivePromise` that provides the query state.
+`QueryPromise<T>` — a `ReactivePromise` that provides the query state.
 
 The returned promise object has the following properties:
 
@@ -130,6 +130,7 @@ const SearchResults = component(() => {
 
 #### Notes
 
-- `useQuery` calls `useReactive` twice internally: once for the query itself and once to subscribe to the resolved value for deep entity tracking via Signalium's `CONSUME_DEEP` protocol.
-- The `value` property returns a **deep clone** of the query result to prevent accidental mutation of the entity cache. Use `draft()` from `fetchium` if you need a mutable copy for mutations.
+- `useQuery` is a thin wrapper around Signalium v3's `useReactive`, which is deep-by-default. It returns a **structurally-shared snapshot** of the query result, so memoized children that receive subtrees as props keep stable references when the underlying data is unchanged.
+- Fetchium registers a custom snapshot for entity proxies so the snapshot walks into entities (instead of returning them by reference), giving you correct re-rendering on entity field changes.
+- The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Use `draft()` from `fetchium` if you need a mutable copy for mutations.
 - When used with React Suspense, reading `.value` on a pending query will suspend the component.

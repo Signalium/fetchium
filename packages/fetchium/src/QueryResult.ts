@@ -1,4 +1,4 @@
-import { relay, type RelayState, DiscriminatedReactivePromise } from 'signalium';
+import { relay, type RelayState, ReactivePromise } from 'signalium';
 import { NetworkMode, type QueryResult, type EntityDef } from './types.js';
 import {
   type QueryClient,
@@ -25,7 +25,7 @@ export class QueryInstance<T extends Query> {
   storageKey: number = -1;
 
   /** The public-facing ReactivePromise returned to consumers. */
-  readonly relay: DiscriminatedReactivePromise<QueryResult<T>>;
+  readonly relay: ReactivePromise<QueryResult<T>>;
 
   private queryClient: QueryClient;
   private initialized: boolean = false;
@@ -355,7 +355,7 @@ export class QueryInstance<T extends Query> {
   // Public methods
   // ======================================================
 
-  refetch = (): DiscriminatedReactivePromise<QueryResult<T>> => {
+  refetch = (): ReactivePromise<QueryResult<T>> => {
     if (this.relayState.isPending) return this.relay;
     this.runQueryImmediately();
     return this.relay;

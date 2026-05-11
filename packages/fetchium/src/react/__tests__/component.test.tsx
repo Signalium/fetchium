@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { ContextProvider } from 'signalium/react';
 import { component } from 'signalium/react';
-import React, { useState } from 'react';
+import React, { memo, useState } from 'react';
 import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
@@ -675,6 +675,213 @@ describe('React Query Integration with component()', () => {
       await expect.element(getByTestId('admin-badge')).toBeInTheDocument();
 
       expect(getByTestId('admin-badge').element().textContent).toBe('Admin');
+    });
+  });
+
+  describe('React.memo interop caveats', () => {
+    // These tests document a real footgun when mixing `component()` with
+    // plain `React.memo` children. Inside `component()`, `fetchQuery(...)`
+    // returns the *live* ReactivePromise — there's no snapshot and no
+    // structural cloning at the boundary. Entity proxies and nested wrapped
+    // objects keep stable references across data updates (entities are
+    // normalized per-id; nested plain objects are mutated in place by
+    // `mergeFields` and re-wrapped via the same `wrappingCache` entry).
+    //
+    // That means `React.memo` will see equal prop refs and skip re-render
+    // even when the underlying data changed — leaving the child showing
+    // stale content.
+    //
+    // The fix is to either pass primitives, pass the parent entity (re-render
+    // via the parent's reactive subscription), or wrap the child in
+    // `component()` so it has its own subscription. The companion test below
+    // verifies the `component()`-as-child workaround.
+
+    it('passing a nested entity to a React.memo child shows stale data after refetch', async () => {
+      class User extends Entity {
+        __typename = t.typename('User');
+        id = t.id;
+        name = t.string;
+      }
+
+      class Post extends Entity {
+        __typename = t.typename('Post');
+        id = t.id;
+        title = t.string;
+        author = t.entity(User);
+      }
+
+      mockFetch.get('/post/[id]', {
+        __typename: 'Post',
+        id: '1',
+        title: 'My Post',
+        author: { __typename: 'User', id: '5', name: 'Alice' },
+      });
+
+      class GetPost extends RESTQuery {
+        params = { id: t.id };
+        path = `/post/${this.params.id}`;
+        result = t.entity(Post);
+      }
+
+      let memoRenderCount = 0;
+      const AuthorName = memo(({ author }: { author: { name: string } }) => {
+        memoRenderCount++;
+        return <span data-testid="author-name">{author.name}</span>;
+      });
+
+      let postQuery: QueryPromise<GetPost>;
+      const PostView = component(() => {
+        postQuery = fetchQuery(GetPost, { id: '1' });
+        if (!postQuery.isReady) return <div>Loading...</div>;
+        const post = postQuery.value;
+        return <AuthorName author={post.author} />;
+      });
+
+      const { getByTestId } = render(
+        <ContextProvider contexts={[[QueryClientContext, client]]}>
+          <PostView />
+        </ContextProvider>,
+      );
+
+      await expect.element(getByTestId('author-name')).toHaveTextContent('Alice');
+      expect(memoRenderCount).toBe(1);
+
+      mockFetch.get('/post/[id]', {
+        __typename: 'Post',
+        id: '1',
+        title: 'My Post',
+        author: { __typename: 'User', id: '5', name: 'Alice Updated' },
+      });
+      await postQuery!.value!.__refetch();
+      await sleep(10);
+
+      // Author entity is normalized — its proxy reference is stable across
+      // updates. React.memo sees the same prop ref and skips re-render, so
+      // the displayed name remains stale.
+      expect(memoRenderCount).toBe(1);
+      expect(getByTestId('author-name').element().textContent).toBe('Alice');
+    });
+
+    it('passing a nested plain object to a React.memo child shows stale data after refetch', async () => {
+      class User extends Entity {
+        __typename = t.typename('User');
+        id = t.id;
+        name = t.string;
+        profile = t.object({ nickname: t.string, bio: t.string });
+      }
+
+      mockFetch.get('/user/[id]', {
+        __typename: 'User',
+        id: '1',
+        name: 'Alice',
+        profile: { nickname: 'al', bio: 'old bio' },
+      });
+
+      class GetUser extends RESTQuery {
+        params = { id: t.id };
+        path = `/user/${this.params.id}`;
+        result = t.entity(User);
+      }
+
+      let memoRenderCount = 0;
+      const ProfileCard = memo(({ profile }: { profile: { nickname: string; bio: string } }) => {
+        memoRenderCount++;
+        return <span data-testid="bio">{profile.bio}</span>;
+      });
+
+      let userQuery: QueryPromise<GetUser>;
+      const UserView = component(() => {
+        userQuery = fetchQuery(GetUser, { id: '1' });
+        if (!userQuery.isReady) return <div>Loading...</div>;
+        return <ProfileCard profile={userQuery.value.profile} />;
+      });
+
+      const { getByTestId } = render(
+        <ContextProvider contexts={[[QueryClientContext, client]]}>
+          <UserView />
+        </ContextProvider>,
+      );
+
+      await expect.element(getByTestId('bio')).toHaveTextContent('old bio');
+      expect(memoRenderCount).toBe(1);
+
+      mockFetch.get('/user/[id]', {
+        __typename: 'User',
+        id: '1',
+        name: 'Alice',
+        profile: { nickname: 'al', bio: 'new bio' },
+      });
+      await userQuery!.value!.__refetch();
+      await sleep(10);
+
+      // mergeFields mutates the existing nested plain object in place, and
+      // wrapValue caches the wrapping proxy by source object — so the wrapper
+      // ref handed to the memo'd child is identical across refetches. The
+      // child does not re-render, the displayed bio stays stale.
+      expect(memoRenderCount).toBe(1);
+      expect(getByTestId('bio').element().textContent).toBe('old bio');
+    });
+
+    it('wrapping the child in component() instead of React.memo restores correct re-renders', async () => {
+      // Workaround for the footgun above: a `component()` child has its own
+      // reactive compute, so it subscribes to the entity's notifier through
+      // its own property reads and re-renders on changes.
+
+      class User extends Entity {
+        __typename = t.typename('User');
+        id = t.id;
+        name = t.string;
+      }
+
+      class Post extends Entity {
+        __typename = t.typename('Post');
+        id = t.id;
+        title = t.string;
+        author = t.entity(User);
+      }
+
+      mockFetch.get('/post/[id]', {
+        __typename: 'Post',
+        id: '1',
+        title: 'My Post',
+        author: { __typename: 'User', id: '5', name: 'Alice' },
+      });
+
+      class GetPost extends RESTQuery {
+        params = { id: t.id };
+        path = `/post/${this.params.id}`;
+        result = t.entity(Post);
+      }
+
+      const AuthorName = component(({ author }: { author: { name: string } }) => {
+        return <span data-testid="author-name">{author.name}</span>;
+      });
+
+      let postQuery: QueryPromise<GetPost>;
+      const PostView = component(() => {
+        postQuery = fetchQuery(GetPost, { id: '1' });
+        if (!postQuery.isReady) return <div>Loading...</div>;
+        return <AuthorName author={postQuery.value.author} />;
+      });
+
+      const { getByTestId } = render(
+        <ContextProvider contexts={[[QueryClientContext, client]]}>
+          <PostView />
+        </ContextProvider>,
+      );
+
+      await expect.element(getByTestId('author-name')).toHaveTextContent('Alice');
+
+      mockFetch.get('/post/[id]', {
+        __typename: 'Post',
+        id: '1',
+        title: 'My Post',
+        author: { __typename: 'User', id: '5', name: 'Alice Updated' },
+      });
+      await postQuery!.value!.__refetch();
+      await sleep(10);
+
+      expect(getByTestId('author-name').element().textContent).toBe('Alice Updated');
     });
   });
 

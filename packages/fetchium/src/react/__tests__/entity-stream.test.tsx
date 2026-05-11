@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { ContextProvider, SuspendSignalsProvider, component } from 'signalium/react';
+import { ContextProvider, component } from 'signalium/react';
 import React, { useState } from 'react';
 import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
