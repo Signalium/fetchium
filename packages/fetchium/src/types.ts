@@ -1,4 +1,4 @@
-import { DiscriminatedReactivePromise, type Signal } from 'signalium';
+import { ReactivePromise, type Signal } from 'signalium';
 import type { Query } from './query.js';
 
 // ================================
@@ -301,13 +301,13 @@ export type TypeDefShape = Record<string, TypeDef> | TypeDef;
 // ================================
 
 export type QueryResult<T extends Query> = ExtractType<T['result']> & {
-  __refetch(): DiscriminatedReactivePromise<QueryResult<T>>;
+  __refetch(): ReactivePromise<QueryResult<T>>;
   __fetchNext(): Promise<QueryResult<T>>;
   __hasNext: boolean;
   __isFetchingNext: boolean;
 };
 
-export type QueryPromise<T extends Query> = DiscriminatedReactivePromise<QueryResult<T>>;
+export type QueryPromise<T extends Query> = ReactivePromise<QueryResult<T>>;
 
 // ================================
 // Mutation Events

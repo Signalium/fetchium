@@ -405,7 +405,7 @@ function fetchQuery<T extends Query>(
 ): QueryPromise<T>;
 ```
 
-Fetches a query reactively. Must be called within a reactive context where `QueryClientContext` is provided. Returns a `QueryPromise` (a `DiscriminatedReactivePromise`) that resolves to the query result.
+Fetches a query reactively. Must be called within a reactive context where `QueryClientContext` is provided. Returns a `QueryPromise` (a `ReactivePromise`) that resolves to the query result.
 
 | Parameter    | Type                    | Description                                                                                                                                                     |
 | ------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -599,7 +599,7 @@ The `t` object provides a declarative type definition DSL for describing query p
 
 | Type                            | Definition                                                                                                                | Description                                                                                                                |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `QueryPromise<T extends Query>` | `DiscriminatedReactivePromise<QueryResult<T>>`                                                                            | The return type of `fetchQuery`. A reactive promise.                                                                       |
+| `QueryPromise<T extends Query>` | `ReactivePromise<QueryResult<T>>`                                                                                         | The return type of `fetchQuery`. A reactive promise.                                                                       |
 | `QueryResult<T extends Query>`  | `ExtractType<T['result']> & { __refetch(), __fetchNext(), __hasNext, __isFetchingNext }`                                  | The resolved value of a query. Includes pagination helpers.                                                                |
 | `QueryCacheOptions`             | `{ maxCount?: number; cacheTime?: number }`                                                                               | Persistent storage cache settings. `cacheTime` is in minutes (default: 1440 / 24 hours). `maxCount` is the LRU queue size. |
 | `QueryConfigOptions`            | `{ gcTime?, staleTime?, debounce?, networkMode?, retry?, refreshStaleOnReconnect?, subscribe? }`                          | Instance-level query configuration. See property table below.                                                              |

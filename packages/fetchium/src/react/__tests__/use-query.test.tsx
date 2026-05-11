@@ -55,7 +55,7 @@ describe('useQuery Hook', () => {
       let clonedQueryResult: any;
 
       function DirectComponent(): React.ReactNode {
-        const result = useReactive(fetchQuery, GetUser);
+        const result = useReactive(() => fetchQuery(GetUser));
         if (result.isReady) {
           directQueryResult = result.value;
         }
@@ -229,7 +229,7 @@ describe('useQuery Hook', () => {
 
       function Component(): React.ReactNode {
         const cloned = useQuery(GetData);
-        const direct = useReactive(fetchQuery, GetData);
+        const direct = useReactive(() => fetchQuery(GetData));
 
         if (cloned.isReady && direct.isReady) {
           clonedValue = cloned.value;
@@ -637,10 +637,12 @@ describe('useQuery Hook', () => {
       await postQuery!.value!.__refetch();
       await sleep(10);
 
-      // Memo components will re-render because we're creating new cloned objects
-      // This is expected behavior with deep cloning
-      expect(authorCardRenderCount).toBeGreaterThanOrEqual(2);
-      expect(authorBadgeRenderCount).toBeGreaterThanOrEqual(2);
+      // Identical refetch: Signalium v3's structural sharing returns the same
+      // snapshot reference for unchanged subtrees, so React.memo correctly
+      // skips re-rendering the children. This is the v3 guarantee that the
+      // old hand-rolled cloneDeep `useQuery` could not provide.
+      expect(authorCardRenderCount).toBe(2);
+      expect(authorBadgeRenderCount).toBe(2);
     });
   });
 
@@ -928,7 +930,7 @@ describe('useQuery Hook', () => {
 
       function Component(): React.ReactNode {
         const cloned = useQuery(GetNested);
-        const direct = useReactive(fetchQuery, GetNested);
+        const direct = useReactive(() => fetchQuery(GetNested));
 
         if (cloned.isReady && direct.isReady) {
           clonedValue = cloned.value;

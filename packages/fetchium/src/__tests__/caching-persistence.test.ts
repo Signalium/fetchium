@@ -19,7 +19,7 @@ import {
   queueKeyFor,
 } from '../stores/shared.js';
 import { QueryResult } from '../types.js';
-import { DiscriminatedReactivePromise } from 'signalium';
+import { ReactivePromise } from 'signalium';
 
 /**
  * Caching and Persistence Tests
@@ -1411,7 +1411,7 @@ describe('Caching and Persistence', () => {
         },
       });
 
-      let relay: DiscriminatedReactivePromise<QueryResult<GetUser>>;
+      let relay: ReactivePromise<QueryResult<GetUser>>;
 
       let post10Key: number;
 

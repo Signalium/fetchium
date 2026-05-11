@@ -1,11 +1,7 @@
-import {
-  relay,
-  type DiscriminatedReactivePromise,
-  type Notifier,
-  notifier,
-  reactiveMethod,
-  setScopeOwner,
-} from 'signalium';
+import { relay, type ReactivePromise, type Notifier, notifier, reactiveMethod, setScopeOwner } from 'signalium';
+import { registerCustomSnapshot } from 'signalium/utils';
+
+type SnapshotFn = (current: unknown, prev: unknown) => unknown;
 import { type EntityDef, Mask } from './types.js';
 import { GcKeyType } from './GcManager.js';
 import { Entity } from './proxy.js';
@@ -94,6 +90,53 @@ const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
     return Object.getOwnPropertyDescriptor(target, prop);
   },
 };
+
+// ======================================================
+// Custom snapshot for entity proxies — bridges Signalium v3's `useReactive`
+// structural snapshot mechanism into our entity proxy graph.
+//
+// Without this, the snapshot encounters the entity proxy (whose prototype is
+// the user-defined entity class), doesn't recognize it, and returns it as-is.
+// React then never re-renders on data changes because the proxy reference is
+// stable. Walking the proxy via `Object.keys` + property access establishes
+// reactive dependencies on the entity's notifier and produces a plain-object
+// snapshot whose unchanged subtrees keep stable references.
+// ======================================================
+
+const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
+  const obj = current as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  const prevObj =
+    prev !== null && typeof prev === 'object' && !Array.isArray(prev) ? (prev as Record<string, unknown>) : undefined;
+  let changed = !prevObj || Object.keys(prevObj).length !== keys.length;
+  const result: Record<string, unknown> = {};
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const val = obj[key];
+    let next: unknown;
+    if (typeof val === 'function') {
+      // Methods (e.g. __refetch, entity methods) are bound to the original
+      // proxy via closure, so preserve the reference directly.
+      next = val;
+    } else {
+      next = snap(val, prevObj?.[key]);
+    }
+    result[key] = next;
+    if (!changed && next !== prevObj?.[key]) changed = true;
+  }
+  return changed ? result : prevObj;
+};
+
+const registeredEntityProtos = new WeakSet<object>();
+
+function ensureEntitySnapshotRegistered(ctor: new (...args: unknown[]) => object): void {
+  const proto = ctor.prototype;
+  if (registeredEntityProtos.has(proto)) return;
+  registeredEntityProtos.add(proto);
+  registerCustomSnapshot(ctor, snapshotEntity as Parameters<typeof registerCustomSnapshot>[1]);
+}
+
+ensureEntitySnapshotRegistered(Entity as unknown as new (...args: unknown[]) => object);
 
 // ======================================================
 
@@ -272,6 +315,9 @@ function createProxy(
   const entityClass = validatorDef._entityClass;
   const entityConfig = validatorDef._entityConfig;
   const proto = entityClass ? entityClass.prototype : Entity.prototype;
+  if (entityClass !== undefined) {
+    ensureEntitySnapshotRegistered(entityClass as unknown as new (...args: unknown[]) => object);
+  }
   const typenameField = shape.typenameField;
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
@@ -279,7 +325,7 @@ function createProxy(
 
   const toJSON = () => ({ __entityRef: key });
 
-  let entityRelay: DiscriminatedReactivePromise<Record<string, unknown>> | undefined;
+  let entityRelay: ReactivePromise<Record<string, unknown>> | undefined;
 
   if (entityConfig?.hasSubscribe && methods && '__subscribe' in methods) {
     entityRelay = relay(state => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { ContextProvider, component, useReactive } from 'signalium/react';
+import { ContextProvider, component } from 'signalium/react';
 import React from 'react';
 import { MemoryPersistentStore, SyncQueryStore } from '../../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../../QueryClient.js';
@@ -139,7 +139,7 @@ describe('__fetchNext React Integration', () => {
       }
 
       const ItemList = component(() => {
-        const query = useReactive(fetchQuery, GetItems);
+        const query = fetchQuery(GetItems);
 
         if (query.isPending) {
           return <div data-testid="loading">Loading</div>;
