@@ -127,16 +127,14 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   return changed ? result : prevObj;
 };
 
-const registeredEntityProtos = new WeakSet<object>();
-
-function ensureEntitySnapshotRegistered(ctor: new (...args: unknown[]) => object): void {
-  const proto = ctor.prototype;
-  if (registeredEntityProtos.has(proto)) return;
-  registeredEntityProtos.add(proto);
-  registerCustomSnapshot(ctor, snapshotEntity as Parameters<typeof registerCustomSnapshot>[1]);
-}
-
-ensureEntitySnapshotRegistered(Entity as unknown as new (...args: unknown[]) => object);
+// Register once on the `Entity` base class. Signalium 3.0.1+ resolves custom
+// snapshot handlers via prototype-chain lookup, so every user-defined entity
+// subclass automatically inherits this handler — no per-class registration
+// required.
+registerCustomSnapshot(
+  Entity as unknown as new (...args: unknown[]) => object,
+  snapshotEntity as Parameters<typeof registerCustomSnapshot>[1],
+);
 
 // ======================================================
 
@@ -315,9 +313,6 @@ function createProxy(
   const entityClass = validatorDef._entityClass;
   const entityConfig = validatorDef._entityConfig;
   const proto = entityClass ? entityClass.prototype : Entity.prototype;
-  if (entityClass !== undefined) {
-    ensureEntitySnapshotRegistered(entityClass as unknown as new (...args: unknown[]) => object);
-  }
   const typenameField = shape.typenameField;
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
@@ -393,8 +388,17 @@ function createProxy(
       return proto;
     },
 
-    get(target, prop) {
-      if (typeof prop === 'symbol') return undefined;
+    get(target, prop, receiver) {
+      // Symbol-keyed gets resolve against the virtual prototype (the entity
+      // class). This keeps the trap fast — entity prototypes don't define
+      // most well-known symbols (Symbol.iterator, etc.), so the lookup
+      // returns undefined immediately — and crucially lets external libraries
+      // (e.g. Signalium's `registerCustomSnapshot`, which stores its handler
+      // as a private symbol on the prototype) resolve their symbol keys via
+      // the standard prototype chain. Without this, Signalium can't find the
+      // entity snapshot handler through the proxy and entity updates won't
+      // re-render across the React boundary.
+      if (typeof prop === 'symbol') return Reflect.get(proto, prop, receiver);
       if (prop === 'toJSON') return toJSON;
       if (prop === '__context') return queryClient.getContext();
       if (prop === '__typename') return instance.typename;
