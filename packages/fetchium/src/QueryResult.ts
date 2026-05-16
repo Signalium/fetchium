@@ -309,6 +309,11 @@ export class QueryInstance<T extends Query> {
       );
       this._executionCtx.refetch = () => this.refetch();
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
+
+      // Cached resolved options reference the previous ctx through any
+      // closures inside getConfig. Replace the signal so the next read
+      // recomputes against the new ctx.
+      this._resolvedSignal = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
     }
 
     return this._executionCtx;

@@ -295,14 +295,16 @@ describe('Query Stream Option', () => {
           posts: t.array(t.entity(Post)),
         };
 
-        config = {
-          subscribe: (_onEvent: (event: MutationEvent) => void) => {
-            subscribeCount++;
-            return () => {
-              unsubscribeCount++;
-            };
-          },
-        };
+        getConfig() {
+          return {
+            subscribe: (_onEvent: (event: MutationEvent) => void) => {
+              subscribeCount++;
+              return () => {
+                unsubscribeCount++;
+              };
+            },
+          };
+        }
       }
 
       // First activation
@@ -437,15 +439,17 @@ describe('Query Stream Option', () => {
           items: t.array(t.entity(Item)),
         };
 
-        config = {
-          subscribe(this: any, _onEvent: (event: MutationEvent) => void) {
-            const sub = { channelId: this.params.channelId, unsubscribed: false };
-            subscriptions.push(sub);
-            return () => {
-              sub.unsubscribed = true;
-            };
-          },
-        };
+        getConfig() {
+          return {
+            subscribe: (_onEvent: (event: MutationEvent) => void) => {
+              const sub = { channelId: this.params.channelId, unsubscribed: false };
+              subscriptions.push(sub);
+              return () => {
+                sub.unsubscribed = true;
+              };
+            },
+          };
+        }
       }
 
       const channelSignal = signal('ch-1');
@@ -503,13 +507,15 @@ describe('Query Stream Option', () => {
           items: t.array(t.entity(Item)),
         };
 
-        config = {
-          subscribe: (onEvent: (event: MutationEvent) => void) => {
-            subscribeCount++;
-            latestOnEvent = onEvent;
-            return () => {};
-          },
-        };
+        getConfig() {
+          return {
+            subscribe: (onEvent: (event: MutationEvent) => void) => {
+              subscribeCount++;
+              latestOnEvent = onEvent;
+              return () => {};
+            },
+          };
+        }
       }
 
       const channelSignal = signal('ch-1');
