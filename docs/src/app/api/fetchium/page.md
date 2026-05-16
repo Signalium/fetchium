@@ -65,11 +65,11 @@ Base class for all query definitions. Extend this to define custom data-fetching
 
 #### Methods
 
-| Method           | Signature                             | Description                                                                                 |
-| ---------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `getIdentityKey` | `(): unknown`                         | **(abstract)** Returns a value used to compute the cache/identity key for this query class. |
-| `refetch`        | `(): void`                            | Triggers a refetch of this query, bypassing staleTime.                                      |
-| `getConfig`      | `(): QueryConfigOptions \| undefined` | Optional. Dynamically compute config at execution time.                                     |
+| Method           | Signature                             | Description                                                                                                                                        |
+| ---------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getIdentityKey` | `(): unknown`                         | **(abstract)** Returns a value used to compute the cache/identity key for this query class.                                                        |
+| `refetch`        | `(): void`                            | Triggers a refetch of this query, bypassing staleTime.                                                                                             |
+| `getConfig`      | `(): QueryConfigOptions \| undefined` | Optional. Dynamically compute config at execution time. Reactive: re-runs when any signal consumed inside notifies (e.g. `this.responseNotifier`). |
 
 ---
 
@@ -79,16 +79,17 @@ Convenience base class for REST/JSON queries. Handles URL construction, search p
 
 #### Instance properties
 
-| Property         | Type                                              | Default | Description                                                                                                                      |
-| ---------------- | ------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `method`         | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                                                                     |
-| `path`           | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.                                                      |
-| `searchParams`   | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                                                                         |
-| `body`           | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                                                                  |
-| `headers`        | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                             |
-| `requestOptions` | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                     |
-| `fetchNext`      | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                               |
-| `response`       | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryAdapter` after each request completes. Available in `getConfig()`. |
+| Property           | Type                                              | Default | Description                                                                                                                                    |
+| ------------------ | ------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `method`           | `'GET' \| 'POST' \| 'PUT' \| 'DELETE' \| 'PATCH'` | `'GET'` | HTTP method.                                                                                                                                   |
+| `path`             | `string \| undefined`                             | —       | URL path. Use template literal interpolation with `this.params` references.                                                                    |
+| `searchParams`     | `Record<string, unknown> \| undefined`            | —       | Query string parameters.                                                                                                                       |
+| `body`             | `Record<string, unknown> \| undefined`            | —       | Request body (JSON-serialized).                                                                                                                |
+| `headers`          | `HeadersInit \| undefined`                        | —       | Custom HTTP headers.                                                                                                                           |
+| `requestOptions`   | `QueryRequestOptions \| undefined`                | —       | Additional fetch options (credentials, mode, baseUrl, etc.).                                                                                   |
+| `fetchNext`        | `FetchNextConfig \| undefined`                    | —       | Static pagination config. Values can be FieldRefs (e.g. `this.result.nextCursor`).                                                             |
+| `response`         | `Response \| undefined`                           | —       | The raw HTTP `Response` from the last fetch. Set by `RESTQueryAdapter` after each request completes. Available in `getConfig()`.               |
+| `responseNotifier` | `Notifier`                                        | —       | Notifier fired by `RESTQueryAdapter` after each fetch completes. Consume inside a `reactiveSignal` in `getConfig()` to react to new responses. |
 
 #### `getIdentityKey()` default
 
