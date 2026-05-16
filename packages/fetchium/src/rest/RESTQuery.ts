@@ -1,3 +1,4 @@
+import type { Notifier } from 'signalium';
 import { Query } from '../query.js';
 import { RESTQueryAdapter } from './RESTQueryAdapter.js';
 import type { FetchNextConfig } from '../query-types.js';
@@ -20,6 +21,7 @@ export abstract class RESTQuery extends Query {
   fetchNext?: FetchNextConfig;
 
   declare response: Response | undefined;
+  declare responseNotifier: Notifier;
 
   getIdentityKey(): string {
     return `${this.method ?? 'GET'}:${this.path ?? ''}`;

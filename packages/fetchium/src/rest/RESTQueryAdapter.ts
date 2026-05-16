@@ -182,6 +182,7 @@ export class RESTQueryAdapter extends QueryAdapter {
     });
 
     ctx.response = fetchResponse as unknown as Response;
+    (ctx as unknown as { responseNotifier: { notify: () => void } }).responseNotifier.notify();
 
     return fetchResponse.json();
   }

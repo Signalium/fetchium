@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { reactiveSignal } from 'signalium';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
@@ -135,6 +136,78 @@ describe('poll() factory', () => {
 
         await sleep(250);
         expect(callCount).toBeGreaterThanOrEqual(3);
+      });
+    });
+
+    it('honors a state-dependent interval after first fetch resolves', async () => {
+      const { client, mockFetch } = getClient();
+      let callCount = 0;
+      mockFetch.get('/dynamic-interval', () => ({ n: ++callCount }));
+
+      class GetDynamicInterval extends RESTQuery {
+        path = '/dynamic-interval';
+        result = { n: t.number };
+
+        getConfig() {
+          const ok = reactiveSignal(() => {
+            this.responseNotifier.consume();
+            return this.response?.ok;
+          }).value;
+
+          return {
+            subscribe: poll({ interval: ok ? 100 : 5000 }),
+          };
+        }
+      }
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetDynamicInterval);
+        await relay;
+        const callsAfterFirst = callCount;
+
+        // After response.ok=true, interval should be 100ms.
+        await sleep(350);
+
+        expect(callCount).toBeGreaterThanOrEqual(callsAfterFirst + 2);
+      });
+    });
+
+    it('stops polling when getConfig() switches subscribe to undefined after an error', async () => {
+      const { client, mockFetch } = getClient();
+      let callCount = 0;
+      // First call: 200 OK.
+      mockFetch.get('/maybe-gone', () => ({ n: ++callCount }));
+      // Subsequent calls: 404.
+      mockFetch.get('/maybe-gone', () => ({ n: ++callCount }), { status: 404 });
+
+      class GetMaybeGone extends RESTQuery {
+        path = '/maybe-gone';
+        result = { n: t.number };
+
+        getConfig() {
+          const is404 = reactiveSignal(() => {
+            this.responseNotifier.consume();
+            return this.response?.status === 404;
+          }).value;
+
+          return {
+            subscribe: is404 ? undefined : poll({ interval: 100 }),
+          };
+        }
+      }
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetMaybeGone);
+        await relay;
+
+        // Let the 100ms poll tick at least once so a 404 lands.
+        await sleep(250);
+        const callsAtTerminal = callCount;
+        expect(callsAtTerminal).toBeGreaterThan(1);
+
+        // After the 404, subscribe becomes undefined; polling should stop.
+        await sleep(400);
+        expect(callCount).toBe(callsAtTerminal);
       });
     });
   });
