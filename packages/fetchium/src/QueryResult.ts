@@ -42,7 +42,10 @@ export class QueryInstance<T extends Query> {
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
   /** Reactive resolved options. Recomputes when tracked signals inside getConfig change. */
-  private _resolvedSignal: ReadonlySignal<{ config: QueryConfigOptions | undefined; retryConfig: ResolvedRetryConfig }> = reactiveSignal(() => {
+  private _resolvedSignal: ReadonlySignal<{
+    config: QueryConfigOptions | undefined;
+    retryConfig: ResolvedRetryConfig;
+  }> = reactiveSignal(() => {
     // _executionCtx is set before any read of this.config (update calls
     // getOrCreateExecutionContext before any consumer reads the config).
     return this.def.resolveOptions(this._executionCtx!);
