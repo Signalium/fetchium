@@ -41,24 +41,23 @@ export class QueryInstance<T extends Query> {
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  // Memoized resolved options. Invalidates when any signal consumed by the
-  // user's getConfig() notifies (typically this.responseNotifier, which the
-  // adapter fires after each fetch). Param changes are not signal-driven:
-  // getOrCreateExecutionContext replaces this signal wholesale when ctx is
-  // rebuilt, because the thunk closes over the prior _executionCtx.
-  private _resolvedSignal: ReadonlySignal<{
+  // Invalidates on any signal consumed by getConfig() (such as
+  // responseNotifier, fired by the adapter after each fetch). Param
+  // changes are handled separately: getOrCreateExecutionContext
+  // replaces this wholesale to force recomputation against the new ctx.
+  private _resolvedOptions: ReadonlySignal<{
     config: QueryConfigOptions | undefined;
     retryConfig: ResolvedRetryConfig;
   }> = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
 
   get config(): QueryConfigOptions | undefined {
     if (this._executionCtx === undefined) return undefined;
-    return this._resolvedSignal.value.config;
+    return this._resolvedOptions.value.config;
   }
 
   get retryConfig(): ResolvedRetryConfig {
     if (this._executionCtx === undefined) return resolveRetryConfig(undefined);
-    return this._resolvedSignal.value.retryConfig;
+    return this._resolvedOptions.value.retryConfig;
   }
 
   /** Cancels in-flight fetches and retry waits. */
@@ -310,10 +309,7 @@ export class QueryInstance<T extends Query> {
       this._executionCtx.refetch = () => this.refetch();
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
 
-      // Cached resolved options reference the previous ctx through any
-      // closures inside getConfig. Replace the signal so the next read
-      // recomputes against the new ctx.
-      this._resolvedSignal = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+      this._resolvedOptions = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
     }
 
     return this._executionCtx;
