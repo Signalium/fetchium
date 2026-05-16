@@ -41,15 +41,15 @@ export class QueryInstance<T extends Query> {
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  /** Reactive resolved options. Recomputes when tracked signals inside getConfig change. */
+  // Memoized resolved options. Invalidates when any signal consumed by the
+  // user's getConfig() notifies (typically this.responseNotifier, which the
+  // adapter fires after each fetch). Param changes are not signal-driven:
+  // getOrCreateExecutionContext replaces this signal wholesale when ctx is
+  // rebuilt, because the thunk closes over the prior _executionCtx.
   private _resolvedSignal: ReadonlySignal<{
     config: QueryConfigOptions | undefined;
     retryConfig: ResolvedRetryConfig;
-  }> = reactiveSignal(() => {
-    // _executionCtx is set before any read of this.config (update calls
-    // getOrCreateExecutionContext before any consumer reads the config).
-    return this.def.resolveOptions(this._executionCtx!);
-  });
+  }> = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
 
   get config(): QueryConfigOptions | undefined {
     if (this._executionCtx === undefined) return undefined;
@@ -165,7 +165,7 @@ export class QueryInstance<T extends Query> {
             this.queryClient.activateQuery(this);
 
             if (activating && this.updatedAt !== undefined) {
-              this.setupSubscription();
+              this.reconcileSubscription();
             }
 
             // If the relay shows pending but the abort controller is gone, the
@@ -185,7 +185,7 @@ export class QueryInstance<T extends Query> {
           } else if (paramsDidChange) {
             // Force rebuild: the running subscriber captured the old params.
             this.lastSubscribeFn = undefined;
-            this.setupSubscription();
+            this.reconcileSubscription();
             this.runDebounced();
           }
         };
@@ -270,7 +270,7 @@ export class QueryInstance<T extends Query> {
 
     try {
       if (cached !== undefined) {
-        this.setupSubscription();
+        this.reconcileSubscription();
       }
 
       if (cached === undefined || this.isStale) {
@@ -283,7 +283,7 @@ export class QueryInstance<T extends Query> {
     }
   }
 
-  private setupSubscription(): void {
+  private reconcileSubscription(): void {
     const subscribeFn = this.config?.subscribe;
     if (subscribeFn === this.lastSubscribeFn) return;
 
@@ -338,10 +338,7 @@ export class QueryInstance<T extends Query> {
         const result = this.applyData(freshData, true);
         this.saveQueryMetadata();
 
-        // Reconcile the subscriber against the latest config (read
-        // through the reactive _resolvedSignal). The ref check inside
-        // setupSubscription is a no-op when subscribe hasn't changed.
-        this.setupSubscription();
+        this.reconcileSubscription();
 
         return result;
       },
