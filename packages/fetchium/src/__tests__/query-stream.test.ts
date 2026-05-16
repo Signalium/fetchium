@@ -297,7 +297,7 @@ describe('Query Stream Option', () => {
 
         getConfig() {
           return {
-            subscribe: (_onEvent: (event: MutationEvent) => void) => {
+            subscribe: (onEvent: (event: MutationEvent) => void) => {
               subscribeCount++;
               return () => {
                 unsubscribeCount++;
@@ -441,7 +441,7 @@ describe('Query Stream Option', () => {
 
         getConfig() {
           return {
-            subscribe: (_onEvent: (event: MutationEvent) => void) => {
+            subscribe: (onEvent: (event: MutationEvent) => void) => {
               const sub = { channelId: this.params.channelId, unsubscribed: false };
               subscriptions.push(sub);
               return () => {
