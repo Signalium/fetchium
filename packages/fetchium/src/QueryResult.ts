@@ -328,15 +328,19 @@ export class QueryInstance<T extends Query> {
 
     return withRetry(
       async () => {
-        const freshData = await adapter.send(ctx, signal);
-        this.updatedAt = Date.now();
+        try {
+          const freshData = await adapter.send(ctx, signal);
+          this.updatedAt = Date.now();
 
-        const result = this.applyData(freshData, true);
-        this.saveQueryMetadata();
+          const result = this.applyData(freshData, true);
+          this.saveQueryMetadata();
 
-        this.reconcileSubscription();
-
-        return result;
+          return result;
+        } finally {
+          // In finally so reactive getConfig() reacts to error responses
+          // (e.g. 404 → subscribe: undefined) even when applyData throws.
+          this.reconcileSubscription();
+        }
       },
       this.retryConfig,
       signal,
