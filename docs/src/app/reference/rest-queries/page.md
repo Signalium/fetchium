@@ -86,7 +86,7 @@ This is useful when search params or body fields affect the response but don't a
 
 ## Dynamic Config with getConfig()
 
-For runtime-dependent configuration, override `getConfig()`. This is useful when caching, network behavior, or retry logic should vary based on the query's params or other runtime state:
+For runtime-dependent configuration, override `getConfig()`. This is useful when caching, network behavior, or retry logic should vary based on the query's params or other runtime state. `getConfig()` is reactive: it re-runs whenever a signal consumed inside notifies. Read `this.response` reactively via `this.responseNotifier` (see [Core: Queries](/core/queries#avoid-arrow-functions-for-dynamic-logic)).
 
 ```tsx
 class GetDashboard extends RESTQuery {

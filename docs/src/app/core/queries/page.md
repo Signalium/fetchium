@@ -97,7 +97,7 @@ The full list of options provided by `RESTQuery` is available below, but there a
 1. Parameters should not be connected to the _specifics_ of your Queries. You should be able to change if a parameter is passed as a search param, a path param, a header, or so on, without having to change every _usage_ of the query.
 2. More broadly, this distinction allows you to keep your Queries _protocol agnostic_. If you decide to switch from REST to GraphQL or gRPC in the future, none of your usage sites need to change.
 
-The same distinction applies to query _results_. Internally, `RESTQuery` exposes the raw HTTP response on `this.response` after each fetch completes (which can be used in `getConfig()` for things like controlling retry or polling behavior based on whether the response was successful or errored). Externally, the result gets parsed by the `this.result` definition and exposed as the query's value.
+The same distinction applies to query _results_. Internally, `RESTQuery` exposes the raw HTTP response on `this.response` after each fetch completes (which can be used reactively in `getConfig()` via `this.responseNotifier` to control retry or polling behavior based on whether the response was successful or errored). Externally, the result gets parsed by the `this.result` definition and exposed as the query's value.
 
 This brings us to the next topic: Using Queries.
 
@@ -394,9 +394,11 @@ class GetUser extends RESTQuery {
 }
 ```
 
-But let's say we wanted to provide a _dynamic_ polling interval based on the query response. We can't use conditional logic in the _field_ version of `config`, but we can in the _method_ version:
+But let's say we wanted to provide a _dynamic_ polling interval based on the query response. We can't use conditional logic in the _field_ version of `config`, but we can in the _method_ version. `getConfig()` is reactive: it re-runs whenever a signal it consumed notifies. `this.responseNotifier` is fired after every fetch, so wrap response reads in a `reactiveSignal` that consumes it:
 
 ```ts
+import { reactiveSignal } from 'signalium';
+
 class GetUser extends RESTQuery {
   params = {
     id: t.number,
@@ -409,7 +411,10 @@ class GetUser extends RESTQuery {
   };
 
   getConfig() {
-    const lastResponseOk = this.response?.ok ?? true;
+    const lastResponseOk = reactiveSignal(() => {
+      this.responseNotifier.consume();
+      return this.response?.ok ?? true;
+    }).value;
 
     // If the last response was ok, poll quickly. Else, poll
     // slowly - the service might be having trouble.
@@ -421,6 +426,8 @@ class GetUser extends RESTQuery {
   }
 }
 ```
+
+`this.response` is a plain field, not a signal, so reading it directly inside `getConfig()` would only evaluate once at activation and never re-run as new responses arrive. `responseNotifier.consume()` inside a `reactiveSignal` is what subscribes the outer `getConfig()` to fetch completions.
 
 ### Field reference
 

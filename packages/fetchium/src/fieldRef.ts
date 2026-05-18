@@ -1,3 +1,4 @@
+import { notifier } from 'signalium';
 import type { QueryContext } from './QueryClient.js';
 
 // ================================
@@ -191,6 +192,7 @@ export function createExecutionContext<T>(
 
   ctx.params = actualParams;
   ctx.context = queryContext;
+  ctx.responseNotifier = notifier();
 
   for (const [key, method] of Object.entries(methods)) {
     ctx[key] = method.bind(ctx);

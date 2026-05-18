@@ -1,4 +1,4 @@
-import { relay, type RelayState, ReactivePromise } from 'signalium';
+import { relay, reactiveSignal, type RelayState, ReactivePromise, type ReadonlySignal } from 'signalium';
 import { NetworkMode, type QueryResult, type EntityDef } from './types.js';
 import {
   type QueryClient,
@@ -33,6 +33,7 @@ export class QueryInstance<T extends Query> {
   private params: QueryParams | undefined = undefined;
 
   private unsubscribe?: () => void = undefined;
+  private lastSubscribeFn: QueryConfigOptions['subscribe'] = undefined;
 
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
@@ -40,9 +41,24 @@ export class QueryInstance<T extends Query> {
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  /** Resolved per-instance options (depend on actual params). */
-  config: QueryConfigOptions | undefined = undefined;
-  retryConfig: ResolvedRetryConfig = resolveRetryConfig(undefined);
+  // Invalidates on any signal consumed by getConfig() (such as
+  // responseNotifier, fired by the adapter after each fetch). Param
+  // changes are handled separately: getOrCreateExecutionContext
+  // replaces this wholesale to force recomputation against the new ctx.
+  private _resolvedOptions: ReadonlySignal<{
+    config: QueryConfigOptions | undefined;
+    retryConfig: ResolvedRetryConfig;
+  }> = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+
+  get config(): QueryConfigOptions | undefined {
+    if (this._executionCtx === undefined) return undefined;
+    return this._resolvedOptions.value.config;
+  }
+
+  get retryConfig(): ResolvedRetryConfig {
+    if (this._executionCtx === undefined) return resolveRetryConfig(undefined);
+    return this._resolvedOptions.value.retryConfig;
+  }
 
   /** Cancels in-flight fetches and retry waits. */
   private _abortController: AbortController | undefined = undefined;
@@ -112,6 +128,7 @@ export class QueryInstance<T extends Query> {
 
           this.unsubscribe?.();
           this.unsubscribe = undefined;
+          this.lastSubscribeFn = undefined;
 
           const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
           this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
@@ -147,7 +164,7 @@ export class QueryInstance<T extends Query> {
             this.queryClient.activateQuery(this);
 
             if (activating && this.updatedAt !== undefined) {
-              this.setupSubscription();
+              this.reconcileSubscription();
             }
 
             // If the relay shows pending but the abort controller is gone, the
@@ -165,7 +182,9 @@ export class QueryInstance<T extends Query> {
               }
             }
           } else if (paramsDidChange) {
-            this.setupSubscription();
+            // Force rebuild: the running subscriber captured the old params.
+            this.lastSubscribeFn = undefined;
+            this.reconcileSubscription();
             this.runDebounced();
           }
         };
@@ -250,7 +269,7 @@ export class QueryInstance<T extends Query> {
 
     try {
       if (cached !== undefined) {
-        this.setupSubscription();
+        this.reconcileSubscription();
       }
 
       if (cached === undefined || this.isStale) {
@@ -263,11 +282,14 @@ export class QueryInstance<T extends Query> {
     }
   }
 
-  private setupSubscription(): void {
+  private reconcileSubscription(): void {
+    const subscribeFn = this.config?.subscribe;
+    if (subscribeFn === this.lastSubscribeFn) return;
+
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.lastSubscribeFn = subscribeFn;
 
-    const subscribeFn = this.config?.subscribe;
     if (!subscribeFn) return;
 
     const ctx = this._executionCtx;
@@ -286,17 +308,11 @@ export class QueryInstance<T extends Query> {
       );
       this._executionCtx.refetch = () => this.refetch();
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
+
+      this._resolvedOptions = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
     }
 
-    this.resolveAndApplyOptions();
-
     return this._executionCtx;
-  }
-
-  private resolveAndApplyOptions(): void {
-    const resolved = this.def.resolveOptions(this._executionCtx!);
-    this.config = resolved.config;
-    this.retryConfig = resolved.retryConfig;
   }
 
   private async runQuery(): Promise<QueryResult<T>> {
@@ -318,9 +334,7 @@ export class QueryInstance<T extends Query> {
         const result = this.applyData(freshData, true);
         this.saveQueryMetadata();
 
-        if (this.unsubscribe === undefined) {
-          this.setupSubscription();
-        }
+        this.reconcileSubscription();
 
         return result;
       },
