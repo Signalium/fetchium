@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { reactiveSignal } from 'signalium';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
+import { Entity } from '../proxy.js';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
 import { t } from '../typeDefs.js';
 import { poll } from '../subscriptions/polling.js';
@@ -175,14 +176,34 @@ describe('poll() factory', () => {
     it('stops polling when getConfig() switches subscribe to undefined after an error', async () => {
       const { client, mockFetch } = getClient();
       let callCount = 0;
-      // First call: 200 OK.
-      mockFetch.get('/maybe-gone', () => ({ n: ++callCount }));
-      // Subsequent calls: 404.
-      mockFetch.get('/maybe-gone', () => ({ n: ++callCount }), { status: 404 });
+      class Item extends Entity {
+        __typename = t.typename('PollStopItem');
+        id = t.id;
+        name = t.string;
+      }
+
+      // First call: 200 OK with valid entity body so the poll subscriber installs.
+      mockFetch.get('/maybe-gone', () => {
+        callCount++;
+        return { __typename: 'PollStopItem', id: '1', name: 'ok' };
+      });
+      // Subsequent calls: 404 with an error body that does NOT match the entity
+      // shape, so applyData throws via parseEntities. reconcileSubscription
+      // must still fire so the reactive getConfig sees the response transition.
+      mockFetch.get(
+        '/maybe-gone',
+        () => {
+          callCount++;
+          return { error: 'Not found' };
+        },
+        { status: 404 },
+      );
 
       class GetMaybeGone extends RESTQuery {
         path = '/maybe-gone';
-        result = { n: t.number };
+        result = t.entity(Item);
+
+        config = { retry: { retries: 0 } as const };
 
         getConfig() {
           const is404 = reactiveSignal(() => {
@@ -191,6 +212,7 @@ describe('poll() factory', () => {
           }).value;
 
           return {
+            ...this.config,
             subscribe: is404 ? undefined : poll({ interval: 100 }),
           };
         }
