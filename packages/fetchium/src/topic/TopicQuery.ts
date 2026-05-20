@@ -11,10 +11,13 @@ export abstract class TopicQuery extends Query {
   // Explicit type lets subclasses override with adapters that take constructor args.
   static override adapter: QueryAdapterClass<TopicQueryAdapter> = TopicQueryAdapter;
 
-  abstract topic: string;
+  topic?: string;
+
+  // User-overridable getter — the adapter reads this from the execution context.
+  getTopic?(): string;
 
   getIdentityKey(): string {
-    return `topic:${this.topic}`;
+    return `topic:${this.topic ?? ''}`;
   }
 
   getConfig(): QueryConfigOptions {
@@ -23,7 +26,10 @@ export abstract class TopicQuery extends Query {
       subscribe: () => {
         return () => {
           const adapter = (this as Record<string, any>)._topicAdapter as TopicQueryAdapter | undefined;
-          adapter?.unsubscribe(this.topic);
+          const topic = this.getTopic ? this.getTopic() : this.topic;
+          if (topic !== undefined) {
+            adapter?.unsubscribe(topic);
+          }
         };
       },
     };
