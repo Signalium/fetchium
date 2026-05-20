@@ -144,7 +144,9 @@ class MockTopicQueryAdapter extends TopicQueryAdapter {
 
   override hasNext(ctx: Query): boolean {
     const topicCtx = ctx as TopicQuery;
-    const meta = this._topicMeta.get(topicCtx.topic);
+    const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
+    if (topic === undefined) return false;
+    const meta = this._topicMeta.get(topic);
     if (!meta?.fetchNextUrl) return false;
 
     const resolved = this.resolveFetchNext(topicCtx);
@@ -161,7 +163,11 @@ class MockTopicQueryAdapter extends TopicQueryAdapter {
 
   override async sendNext(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicQuery;
-    const meta = this._topicMeta.get(topicCtx.topic);
+    const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
+    if (topic === undefined) {
+      throw new Error('TopicQuery requires a topic for sendNext');
+    }
+    const meta = this._topicMeta.get(topic);
 
     if (!meta?.fetchNextUrl) {
       throw new Error('No fetchNextUrl available for topic');
@@ -2138,6 +2144,89 @@ describe('TopicQuery', () => {
       } finally {
         ambiguousClient.destroy();
       }
+    });
+  });
+
+  // ============================================================
+  // Section 7: Dynamic topics via getTopic()
+  // ============================================================
+
+  describe('getTopic() override', () => {
+    it('should resolve the topic via getTopic() when defined', async () => {
+      class GetLayout extends MockTopicQuery {
+        params = { segments: t.array(t.string) };
+        result = { items: t.array(t.entity(TopicPrice)) };
+
+        getTopic() {
+          return 'layout:' + (this.params.segments as string[]).map(encodeURIComponent).join(':');
+        }
+      }
+
+      mockStream.pushTopicData('layout:a:b:c', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetLayout, { segments: ['a', 'b', 'c'] });
+        await relay;
+
+        expect(relay.isResolved).toBe(true);
+        expect(relay.value!.items).toHaveLength(1);
+        expect(relay.value!.items[0].token).toBe('BTC');
+      });
+    });
+
+    it('should support variable-segment-count topics with one query class', async () => {
+      class GetLayout extends MockTopicQuery {
+        params = { segments: t.array(t.string) };
+        result = { items: t.array(t.entity(TopicPrice)) };
+
+        getTopic() {
+          return 'layout:' + (this.params.segments as string[]).map(encodeURIComponent).join(':');
+        }
+      }
+
+      mockStream.pushTopicData('layout:a:b', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+      mockStream.pushTopicData('layout:a:b:c:d', {
+        items: [{ __typename: 'TopicPrice', id: '2', token: 'ETH', value: 3000, change24h: -1.2 }],
+      });
+
+      await testWithClient(client, async () => {
+        const shortRelay = fetchQuery(GetLayout, { segments: ['a', 'b'] });
+        const longRelay = fetchQuery(GetLayout, { segments: ['a', 'b', 'c', 'd'] });
+
+        await shortRelay;
+        await longRelay;
+
+        expect(shortRelay.value!.items[0].token).toBe('BTC');
+        expect(longRelay.value!.items[0].token).toBe('ETH');
+      });
+    });
+
+    it('should take precedence over a static topic field when both are defined', async () => {
+      class GetLayout extends MockTopicQuery {
+        params = { id: t.string };
+        topic = 'fallback:topic';
+        result = { items: t.array(t.entity(TopicPrice)) };
+
+        getTopic() {
+          return `dynamic:${this.params.id}`;
+        }
+      }
+
+      mockStream.pushTopicData('dynamic:abc', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetLayout, { id: 'abc' });
+        await relay;
+
+        expect(relay.isResolved).toBe(true);
+        expect(relay.value!.items[0].token).toBe('BTC');
+      });
     });
   });
 });

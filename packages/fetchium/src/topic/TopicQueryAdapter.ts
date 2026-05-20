@@ -7,7 +7,8 @@ import type { MutationEvent } from '../types.js';
 // ================================
 
 interface TopicCtx extends Query {
-  topic: string;
+  topic?: string;
+  getTopic?(): string;
   _topicAdapter?: TopicQueryAdapter;
 }
 
@@ -92,7 +93,11 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
   override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicCtx;
     topicCtx._topicAdapter = this;
-    const topic = topicCtx.topic;
+    const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
+
+    if (topic === undefined) {
+      throw new Error('TopicQuery requires a topic. Define `topic` as a field or override `getTopic()`.');
+    }
 
     const existing = this._topics.get(topic);
 
