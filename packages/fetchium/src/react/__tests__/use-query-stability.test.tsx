@@ -156,5 +156,4 @@ describe('useQuery thunk identity', () => {
 
     expect(__debug_thunkAllocations - afterMount).toBe(2);
   });
-
 });
