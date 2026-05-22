@@ -6,10 +6,8 @@ import { fetchQuery, Query } from '../query.js';
 import { HasRequiredKeys, Optionalize, Signalize } from '../type-utils.js';
 
 /**
- * Dev-only counter, used by tests to verify that `useQuery` allocates one
- * stable thunk per (QueryClass, deeply-equal args) combination across renders
- * instead of a fresh thunk per render. Stripped from production builds via the
- * `IS_DEV` build-time constant.
+ * Dev-only counter exported for tests to assert thunk identity stability
+ * across re-renders. Stripped from production builds via `IS_DEV`.
  */
 export let __debug_thunkAllocations = 0;
 export function __debug_resetThunkAllocations(): void {
@@ -30,19 +28,13 @@ export function useQuery<T extends Query>(
     ? [params: Optionalize<Signalize<ExtractType<T['params']>>>]
     : [params?: Optionalize<Signalize<ExtractType<T['params']>>> | undefined]
 ): QueryPromise<T> {
-  // The thunk identity must be stable across re-renders when args are deeply
-  // equal. signalium's `useReactive` keys its internal `ReactiveDefinition` and
-  // signal on the fn reference (WeakMap), so a fresh fn per render creates a
-  // fresh signal per render. In React 18-style commit ordering (and any path
-  // where unsubscribe of the old signal and subscribe of the new one straddle
-  // a microtask flush), the relay loses its sole watcher to a deactivate
-  // cascade with no rescue, even though a consumer is still mounted.
-  //
-  // The Signalium Babel preset's `useReactive` transform wraps the inline
-  // thunk in `useCallback(fn, [QueryClass, args])`, but `args` is the rest
-  // collection - a fresh array literal per call - so `Object.is` deps compare
-  // false every render. Hash the args structurally so the memo key is stable
-  // when values are deeply equal.
+  // Stabilize thunk identity across renders so signalium's `useReactive`
+  // (keyed on fn identity via WeakMap) reuses the same signal. Without it,
+  // React 18 / React Native commit ordering can flush a deactivate cascade
+  // between unsubscribe-old and subscribe-new and tear down the relay while
+  // a consumer is still mounted. The Babel preset's
+  // `useCallback(fn, [QueryClass, args])` is a no-op here because `args` is
+  // a fresh rest array per call.
   const paramsHash = hashValue(args);
   const thunk = useMemo(
     () => {
