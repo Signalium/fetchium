@@ -24,11 +24,14 @@ export abstract class TopicQuery extends Query {
     return {
       staleTime: 0,
       subscribe: () => {
+        const adapter = (this as Record<string, any>)._topicAdapter as TopicQueryAdapter | undefined;
+        const topic = this.getTopic ? this.getTopic() : this.topic;
+        if (adapter && topic !== undefined) {
+          adapter.subscribe(topic);
+        }
         return () => {
-          const adapter = (this as Record<string, any>)._topicAdapter as TopicQueryAdapter | undefined;
-          const topic = this.getTopic ? this.getTopic() : this.topic;
-          if (topic !== undefined) {
-            adapter?.unsubscribe(topic);
+          if (adapter && topic !== undefined) {
+            adapter.unsubscribe(topic);
           }
         };
       },
