@@ -1,12 +1,19 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import react from '@vitejs/plugin-react';
+import { signaliumPreset } from 'signalium/transform';
 
 const isProduction = process.env.BUILD_MODE === 'production';
 const outputSubdir = isProduction ? 'production' : 'development';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      babel: {
+        presets: [signaliumPreset()],
+      },
+    }),
+  ],
   define: {
     IS_DEV: JSON.stringify(!isProduction),
     IS_LOCAL_DEV: 'false',
