@@ -70,21 +70,9 @@ describe('useQuery thunk identity', () => {
     } as any);
   });
 
-  // Structural property the fix preserves.
-  //
-  // signalium's `useReactive` keys its `ReactiveDefinition` and signal on the
-  // fn reference (WeakMap). A fresh fn per render produces a fresh signal per
-  // render, and React's `useSyncExternalStore` unsubscribe/subscribe across
-  // renders then touches different signals. Under React commit orderings where
-  // the microtask flush straddles the unsubscribe and the subscribe (React 18
-  // / React Native concurrent rendering), Signalium's `cancelDeactivate`
-  // rescue can fail, the relay loses its sole watcher to a deactivate cascade,
-  // and a consumer that is still mounted observes a spurious cleanup.
-  //
-  // `useQuery` stabilizes the thunk via `useMemo([QueryClass, hashValue(args)])`
-  // so the same fn is passed to `useReactive` across renders with
-  // deeply-equal args. This test asserts that property directly via a dev-only
-  // allocation counter. Without the fix, the counter grows with each render.
+  // Without the stable-thunk fix in `useQuery`, the counter grows with each
+  // render. See `use-query.ts` for why a fresh thunk per render triggers a
+  // spurious deactivate cascade.
   it('allocates a stable thunk across re-renders with deeply-equal args', async () => {
     class GetPrices extends TopicQuery {
       static override adapter = MockTopicAdapter;

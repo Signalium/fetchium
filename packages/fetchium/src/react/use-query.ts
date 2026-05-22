@@ -32,9 +32,7 @@ export function useQuery<T extends Query>(
   // (keyed on fn identity via WeakMap) reuses the same signal. Without it,
   // React 18 / React Native commit ordering can flush a deactivate cascade
   // between unsubscribe-old and subscribe-new and tear down the relay while
-  // a consumer is still mounted. The Babel preset's
-  // `useCallback(fn, [QueryClass, args])` is a no-op here because `args` is
-  // a fresh rest array per call.
+  // a consumer is still mounted.
   const paramsHash = hashValue(args);
   const thunk = useMemo(
     () => {
