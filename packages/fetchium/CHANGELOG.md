@@ -1,5 +1,12 @@
 # fetchium
 
+## 0.4.3
+
+### Patch Changes
+
+- e395061: Fix `TopicQuery` subscribe/unsubscribe to track consumer-read lifecycle instead of the fetch path. Previously, subscribe never fired when `send()` short-circuited (pre-fulfilled topic via `fulfillTopic`, or cache within `staleTime`), but the consumer's unmount would still call unsubscribe and tear down adapter state that was never registered.
+- c35eee2: Fix `useQuery` to stabilize thunk identity across re-renders. Without it, signalium allocated a new signal per render, which under some React commit orderings (React 18 / React Native) caused a spurious `getConfig.subscribe` cleanup while the consumer was still mounted.
+
 ## 0.4.2
 
 ### Patch Changes
