@@ -93,13 +93,24 @@ class MockTopicQueryAdapter extends TopicQueryAdapter {
   private _unsubscribers = new Map<string, () => void>();
   private _topicMeta = new Map<string, { fetchNextUrl?: string }>();
 
+  /** Per-topic subscribe call counter, for tests. */
+  subscribeCalls = new Map<string, number>();
+  /** Per-topic unsubscribe call counter, for tests. */
+  unsubscribeCalls = new Map<string, number>();
+
   constructor(stream: MockStream, fetchFn: (url: string, init?: RequestInit) => Promise<Response>) {
     super();
     this._stream = stream;
     this._fetch = fetchFn;
   }
 
+  /** Test helper: pre-fulfill a topic before any consumer mounts. */
+  preload(topic: string, data: unknown): void {
+    this.fulfillTopic(topic, data);
+  }
+
   subscribe(topic: string): void {
+    this.subscribeCalls.set(topic, (this.subscribeCalls.get(topic) ?? 0) + 1);
     const unsub = this._stream.subscribe(topic, {
       onData: (data, meta) => {
         if (meta) this._topicMeta.set(topic, meta);
@@ -116,6 +127,7 @@ class MockTopicQueryAdapter extends TopicQueryAdapter {
   }
 
   unsubscribe(topic: string): void {
+    this.unsubscribeCalls.set(topic, (this.unsubscribeCalls.get(topic) ?? 0) + 1);
     this._unsubscribers.get(topic)?.();
     this._unsubscribers.delete(topic);
     this.clearTopic(topic);
@@ -544,6 +556,37 @@ describe('TopicQuery', () => {
         expect(relay.isResolved).toBe(true);
         expect(relay.value!.items[0].value).toBe(50000);
       });
+    });
+
+    it('should pair subscribe and unsubscribe to consumer lifecycle when topic is pre-fulfilled', async () => {
+      const adapter = client.getAdapter(MockTopicQueryAdapter) as MockTopicQueryAdapter;
+
+      class GetPrices extends MockTopicQuery {
+        topic = 'prices:preloaded';
+        result = {
+          items: t.array(t.entity(TopicPrice)),
+        };
+      }
+
+      adapter.preload('prices:preloaded', {
+        items: [{ __typename: 'TopicPrice', id: '1', token: 'BTC', value: 50000, change24h: 2.5 }],
+      });
+      expect(adapter.subscribeCalls.get('prices:preloaded')).toBeUndefined();
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetPrices);
+        await relay;
+
+        expect(relay.isResolved).toBe(true);
+        expect(relay.value!.items[0].value).toBe(50000);
+        expect(adapter.subscribeCalls.get('prices:preloaded')).toBe(1);
+        expect(adapter.unsubscribeCalls.get('prices:preloaded')).toBeUndefined();
+      });
+
+      await sleep(10);
+
+      expect(adapter.subscribeCalls.get('prices:preloaded')).toBe(1);
+      expect(adapter.unsubscribeCalls.get('prices:preloaded')).toBe(1);
     });
 
     it('should maintain entity identity across queries sharing entities', async () => {

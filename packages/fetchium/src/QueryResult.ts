@@ -268,9 +268,10 @@ export class QueryInstance<T extends Query> {
     }
 
     try {
-      if (cached !== undefined) {
-        this.reconcileSubscription();
-      }
+      // Wire up subscribe before the first fetch so adapters that resolve
+      // `send()` via stream events (TopicQuery) are on the wire by the time
+      // `send()` awaits.
+      this.reconcileSubscription();
 
       if (cached === undefined || this.isStale) {
         await sleep(0);
@@ -308,6 +309,11 @@ export class QueryInstance<T extends Query> {
       );
       this._executionCtx.refetch = () => this.refetch();
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
+      // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
+      // set it eagerly so subscribe/unsubscribe work on the cache-fresh and
+      // pre-fulfilled paths where `send()` never runs.
+      (this._executionCtx as unknown as Record<string, unknown>)._topicAdapter =
+        this.queryClient.getAdapter(this.def.statics.adapterClass);
 
       this._resolvedOptions = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
     }

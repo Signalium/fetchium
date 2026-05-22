@@ -92,7 +92,6 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
   override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicCtx;
-    topicCtx._topicAdapter = this;
     const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
 
     if (topic === undefined) {
@@ -112,7 +111,8 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
       }
     }
 
-    // No state yet — create a deferred and subscribe
+    // No state yet, create a deferred. Subscribe is handled by
+    // `TopicQuery.getConfig.subscribe`, which runs before this path.
     let resolve!: (data: unknown) => void;
     let reject!: (error: unknown) => void;
     const promise = new Promise<unknown>((res, rej) => {
@@ -121,7 +121,6 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
     });
 
     this._topics.set(topic, { status: 'pending', promise, resolve, reject });
-    this.subscribe(topic);
 
     return promise;
   }
