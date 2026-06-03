@@ -11,6 +11,7 @@ import type { QueryClient } from './QueryClient.js';
 import type { EntityInstance } from './EntityInstance.js';
 import type { ParseContext, ParsedEntity } from './parseEntities.js';
 import { FormattedValue, ValidatorDef } from './typeDefs.js';
+import { Mask } from './types.js';
 import { createLiveCollection, LiveCollectionBinding } from './LiveCollection.js';
 import { PROXY_ID } from './proxyId.js';
 
@@ -206,7 +207,12 @@ function mergeFields(
     } else {
       const newVal = data[fieldKey];
       const oldVal = existingData[fieldKey];
-      if (isPlainObject(newVal) && isPlainObject(oldVal)) {
+      // Replace a union wholesale instead of merging by field, otherwise a
+      // changed variant keeps the old variant's fields. Unlike entity unions,
+      // there is no partial-update path to preserve here: a partial variant
+      // payload fails validation, so every update carries the full variant.
+      const isUnion = propShape instanceof ValidatorDef && (propShape.mask & Mask.UNION) !== 0;
+      if (!isUnion && isPlainObject(newVal) && isPlainObject(oldVal)) {
         const nestedShape =
           propShape instanceof ValidatorDef && propShape.shape !== undefined
             ? (propShape.shape as Record<string, unknown>)
