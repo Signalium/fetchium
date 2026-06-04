@@ -117,6 +117,66 @@ describe('Branch Fixes', () => {
       });
     });
 
+    it('should replace a discriminated union field when its variant changes', async () => {
+      const { client, mockFetch } = getClient();
+
+      const QueuedState = t.object({
+        __typename: t.typename('QueuedState'),
+        queuedAt: t.string,
+      });
+      const RunningState = t.object({
+        __typename: t.typename('RunningState'),
+        progress: t.number,
+      });
+
+      class Job extends Entity {
+        __typename = t.typename('Job');
+        id = t.id;
+        state = t.union(QueuedState, RunningState);
+      }
+
+      mockFetch.get('/jobs/[id]', {
+        job: {
+          __typename: 'Job',
+          id: '1',
+          state: { __typename: 'QueuedState', queuedAt: '2026-06-10T00:00:00Z' },
+        },
+      });
+
+      await testWithClient(client, async () => {
+        class GetJob extends RESTQuery {
+          params = { id: t.id };
+          path = `/jobs/${this.params.id}`;
+          result = { job: t.entity(Job) };
+        }
+
+        const relay = fetchQuery(GetJob, { id: '1' });
+        const result = await relay;
+
+        expect((result.job.state as any).__typename).toBe('QueuedState');
+        expect((result.job.state as any).queuedAt).toBe('2026-06-10T00:00:00Z');
+
+        // Variant flips: the job starts running. The new state has a different
+        // __typename and a disjoint field set.
+        mockFetch.get('/jobs/[id]', {
+          job: {
+            __typename: 'Job',
+            id: '1',
+            state: { __typename: 'RunningState', progress: 42 },
+          },
+        });
+
+        const result2 = await relay.value!.__refetch();
+
+        // The union field must be replaced wholesale, not merged: the new
+        // variant's discriminator and fields are present, and no field from
+        // the old variant survives.
+        expect((result2.job.state as any).__typename).toBe('RunningState');
+        expect((result2.job.state as any).progress).toBe(42);
+        expect('queuedAt' in (result2.job.state as any)).toBe(false);
+      });
+    });
+
     it('should handle nullable nested object with null value', async () => {
       const { client, mockFetch } = getClient();
       class Profile extends Entity {
