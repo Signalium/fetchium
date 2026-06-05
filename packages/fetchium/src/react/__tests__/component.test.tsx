@@ -145,14 +145,8 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('user')).toBeInTheDocument();
-      await expect.element(getByTestId('posts')).toBeInTheDocument();
-
-      // Wait for data to load
-      await sleep(10);
-
-      expect(getByTestId('user').element().textContent).toBe('Alice');
-      expect(getByTestId('posts').element().textContent).toBe('1 posts');
+      await expect.element(getByTestId('user')).toHaveTextContent('Alice');
+      await expect.element(getByTestId('posts')).toHaveTextContent('1 posts');
     });
 
     it('should handle query with path parameters', async () => {
@@ -215,9 +209,8 @@ describe('React Query Integration with component()', () => {
       expect(getByTestId('name').element().textContent).toBe('Alice');
 
       await getByText('Switch User').click();
-      await sleep(10);
 
-      expect(getByTestId('name').element().textContent).toBe('Bob');
+      await expect.element(getByTestId('name')).toHaveTextContent('Bob');
     });
   });
 
@@ -330,11 +323,10 @@ describe('React Query Integration with component()', () => {
 
       // Click button to refetch and update entity
       await getByText('Update').click();
-      await sleep(10);
 
       // Both components should show updated data
-      expect(getByTestId('name').element().textContent).toBe('Alice Smith');
-      expect(getByTestId('greeting').element().textContent).toBe('Hello, Alice Smith!');
+      await expect.element(getByTestId('name')).toHaveTextContent('Alice Smith');
+      await expect.element(getByTestId('greeting')).toHaveTextContent('Hello, Alice Smith!');
     });
 
     it('should sync entity updates across different queries that reference the same entity', async () => {
@@ -455,14 +447,13 @@ describe('React Query Integration with component()', () => {
 
       // Click refresh button in the Post component (which refetches the USER endpoint)
       await getByText('Refresh User').click();
-      await sleep(10);
 
       // BOTH queries should show updated User entity data
       // This proves entities are shared across different query definitions
-      expect(getByTestId('profile-name').element().textContent).toBe('Alice Updated');
-      expect(getByTestId('profile-email').element().textContent).toBe('alice.updated@example.com');
-      expect(getByTestId('post-author-name').element().textContent).toBe('Alice Updated');
-      expect(getByTestId('post-author-email').element().textContent).toBe('alice.updated@example.com');
+      await expect.element(getByTestId('profile-name')).toHaveTextContent('Alice Updated');
+      await expect.element(getByTestId('profile-email')).toHaveTextContent('alice.updated@example.com');
+      await expect.element(getByTestId('post-author-name')).toHaveTextContent('Alice Updated');
+      await expect.element(getByTestId('post-author-email')).toHaveTextContent('alice.updated@example.com');
 
       // Verify we made 3 fetches: getUser, getPost, refetch getUser
       expect(mockFetch.calls.length).toBe(3);
@@ -564,16 +555,16 @@ describe('React Query Integration with component()', () => {
 
       // Click button to refetch and update entity
       await getByText('Update').click();
-      await sleep(10);
 
+      // Both components should show updated data
+      await expect.element(getByTestId('name')).toHaveTextContent('Alice Smith');
+      await expect.element(getByTestId('greeting')).toHaveTextContent('Hello, Alice Smith!');
+
+      // Render counts settle once the update has fully propagated above
       expect(mainRenderCount).toBe(2);
       expect(profileRenderCount).toBe(3);
       expect(nameRenderCount).toBe(3);
       expect(greetingRenderCount).toBe(3);
-
-      // Both components should show updated data
-      expect(getByTestId('name').element().textContent).toBe('Alice Smith');
-      expect(getByTestId('greeting').element().textContent).toBe('Hello, Alice Smith!');
     });
 
     it('should handle nested entities correctly', async () => {
@@ -879,9 +870,8 @@ describe('React Query Integration with component()', () => {
         author: { __typename: 'User', id: '5', name: 'Alice Updated' },
       });
       await postQuery!.value!.__refetch();
-      await sleep(10);
 
-      expect(getByTestId('author-name').element().textContent).toBe('Alice Updated');
+      await expect.element(getByTestId('author-name')).toHaveTextContent('Alice Updated');
     });
   });
 
@@ -919,14 +909,8 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('a')).toBeInTheDocument();
-      await expect.element(getByTestId('b')).toBeInTheDocument();
-
-      // Wait for data to load
-      await sleep(10);
-
-      expect(getByTestId('a').element().textContent).toBe('5');
-      expect(getByTestId('b').element().textContent).toBe('5');
+      await expect.element(getByTestId('a')).toHaveTextContent('5');
+      await expect.element(getByTestId('b')).toHaveTextContent('5');
 
       // Verify only one fetch was made
       expect(mockFetch.calls.length).toBe(1);
@@ -964,18 +948,14 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('count')).toBeInTheDocument();
-
       // Wait for initial data to load
-      await sleep(10);
-      expect(getByTestId('count').element().textContent).toBe('0');
+      await expect.element(getByTestId('count')).toHaveTextContent('0');
 
       // Click to refetch
       mockFetch.get('/counter', { count: 1 });
       await getByText('Refetch').click();
-      await sleep(10);
 
-      expect(getByTestId('count').element().textContent).toBe('1');
+      await expect.element(getByTestId('count')).toHaveTextContent('1');
     });
 
     it('should work with nested components', async () => {
@@ -1005,9 +985,7 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('child')).toBeInTheDocument();
-      await sleep(10);
-      expect(getByTestId('child').element().textContent).toBe('Test');
+      await expect.element(getByTestId('child')).toHaveTextContent('Test');
     });
   });
 
@@ -1057,8 +1035,7 @@ describe('React Query Integration with component()', () => {
       expect(states[0].isReady).toBe(false);
       expect(states[0].isSettled).toBe(false);
 
-      await expect.element(getByTestId('status')).toBeInTheDocument();
-      await sleep(100);
+      await expect.element(getByTestId('status')).toHaveTextContent('Ready');
 
       // After resolution
       const finalState = states[states.length - 1];
@@ -1100,12 +1077,9 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('status')).toBeInTheDocument();
-      expect(getByTestId('status').element().textContent).toBe('Pending');
+      await expect.element(getByTestId('status')).toHaveTextContent('Pending');
 
-      await sleep(100);
-
-      expect(getByTestId('status').element().textContent).toBe('Rejected');
+      await expect.element(getByTestId('status')).toHaveTextContent('Rejected');
     });
 
     it('should show loading indicator during fetch', async () => {
@@ -1136,12 +1110,8 @@ describe('React Query Integration with component()', () => {
       // Should show spinner initially
       await expect.element(getByTestId('spinner')).toBeInTheDocument();
 
-      // Wait for data
-      await sleep(150);
-
       // Should now show content
-      await expect.element(getByTestId('content')).toBeInTheDocument();
-      expect(getByTestId('content').element().textContent).toBe('result');
+      await expect.element(getByTestId('content')).toHaveTextContent('result');
     });
 
     it('should keep previous value during refetch', async () => {
@@ -1179,8 +1149,7 @@ describe('React Query Integration with component()', () => {
         </ContextProvider>,
       );
 
-      await expect.element(getByTestId('data')).toBeInTheDocument();
-      expect(getByTestId('data').element().textContent).toBe('first');
+      await expect.element(getByTestId('data')).toHaveTextContent('first');
 
       // Trigger refetch with delay
       await getByText('Refetch').click();
@@ -1192,10 +1161,8 @@ describe('React Query Integration with component()', () => {
       expect(itemQuery!.isPending).toBe(true); // Pending - we are refetching
       expect(itemQuery!.isReady).toBe(true); // Ready - we do have data!
 
-      await sleep(100);
-
       // After refetch completes
-      expect(getByTestId('data').element().textContent).toBe('second');
+      await expect.element(getByTestId('data')).toHaveTextContent('second');
     });
   });
 });
