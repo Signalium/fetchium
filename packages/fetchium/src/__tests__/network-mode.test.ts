@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { RESTQuery } from '../rest/index.js';
-import { fetchQuery } from '../query.js';
+import { fetchQuery, queryKeyForClass } from '../query.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { NetworkMode } from '../types.js';
 import { createMockFetch, testWithClient, sleep, createTestWatcher } from './utils.js';
@@ -594,6 +594,43 @@ describe('Network Mode', () => {
         // Should have made 1 attempt (not continuing from previous count)
         expect(attempts).toBe(1);
       });
+    });
+  });
+
+  describe('pause does not schedule garbage collection', () => {
+    // A temporary pause must not schedule GC (which would evict the cache and
+    // force a refetch on resume); a genuine teardown still does.
+    it('skips GC when an active query is paused offline, but schedules it on teardown', async () => {
+      mockFetch.get('/users/1', { id: '1', name: 'Alice' });
+
+      class GetUser extends RESTQuery {
+        path = '/users/1';
+        result = t.object({ id: t.string, name: t.string });
+        config = { networkMode: NetworkMode.Online, staleTime: 0 };
+      }
+
+      const queryKey = queryKeyForClass(GetUser, undefined);
+      const scheduleSpy = vi.spyOn(client.gcManager, 'schedule');
+      const queryGcCalls = () => scheduleSpy.mock.calls.filter(call => call[0] === queryKey).length;
+
+      const { unsub } = withContexts([[QueryClientContext, client]], () =>
+        createTestWatcher(() => fetchQuery(GetUser).value),
+      );
+
+      await sleep(50);
+      expect(client.queryInstances.has(queryKey)).toBe(true);
+      expect(queryGcCalls()).toBe(0);
+
+      // Network-driven pause: tears down the active fetch but must not GC.
+      networkManager.setNetworkStatus(false);
+      await sleep(20);
+      expect(queryGcCalls()).toBe(0);
+      expect(client.queryInstances.has(queryKey)).toBe(true);
+
+      // Genuine teardown (last watcher removed) schedules GC as before.
+      unsub();
+      await sleep(20);
+      expect(queryGcCalls()).toBeGreaterThan(0);
     });
   });
 });
