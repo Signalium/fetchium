@@ -1,4 +1,11 @@
-import { relay, reactiveSignal, type RelayState, ReactivePromise, type ReadonlySignal } from 'signalium';
+import {
+  relay,
+  reactiveSignal,
+  type RelayState,
+  ReactivePromise,
+  type ReadonlySignal,
+  type DeactivateOptions,
+} from 'signalium';
 import { NetworkMode, type QueryResult, type EntityDef } from './types.js';
 import {
   type QueryClient,
@@ -113,7 +120,9 @@ export class QueryInstance<T extends Query> {
       state => {
         this._relayState = state;
 
-        const deactivate = () => {
+        // When pausing (vs a genuine cleanup) we tear down the fetch/subscription
+        // but skip GC, so resuming reuses the cached result instead of refetching.
+        const deactivate = ({ isPausing = false }: DeactivateOptions = {}) => {
           this._isActive = false;
 
           clearTimeout(this.debounceTimer);
@@ -130,6 +139,8 @@ export class QueryInstance<T extends Query> {
           this.unsubscribe = undefined;
           this.lastSubscribeFn = undefined;
 
+          if (isPausing) return;
+
           const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
           this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
         };
@@ -139,7 +150,7 @@ export class QueryInstance<T extends Query> {
           this.wasPaused = isPaused;
 
           if (isPaused && !wasPaused && initialized) {
-            deactivate();
+            deactivate({ isPausing: true });
             return;
           }
 
