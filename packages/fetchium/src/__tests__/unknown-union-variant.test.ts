@@ -139,7 +139,12 @@ describe('unknown union variant in a mutation event', () => {
 
     await testWithClient(client, async () => {
       const relay = fetchQuery(GetCardReq);
-      stream.pushData({ __typename: 'CardReq', id: '1', disabled: false, status: { __typename: 'StatusActive', label: 'Open' } });
+      stream.pushData({
+        __typename: 'CardReq',
+        id: '1',
+        disabled: false,
+        status: { __typename: 'StatusActive', label: 'Open' },
+      });
       await relay;
       expect((relay.value as any).disabled).toBe(false);
 
@@ -161,7 +166,12 @@ describe('unknown union variant in a mutation event', () => {
 
     await testWithClient(client, async () => {
       const relay = fetchQuery(GetCardOpt);
-      stream.pushData({ __typename: 'CardOpt', id: '1', disabled: false, status: { __typename: 'StatusActive', label: 'Open' } });
+      stream.pushData({
+        __typename: 'CardOpt',
+        id: '1',
+        disabled: false,
+        status: { __typename: 'StatusActive', label: 'Open' },
+      });
       await relay;
       expect((relay.value as any).status.__typename).toBe('StatusActive');
 
@@ -182,7 +192,12 @@ describe('unknown union variant in a mutation event', () => {
 
     await testWithClient(client, async () => {
       const relay = fetchQuery(GetCardReqLoad);
-      stream.pushData({ __typename: 'CardReq', id: '1', disabled: true, status: { __typename: 'StatusVoided', voidedAt: 'now' } });
+      stream.pushData({
+        __typename: 'CardReq',
+        id: '1',
+        disabled: true,
+        status: { __typename: 'StatusVoided', voidedAt: 'now' },
+      });
       await expect(relay).rejects.toThrow(/Unknown typename 'StatusVoided'/);
       expect(relay.isRejected).toBe(true);
     });
@@ -196,7 +211,12 @@ describe('unknown union variant in a mutation event', () => {
     await testWithClient(client, async () => {
       const relay = fetchQuery(GetCardOpt);
       // First (and only) snapshot already carries an unknown variant.
-      stream.pushData({ __typename: 'CardOpt', id: '1', disabled: true, status: { __typename: 'StatusVoided', voidedAt: 'now' } });
+      stream.pushData({
+        __typename: 'CardOpt',
+        id: '1',
+        disabled: true,
+        status: { __typename: 'StatusVoided', voidedAt: 'now' },
+      });
       await relay;
 
       const v: any = relay.value;
