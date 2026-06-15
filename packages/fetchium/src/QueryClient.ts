@@ -20,6 +20,7 @@ import { GcManager, NoOpGcManager, GcKeyType } from './GcManager.js';
 import { DEFAULT_GC_TIME } from './stores/shared.js';
 import { Query, QueryDefinition } from './query.js';
 import { ParseContext, parseEntities, parseEntity, type ParseResult } from './parseEntities.js';
+import { UnknownUnionVariantError } from './errors.js';
 import { applyEntityRefs, type ApplyResult } from './applyEntities.js';
 import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
@@ -391,7 +392,13 @@ export class QueryClient {
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
       applyEntityRefs(parseCtx, parsedData, true);
     } catch (e) {
-      this.context.log?.warn?.('Failed to apply mutation event', e);
+      // Unknown required-union variant: surface as an error (not a silent warn)
+      // so the dropped update is visible. Optional unions degrade during parse.
+      if (e instanceof UnknownUnionVariantError) {
+        this.context.log?.error?.('Mutation event dropped: unknown union variant; update not applied', e);
+      } else {
+        this.context.log?.warn?.('Failed to apply mutation event', e);
+      }
       if (existing === undefined) {
         const created = this.entityMap.getEntity(key);
         if (created !== undefined) created.evict();

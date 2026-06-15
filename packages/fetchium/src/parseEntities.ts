@@ -8,7 +8,7 @@
 import { hashValue } from 'signalium/utils';
 import type { QueryClient, PreloadedEntityMap } from './QueryClient.js';
 import { CaseInsensitiveSet, FormattedValue, FORMAT_MASK_SHIFT, ValidatorDef } from './typeDefs.js';
-import { typeError } from './errors.js';
+import { typeError, UnknownUnionVariantError } from './errors.js';
 import {
   ARRAY_KEY,
   ArrayDef,
@@ -257,7 +257,20 @@ function parseData(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: Parse
   }
 
   if ((propMask & Mask.UNION) !== 0) {
-    return parseUnionData(valueType, value as Record<string, unknown> | unknown[], def as UnionDef, ctx, path);
+    try {
+      return parseUnionData(valueType, value as Record<string, unknown> | unknown[], def as UnionDef, ctx, path);
+    } catch (e) {
+      // Unknown variant: degrade an optional field to undefined; rethrow a
+      // required one so the caller surfaces it instead of dropping silently.
+      if (e instanceof UnknownUnionVariantError && (propMask & Mask.UNDEFINED) !== 0) {
+        ctx.warn('Unknown union variant for optional field, defaulting to undefined', {
+          typename: e.typename,
+          path,
+        });
+        return undefined;
+      }
+      throw e;
+    }
   }
 
   if (valueType === Mask.ARRAY) {
@@ -313,7 +326,7 @@ function parseUnionData(
     const matchingDef = unionDef.shape![typename];
 
     if (matchingDef === undefined || typeof matchingDef === 'number') {
-      throw new Error(`Unknown typename '${typename}' in union`);
+      throw new UnknownUnionVariantError(typename, path);
     }
 
     if (matchingDef.mask & Mask.ENTITY && ctx.queryClient !== undefined) {
