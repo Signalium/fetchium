@@ -306,7 +306,11 @@ export class QueryInstance<T extends Query> {
 
     const ctx = this._executionCtx;
     this.unsubscribe = subscribeFn.call(ctx, (event: import('./types.js').MutationEvent) => {
-      event.__eventSource = this.queryKey;
+      // Live collections register under their parent entity's key, so provenance
+      // must carry the root entity's key rather than the query key for an
+      // unconstrained collection to match. Undefined before the first apply,
+      // when there is no collection to route into yet.
+      event.__eventSource = this.rootEntity?.key;
       this.queryClient.applyMutationEvent(event);
     });
   }
