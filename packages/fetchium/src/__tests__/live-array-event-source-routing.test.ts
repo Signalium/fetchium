@@ -7,15 +7,11 @@ import { testWithClient, sleep, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
 
 /**
- * An unconstrained liveArray in a query result must receive membership events
- * from that query's own `config.subscribe`.
- *
- * An unconstrained liveArray registers under the default constraint
- * `[[EVENT_SOURCE_FIELD, parent.key]]`, where parent is the query result's root
- * entity, so a query subscription has to stamp that same key as the event
- * source. Stamping the query key instead routes nowhere, which silently leaves
- * field updates working (they take the entity merge path) while inserts and
- * removals are dropped.
+ * An unconstrained liveArray must receive membership events from its own query's
+ * `config.subscribe`. It registers under the result root entity's key, so the
+ * subscription has to stamp that key; stamping the query key routes nowhere and
+ * fails silently, since field updates still apply through the entity merge path
+ * while inserts and removals are dropped.
  */
 
 class Balance extends Entity {
