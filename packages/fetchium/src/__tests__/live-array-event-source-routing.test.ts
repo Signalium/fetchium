@@ -57,6 +57,29 @@ class LiveBalances extends RESTQuery {
   }
 }
 
+/** Same result shape on a different path, so it gets its own root entity. */
+class OtherLiveBalances extends RESTQuery {
+  params = { walletAddresses: t.array(t.string) };
+  path = '/other-balances';
+  searchParams = { walletAddresses: this.params.walletAddresses };
+  result = {
+    items: t.liveArray(Balance, { sort: compareValueUsdString }),
+  };
+
+  getConfig() {
+    return {
+      staleTime: 60_000,
+      subscribe: (onEvent: (event: MutationEvent) => void) => {
+        const wallet = (this.params.walletAddresses as unknown as string[])[0];
+        emitters.set(`other:${wallet}`, onEvent);
+        return () => {
+          emitters.delete(`other:${wallet}`);
+        };
+      },
+    };
+  }
+}
+
 /** Emit through the query's captured onEvent outside any reactive context. */
 async function emit(wallet: string, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -157,6 +180,30 @@ describe('live array event-source routing', () => {
 
       expect(ids(first.value)).toEqual(['a', 'c']);
       expect(ids(second.value)).toEqual(['a']);
+    });
+  });
+
+  it('scopes membership events to the emitting query across separate queries', async () => {
+    const { client, mockFetch } = getClient();
+
+    const items = [{ __typename: 'Balance', id: 'a', name: 'Alpha', valueUsdString: '300' }];
+    mockFetch.get('/balances', { items });
+    mockFetch.get('/other-balances', { items });
+
+    await testWithClient(client, async () => {
+      const balances = fetchQuery(LiveBalances, { walletAddresses: ['w5'] });
+      const other = fetchQuery(OtherLiveBalances, { walletAddresses: ['w5'] });
+      await balances;
+      await other;
+
+      await emit('w5', {
+        type: 'create',
+        typename: 'Balance',
+        data: { id: 'c', name: 'Gamma', valueUsdString: '200' },
+      });
+
+      expect(ids(balances.value)).toEqual(['a', 'c']);
+      expect(ids(other.value)).toEqual(['a']);
     });
   });
 });
