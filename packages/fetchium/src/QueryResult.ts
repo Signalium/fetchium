@@ -306,7 +306,9 @@ export class QueryInstance<T extends Query> {
 
     const ctx = this._executionCtx;
     this.unsubscribe = subscribeFn.call(ctx, (event: import('./types.js').MutationEvent) => {
-      event.__eventSource = this.queryKey;
+      // Collections register under their parent entity's key, so the query key
+      // matches nothing. Undefined until the first apply: no collection yet.
+      event.__eventSource = this.rootEntity?.key;
       this.queryClient.applyMutationEvent(event);
     });
   }
