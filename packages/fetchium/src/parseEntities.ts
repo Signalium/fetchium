@@ -7,7 +7,14 @@
 
 import { hashValue } from 'signalium/utils';
 import type { QueryClient, PreloadedEntityMap } from './QueryClient.js';
-import { CaseInsensitiveSet, FormattedValue, FORMAT_MASK_SHIFT, ValidatorDef, VariantGroup } from './typeDefs.js';
+import {
+  CaseInsensitiveSet,
+  FormattedValue,
+  FORMAT_MASK_SHIFT,
+  ValidatorDef,
+  VariantGroup,
+  VariantSet,
+} from './typeDefs.js';
 import { typeError, UnknownUnionVariantError } from './errors.js';
 import {
   ARRAY_KEY,
@@ -506,6 +513,13 @@ function objectSatisfiesShape(
     if (key === typenameField) continue;
 
     const fieldDef = shape[key];
+
+    // A variant tag must match by value: an entity of one variant does not
+    // satisfy a sibling variant's shape even when field profiles overlap.
+    if (fieldDef instanceof VariantSet) {
+      if (data[key] !== fieldDef.value) return false;
+      continue;
+    }
 
     if (fieldDef instanceof ValidatorDef) {
       if ((fieldDef.mask & Mask.UNDEFINED) !== 0) continue;

@@ -366,6 +366,101 @@ describe('variant unions', () => {
     });
   });
 
+  describe('variant gating with overlapping field profiles', () => {
+    const getClient = setupTestClient();
+
+    // Three variants with identical field profiles, so presence checks alone
+    // cannot tell them apart; only the tag's value can.
+    class InMessage extends Entity {
+      __typename = t.typename('Message');
+      id = t.id;
+      dir = t.variant('in');
+      text = t.string;
+    }
+
+    class OutMessage extends Entity {
+      __typename = t.typename('Message');
+      id = t.id;
+      dir = t.variant('out');
+      text = t.string;
+    }
+
+    class SysMessage extends Entity {
+      __typename = t.typename('Message');
+      id = t.id;
+      dir = t.variant('sys');
+      text = t.string;
+    }
+
+    class Mailbox extends RESTQuery {
+      params = { user: t.string };
+      path = '/mailbox';
+      searchParams = { user: this.params.user };
+      result = {
+        inbox: t.liveArray(InMessage),
+        all: t.liveArray([InMessage, OutMessage] as Array<new () => InMessage | OutMessage>),
+        system: t.liveArray(SysMessage),
+      };
+
+      getConfig() {
+        return {
+          staleTime: 60_000,
+          subscribe: (onEvent: (event: MutationEvent) => void) => {
+            const user = this.params.user as unknown as string;
+            emitters.set(user, onEvent);
+            return () => {
+              emitters.delete(user);
+            };
+          },
+        };
+      }
+    }
+
+    const msg = (id: string, dir: string) => ({ __typename: 'Message', id, dir, text: `Message ${id}` });
+
+    it('only admits events for variants the collection declares', async () => {
+      const { client, mockFetch } = getClient();
+
+      mockFetch.get('/mailbox', {
+        inbox: [msg('i1', 'in')],
+        all: [msg('i1', 'in'), msg('o1', 'out')],
+        system: [],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(Mailbox, { user: 'mb1' });
+        await relay;
+
+        const fieldIds = (field: string) =>
+          (relay.value as unknown as Record<string, Array<{ id: string }>>)[field].map(m => String(m.id));
+
+        expect(fieldIds('inbox')).toEqual(['i1']);
+        expect(fieldIds('all')).toEqual(['i1', 'o1']);
+        expect(fieldIds('system')).toEqual([]);
+
+        // An out message matches InMessage's field profile but not its tag;
+        // the single-def inbox must not admit it.
+        await emit('mb1', { type: 'create', typename: 'Message', data: msg('o2', 'out') });
+        expect(fieldIds('inbox')).toEqual(['i1']);
+        expect(fieldIds('all')).toEqual(['i1', 'o1', 'o2']);
+        expect(fieldIds('system')).toEqual([]);
+
+        // A sys message is registered on the client but undeclared by the
+        // multi-def collection; it must not fall through the satisfies gate.
+        await emit('mb1', { type: 'create', typename: 'Message', data: msg('s1', 'sys') });
+        expect(fieldIds('inbox')).toEqual(['i1']);
+        expect(fieldIds('all')).toEqual(['i1', 'o1', 'o2']);
+        expect(fieldIds('system')).toEqual(['s1']);
+
+        // Declared variants still insert everywhere they belong.
+        await emit('mb1', { type: 'create', typename: 'Message', data: msg('i2', 'in') });
+        expect(fieldIds('inbox')).toEqual(['i1', 'i2']);
+        expect(fieldIds('all')).toEqual(['i1', 'o1', 'o2', 'i2']);
+        expect(fieldIds('system')).toEqual(['s1']);
+      });
+    });
+  });
+
   describe('multi-def typenames without variants', () => {
     const getClient = setupTestClient();
 
