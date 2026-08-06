@@ -476,8 +476,10 @@ export class QueryClient {
   }
 
   registerLiveCollection(binding: LiveCollectionBinding): void {
-    for (const [typename, def] of binding._entityDefsByTypename) {
-      this.registerEntityDef(def);
+    for (const [typename, defs] of binding._entityDefsByTypename) {
+      for (const def of defs) {
+        this.registerEntityDef(def);
+      }
       this.getOrCreateMatcher(typename).registerBinding(binding, typename);
     }
   }

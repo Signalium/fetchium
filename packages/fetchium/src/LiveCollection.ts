@@ -12,6 +12,29 @@ import {
 } from './ConstraintMatcher.js';
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 
+/**
+ * Pick the def matching the entity's variant tag. Returns the single def
+ * directly, and undefined when several defs share the typename but none (or
+ * no data) resolves a variant.
+ */
+function resolveEventDef(
+  defs: ValidatorDef<any>[],
+  data: Record<string, unknown> | undefined,
+): ValidatorDef<any> | undefined {
+  if (defs.length === 1) return defs[0];
+  if (data === undefined) return undefined;
+  for (const def of defs) {
+    if (
+      def.variantValue !== undefined &&
+      def.variantField !== undefined &&
+      data[def.variantField] === def.variantValue
+    ) {
+      return def;
+    }
+  }
+  return undefined;
+}
+
 function buildKeySet(items: unknown[]): Set<number> {
   const keys = new Set<number>();
   for (const item of items) {
@@ -61,7 +84,7 @@ export class LiveCollectionBinding {
   _queryClient: QueryClient;
   _parent: LiveCollectionParent;
   _constraintHashes: Map<string, number>;
-  _entityDefsByTypename: Map<string, ValidatorDef<any>>;
+  _entityDefsByTypename: Map<string, ValidatorDef<any>[]>;
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
 
@@ -82,7 +105,12 @@ export class LiveCollectionBinding {
     this._entityDefsByTypename = new Map();
     for (const def of entityDefs) {
       if (def.typenameValue !== undefined) {
-        this._entityDefsByTypename.set(def.typenameValue, def);
+        const existing = this._entityDefsByTypename.get(def.typenameValue);
+        if (existing === undefined) {
+          this._entityDefsByTypename.set(def.typenameValue, [def]);
+        } else if (!existing.includes(def)) {
+          existing.push(def);
+        }
       }
     }
 
@@ -117,11 +145,12 @@ export class LiveCollectionBinding {
     onMatch?: () => void,
     deleteData?: Record<string, unknown>,
   ): void {
-    const def = this._entityDefsByTypename.get(typename);
-    if (def === undefined) return;
+    const defs = this._entityDefsByTypename.get(typename);
+    if (defs === undefined) return;
     const entityInstance = this._queryClient.entityMap.getEntity(entityKey);
 
     if (eventType === 'delete') {
+      const def = resolveEventDef(defs, entityInstance?.data ?? deleteData) ?? defs[0];
       const entity = entityInstance !== undefined ? entityInstance.getProxy(def as unknown as EntityDef) : deleteData;
       if (entity !== undefined) {
         this.instance.onEvent(entityKey, entity, deleteData ?? entityInstance?.data ?? {}, 'delete');
@@ -131,6 +160,11 @@ export class LiveCollectionBinding {
     }
 
     if (entityInstance === undefined) return;
+    let def = resolveEventDef(defs, entityInstance.data);
+    // Members without variants sharing a typename: fall back to the first def
+    // the entity's current data satisfies.
+    def ??= defs.find(d => entityInstance.satisfiesDef(d as unknown as ValidatorDef<unknown>));
+    if (def === undefined) return;
     if (!entityInstance.satisfiesDef(def as unknown as ValidatorDef<unknown>)) return;
 
     onMatch?.();

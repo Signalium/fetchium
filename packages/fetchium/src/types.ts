@@ -165,13 +165,24 @@ export const QUERY_ID = Symbol('QUERY_ID');
 export interface UnionTypeDefs {
   [ARRAY_KEY]?: InternalTypeDef;
   [RECORD_KEY]?: InternalTypeDef;
-  [key: string]: ObjectDef | EntityDef;
+  [key: string]: ObjectDef | EntityDef | VariantGroupDef;
+}
+
+/**
+ * Union shape entry for members that share a typename: a second-level
+ * dispatch table keyed by each member's variant value.
+ */
+export interface VariantGroupDef {
+  variantField: string;
+  defs: Record<string, ObjectDef | EntityDef>;
 }
 
 export interface BaseTypeDef {
   mask: Mask;
   typenameField: string;
   typenameValue: string;
+  variantField: string | undefined;
+  variantValue: string | undefined;
   idField: string | symbol;
   values: Set<string | boolean | number> | undefined;
 }
@@ -232,6 +243,7 @@ declare global {
 export interface APITypes {
   format: <K extends keyof SignaliumQuery.FormatRegistry>(format: K) => TypeDef<SignaliumQuery.FormatRegistry[K]>;
   typename: <T extends string>(value: T) => TypeDef<T>;
+  variant: <T extends string>(value: T) => TypeDef<T>;
   const: <T extends string | boolean | number>(value: T) => TypeDef<T>;
   enum: {
     <T extends readonly (string | boolean | number)[]>(...values: T): TypeDef<T[number]>;
