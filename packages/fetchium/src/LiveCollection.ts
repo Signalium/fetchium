@@ -150,7 +150,11 @@ export class LiveCollectionBinding {
     const entityInstance = this._queryClient.entityMap.getEntity(entityKey);
 
     if (eventType === 'delete') {
-      const def = resolveEventDef(defs, entityInstance?.data ?? deleteData) ?? defs[0];
+      let def = resolveEventDef(defs, entityInstance?.data ?? deleteData);
+      if (def === undefined && entityInstance !== undefined) {
+        def = defs.find(d => entityInstance.satisfiesDef(d as unknown as ValidatorDef<unknown>));
+      }
+      def ??= defs[0];
       const entity = entityInstance !== undefined ? entityInstance.getProxy(def as unknown as EntityDef) : deleteData;
       if (entity !== undefined) {
         this.instance.onEvent(entityKey, entity, deleteData ?? entityInstance?.data ?? {}, 'delete');

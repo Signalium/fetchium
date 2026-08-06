@@ -4,6 +4,7 @@ import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { parseValue } from '../parseEntities.js';
+import { generateEntityData } from '../testing/auto-generate.js';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
 import type { MutationEvent } from '../types.js';
 
@@ -152,6 +153,62 @@ describe('variant unions', () => {
 
     it('allows the same definition to appear twice', () => {
       expect(() => t.union(t.entity(TextPost), t.entity(TextPost))).not.toThrow();
+    });
+  });
+
+  describe('union composition', () => {
+    const Text = t.object({ __typename: t.typename('Media'), kind: t.variant('text'), body: t.string });
+    const Link = t.object({ __typename: t.typename('Media'), kind: t.variant('link'), url: t.string });
+    const Gallery = t.object({ __typename: t.typename('Media'), kind: t.variant('gallery'), count: t.number });
+
+    it('does not mutate an inner union composed into an outer union', () => {
+      const Inner = t.union(Text, Link);
+      const Outer = t.union(Inner, Gallery);
+
+      const gallery = parseValue({ __typename: 'Media', kind: 'gallery', count: 2 }, Outer, '');
+      expect((gallery as { count: number }).count).toBe(2);
+      const text = parseValue({ __typename: 'Media', kind: 'text', body: 'hi' }, Outer, '');
+      expect((text as { body: string }).body).toBe('hi');
+
+      // the inner union must not gain the outer union's variant
+      expect(() => parseValue({ __typename: 'Media', kind: 'gallery', count: 2 }, Inner, '')).toThrow(
+        /Unknown variant 'gallery'/,
+      );
+    });
+
+    it('composes in either order', () => {
+      const Inner = t.union(Text, Link);
+      const Outer = t.union(Gallery, Inner);
+
+      const link = parseValue({ __typename: 'Media', kind: 'link', url: 'https://example.com' }, Outer, '');
+      expect((link as { url: string }).url).toBe('https://example.com');
+    });
+
+    it('merges variant groups from two nested unions, with duplicate checks', () => {
+      const A = t.union(Text, Gallery);
+      const B = t.union(Link, Gallery); // sharing the same def is allowed
+      const Merged = t.union(A, B);
+
+      const link = parseValue({ __typename: 'Media', kind: 'link', url: 'https://example.com' }, Merged, '');
+      expect((link as { url: string }).url).toBe('https://example.com');
+      const text = parseValue({ __typename: 'Media', kind: 'text', body: 'hi' }, Merged, '');
+      expect((text as { body: string }).body).toBe('hi');
+
+      const OtherText = t.object({ __typename: t.typename('Media'), kind: t.variant('text'), words: t.string });
+      expect(() => t.union(A, t.union(OtherText, Gallery))).toThrow(/Duplicate variant value 'text'/);
+    });
+
+    it('auto-generates data for variant-union fields', () => {
+      class Widget extends Entity {
+        __typename = t.typename('Widget');
+        id = t.id;
+        media = t.union(Text, Link);
+      }
+
+      const data = generateEntityData(Widget);
+      const media = data.media as Record<string, unknown>;
+      expect(media.kind).toBe('text');
+      expect(typeof media.body).toBe('string');
     });
   });
 
@@ -327,6 +384,10 @@ describe('variant unions', () => {
       status = t.string;
     }
 
+    const reduced: string[] = [];
+    const tag = (e: unknown) =>
+      e instanceof ReadingMetric ? 'ReadingMetric' : e instanceof StatusMetric ? 'StatusMetric' : 'unknown';
+
     class LiveMetrics extends RESTQuery {
       params = { user: t.string };
       path = '/metrics';
@@ -336,9 +397,15 @@ describe('variant unions', () => {
           t.number,
           [ReadingMetric, StatusMetric] as Array<new () => ReadingMetric | StatusMetric>,
           {
-            onCreate: (v: number) => v + 1,
+            onCreate: (v: number, e: unknown) => {
+              reduced.push(`create:${tag(e)}`);
+              return v + 1;
+            },
             onUpdate: (v: number) => v,
-            onDelete: (v: number) => v - 1,
+            onDelete: (v: number, e: unknown) => {
+              reduced.push(`delete:${tag(e)}`);
+              return v - 1;
+            },
           },
         ),
       };
@@ -359,6 +426,7 @@ describe('variant unions', () => {
 
     it('routes events for every def sharing the typename, not just the last', async () => {
       const { client, mockFetch } = getClient();
+      reduced.length = 0;
 
       mockFetch.get('/metrics', { eventCount: 0 });
 
@@ -381,8 +449,12 @@ describe('variant unions', () => {
         });
         expect(count()).toBe(2);
 
-        await emit('m1', { type: 'delete', typename: 'Metric', id: 'r1', data: 'r1' });
+        await emit('m1', { type: 'delete', typename: 'Metric', id: 's1', data: 's1' });
         expect(count()).toBe(1);
+
+        // Deletes resolve the def the same way creates do; previously they
+        // fell back to the first def, handing onDelete the wrong class.
+        expect(reduced).toEqual(['create:ReadingMetric', 'create:StatusMetric', 'delete:StatusMetric']);
       });
     });
   });

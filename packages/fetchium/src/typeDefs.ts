@@ -517,6 +517,48 @@ export function defineObject<T extends Record<string, TypeDef>>(shape: T): TypeD
   >;
 }
 
+function duplicateTypenameError(typename: string): Error {
+  return new Error(
+    `Duplicate typename value '${typename}' in union. Union members must be unique by typename, or by (typename, variant) when members sharing a typename declare a t.variant(...) field`,
+  );
+}
+
+/**
+ * Add one variant def under `typename`, creating or extending its
+ * VariantGroup. The group is always owned by `unionShape` (never a caller's),
+ * so nested unions can be merged without aliasing.
+ */
+function addVariantDefToUnion(
+  unionShape: UnionTypeDefs,
+  typename: string,
+  variantField: string,
+  variantValue: string,
+  def: ObjectDef | EntityDef,
+): void {
+  const existing = unionShape[typename];
+
+  if (existing === undefined) {
+    const group = new VariantGroup(variantField);
+    group.defs[variantValue] = def;
+    unionShape[typename] = group;
+  } else if (existing instanceof VariantGroup) {
+    if (existing.variantField !== variantField) {
+      throw new Error(
+        `Union variant field conflict: typename '${typename}' has variants keyed on '${existing.variantField}' and '${variantField}'`,
+      );
+    }
+
+    const duplicate = existing.defs[variantValue];
+    if (duplicate !== undefined && duplicate !== def) {
+      throw new Error(`Duplicate variant value '${variantValue}' for typename '${typename}' in union`);
+    }
+
+    existing.defs[variantValue] = def;
+  } else {
+    throw duplicateTypenameError(typename);
+  }
+}
+
 function addDefToUnion(
   def: ComplexTypeDef,
   unionShape: UnionTypeDefs,
@@ -541,10 +583,20 @@ function addDefToUnion(
     if (nestedShape !== undefined) {
       for (const key of [...keys(nestedShape), ARRAY_KEY, RECORD_KEY] as const) {
         const value = nestedShape[key];
+        if (value === undefined) continue;
 
-        if (unionShape[key] !== undefined && unionShape[key] !== value) {
+        if (value instanceof VariantGroup) {
+          for (const variantKey of keys(value.defs)) {
+            addVariantDefToUnion(unionShape, key as string, value.variantField, variantKey, value.defs[variantKey]);
+          }
+          continue;
+        }
+
+        const existing = unionShape[key];
+
+        if (existing !== undefined && existing !== value) {
           throw new Error(
-            `Union merge conflict: Duplicate typename value '${String(key)}' found when merging nested unions (${String(unionShape[key])} vs ${String(value)})`,
+            `Union merge conflict: Duplicate typename value '${String(key)}' found when merging nested unions`,
           );
         }
 
@@ -579,35 +631,18 @@ function addDefToUnion(
 
     unionTypenameField = typenameField;
 
-    const variantField = (def as ObjectDef).variantField;
     const variantValue = (def as ObjectDef).variantValue;
-    const existing = unionShape[typename];
 
-    if (existing === undefined) {
-      if (variantValue !== undefined) {
-        const group = new VariantGroup(variantField!);
-        group.defs[variantValue] = def as ObjectDef;
-        unionShape[typename] = group;
-      } else {
-        unionShape[typename] = def as ObjectDef;
-      }
-    } else if (existing instanceof VariantGroup && variantValue !== undefined) {
-      if (existing.variantField !== variantField) {
-        throw new Error(
-          `Union variant field conflict: typename '${typename}' has variants keyed on '${existing.variantField}' and '${variantField}'`,
-        );
+    if (variantValue !== undefined) {
+      addVariantDefToUnion(unionShape, typename, (def as ObjectDef).variantField!, variantValue, def as ObjectDef);
+    } else {
+      const existing = unionShape[typename];
+
+      if (existing !== undefined && existing !== def) {
+        throw duplicateTypenameError(typename);
       }
 
-      const duplicate = existing.defs[variantValue];
-      if (duplicate !== undefined && duplicate !== def) {
-        throw new Error(`Duplicate variant value '${variantValue}' for typename '${typename}' in union`);
-      }
-
-      existing.defs[variantValue] = def as ObjectDef;
-    } else if (existing !== def) {
-      throw new Error(
-        `Duplicate typename value '${typename}' in union. Union members must be unique by typename, or by (typename, variant) when members sharing a typename declare a t.variant(...) field`,
-      );
+      unionShape[typename] = def as ObjectDef;
     }
   }
 

@@ -299,10 +299,11 @@ const Post = t.union(t.entity(ImagePost), t.entity(GalleryPost));
 
 `t.typename` establishes the entity's _identity_: all variants share one cache key space, `[typename, id]`, and [mutation events](/core/streaming) target the shared typename. `t.variant` only selects which shape a payload parses as; it is not part of identity, and validates exactly like `t.const(value)`.
 
-Two rules follow from this:
+Three rules follow from this:
 
 - All members sharing a typename must declare the _same_ variant field.
 - Each member must have a _unique_ variant value within its typename.
+- The variant is _fixed_ for the lifetime of an entity. A tag that can change at runtime is a state field, not a variant: use `t.enum` on a single shape instead.
 
 Because ids are shared across variants of a typename, the API must guarantee that ids never collide between two variants; two values with the same id are the same entity as far as the cache is concerned.
 
