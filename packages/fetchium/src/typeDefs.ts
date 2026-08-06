@@ -57,6 +57,20 @@ if (IS_DEV) {
       return setsEqual(a, b);
     }
 
+    // Union shape entries: every union owns fresh VariantGroups, so compare
+    // structurally rather than by reference.
+    if (a instanceof VariantGroup && b instanceof VariantGroup) {
+      if (a.variantField !== b.variantField) return false;
+      const aKeys = Object.keys(a.defs);
+      const bKeys = Object.keys(b.defs);
+      if (aKeys.length !== bKeys.length) return false;
+      for (const key of aKeys) {
+        const bDef = b.defs[key];
+        if (bDef === undefined || !fieldTypesCompatible(a.defs[key], bDef)) return false;
+      }
+      return true;
+    }
+
     if (a instanceof ValidatorDef && b instanceof ValidatorDef) {
       const aMask = a.mask as number;
       const bMask = b.mask as number;

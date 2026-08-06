@@ -400,6 +400,11 @@ describe('variant unions', () => {
         inbox: t.liveArray(InMessage),
         all: t.liveArray([InMessage, OutMessage] as Array<new () => InMessage | OutMessage>),
         system: t.liveArray(SysMessage),
+        inCount: t.liveValue(t.number, InMessage, {
+          onCreate: (v: number) => v + 1,
+          onUpdate: (v: number) => v,
+          onDelete: (v: number) => v - 1,
+        }),
       };
 
       getConfig() {
@@ -425,6 +430,7 @@ describe('variant unions', () => {
         inbox: [msg('i1', 'in')],
         all: [msg('i1', 'in'), msg('o1', 'out')],
         system: [],
+        inCount: 0,
       });
 
       await testWithClient(client, async () => {
@@ -433,10 +439,12 @@ describe('variant unions', () => {
 
         const fieldIds = (field: string) =>
           (relay.value as unknown as Record<string, Array<{ id: string }>>)[field].map(m => String(m.id));
+        const inCount = () => (relay.value as unknown as { inCount: number }).inCount;
 
         expect(fieldIds('inbox')).toEqual(['i1']);
         expect(fieldIds('all')).toEqual(['i1', 'o1']);
         expect(fieldIds('system')).toEqual([]);
+        expect(inCount()).toBe(0);
 
         // An out message matches InMessage's field profile but not its tag;
         // the single-def inbox must not admit it.
@@ -444,6 +452,7 @@ describe('variant unions', () => {
         expect(fieldIds('inbox')).toEqual(['i1']);
         expect(fieldIds('all')).toEqual(['i1', 'o1', 'o2']);
         expect(fieldIds('system')).toEqual([]);
+        expect(inCount()).toBe(0);
 
         // A sys message is registered on the client but undeclared by the
         // multi-def collection; it must not fall through the satisfies gate.
@@ -457,6 +466,67 @@ describe('variant unions', () => {
         expect(fieldIds('inbox')).toEqual(['i1', 'i2']);
         expect(fieldIds('all')).toEqual(['i1', 'o1', 'o2', 'i2']);
         expect(fieldIds('system')).toEqual(['s1']);
+        expect(inCount()).toBe(1);
+
+        // Deletes are gated the same way: removing an out message must not
+        // reach the in-only liveValue reducer.
+        await emit('mb1', { type: 'delete', typename: 'Message', id: 'o2', data: 'o2' });
+        expect(fieldIds('inbox')).toEqual(['i1', 'i2']);
+        expect(fieldIds('all')).toEqual(['i1', 'o1', 'i2']);
+        expect(inCount()).toBe(1);
+
+        // A declared variant's delete still routes.
+        await emit('mb1', { type: 'delete', typename: 'Message', id: 'i1', data: 'i1' });
+        expect(fieldIds('inbox')).toEqual(['i2']);
+        expect(fieldIds('all')).toEqual(['o1', 'i2']);
+        expect(inCount()).toBe(0);
+      });
+    });
+
+    it('merges variants whose fields are structurally identical unions', async () => {
+      const { client, mockFetch } = getClient();
+
+      const ImgMedia = t.object({ __typename: t.typename('NoteMedia'), kind: t.variant('img'), url: t.string });
+      const VidMedia = t.object({ __typename: t.typename('NoteMedia'), kind: t.variant('vid'), duration: t.number });
+
+      // Each class builds its own t.union instance, so the two `media` defs
+      // own distinct VariantGroups and can only compare structurally.
+      class PhotoNote extends Entity {
+        __typename = t.typename('Note');
+        id = t.id;
+        kind = t.variant('photo');
+        media = t.union(ImgMedia, VidMedia);
+      }
+
+      class TextNote extends Entity {
+        __typename = t.typename('Note');
+        id = t.id;
+        kind = t.variant('text');
+        media = t.union(ImgMedia, VidMedia);
+      }
+
+      class Notes extends RESTQuery {
+        path = '/notes';
+        result = {
+          items: t.array(t.union(t.entity(PhotoNote), t.entity(TextNote))),
+        };
+      }
+
+      mockFetch.get('/notes', {
+        items: [
+          { __typename: 'Note', id: 'n1', kind: 'photo', media: { __typename: 'NoteMedia', kind: 'img', url: 'u' } },
+          { __typename: 'Note', id: 'n2', kind: 'text', media: { __typename: 'NoteMedia', kind: 'vid', duration: 3 } },
+        ],
+      });
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(Notes);
+        // Registering both defs merges them; the dev-only field compatibility
+        // check must accept the structurally identical `media` unions.
+        await relay;
+
+        const items = (relay.value as { items: Array<{ id: string }> }).items;
+        expect(items.map(n => String(n.id))).toEqual(['n1', 'n2']);
       });
     });
   });

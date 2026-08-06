@@ -13,16 +13,16 @@ import {
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 
 /**
- * Pick the def matching the entity's variant tag. Returns the single def
- * directly, and undefined when several defs share the typename but none (or
- * no data) resolves a variant.
+ * Pick the def matching the entity's variant tag. Returns a single
+ * non-variant def directly, and undefined when the data resolves no declared
+ * variant.
  */
 function resolveEventDef(
   defs: ValidatorDef<any>[],
   data: Record<string, unknown> | undefined,
 ): ValidatorDef<any> | undefined {
-  if (defs.length === 1) return defs[0];
-  if (data === undefined) return undefined;
+  if (defs.length === 1 && defs[0].variantValue === undefined) return defs[0];
+  if (data === undefined) return defs.length === 1 ? defs[0] : undefined;
   for (const def of defs) {
     if (
       def.variantValue !== undefined &&
@@ -150,11 +150,18 @@ export class LiveCollectionBinding {
     const entityInstance = this._queryClient.entityMap.getEntity(entityKey);
 
     if (eventType === 'delete') {
-      let def = resolveEventDef(defs, entityInstance?.data ?? deleteData);
+      const data = entityInstance?.data ?? deleteData;
+      let def = resolveEventDef(defs, data);
       if (def === undefined && entityInstance !== undefined) {
         def = defs.find(d => entityInstance.satisfiesDef(d as unknown as ValidatorDef<unknown>));
       }
-      def ??= defs[0];
+      if (def === undefined) {
+        // The tag names a variant this binding does not declare: not ours.
+        // Deletes carrying no tag (id-only, entity already gone) still route.
+        const variantField = defs[0].variantField;
+        if (variantField !== undefined && data?.[variantField] !== undefined) return;
+        def = defs[0];
+      }
       const entity = entityInstance !== undefined ? entityInstance.getProxy(def as unknown as EntityDef) : deleteData;
       if (entity !== undefined) {
         this.instance.onEvent(entityKey, entity, deleteData ?? entityInstance?.data ?? {}, 'delete');
