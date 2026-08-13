@@ -143,13 +143,19 @@ export function typeToString(type: InternalObjectFieldTypeDef): string {
   return 'unknown';
 }
 
-/** Union payload's `__typename` matched no known variant. Typed so callers can degrade optional fields to `undefined` and surface required ones. */
+/** Union payload's typename (or variant, for members sharing a typename) matched no known member. Typed so callers can degrade optional fields to `undefined` and surface required ones. */
 export class UnknownUnionVariantError extends Error {
   readonly typename: string;
-  constructor(typename: string, path?: string) {
-    super(`Unknown typename '${typename}' in union${path ? ` at ${path}` : ''}`);
+  readonly variant: string | undefined;
+  constructor(typename: string, path?: string, variant?: string) {
+    super(
+      variant === undefined
+        ? `Unknown typename '${typename}' in union${path ? ` at ${path}` : ''}`
+        : `Unknown variant '${variant}' for typename '${typename}' in union${path ? ` at ${path}` : ''}`,
+    );
     this.name = 'UnknownUnionVariantError';
     this.typename = typename;
+    this.variant = variant;
   }
 }
 

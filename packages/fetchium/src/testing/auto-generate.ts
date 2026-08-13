@@ -1,4 +1,4 @@
-import { ValidatorDef, getEntityDef, CaseInsensitiveSet } from '../typeDefs.js';
+import { ValidatorDef, VariantGroup, getEntityDef, CaseInsensitiveSet } from '../typeDefs.js';
 import { Mask, type InternalTypeDef, type InternalObjectShape } from '../types.js';
 import type { Entity } from '../proxy.js';
 import type { FieldGenerator } from './types.js';
@@ -217,15 +217,24 @@ function generateEntity(def: ValidatorDef<any>, ctx: GeneratorContext): Record<s
 }
 
 function generateUnion(def: ValidatorDef<any>, fieldName: string, ctx: GeneratorContext): unknown {
-  const shape = def.shape as Record<string, ValidatorDef<any>> | undefined;
+  const shape = def.shape as Record<string, ValidatorDef<any> | VariantGroup> | undefined;
 
   if (shape === undefined) return undefined;
 
   for (const key of Object.keys(shape)) {
     if (typeof key === 'string') {
-      const variant = shape[key];
-      if (variant instanceof ValidatorDef) {
-        return generateFromValidatorDef(variant, fieldName, ctx);
+      const member = shape[key];
+      if (member instanceof VariantGroup) {
+        for (const variantKey of Object.keys(member.defs)) {
+          const variant = member.defs[variantKey];
+          if (variant instanceof ValidatorDef) {
+            return generateFromValidatorDef(variant, fieldName, ctx);
+          }
+        }
+        continue;
+      }
+      if (member instanceof ValidatorDef) {
+        return generateFromValidatorDef(member, fieldName, ctx);
       }
     }
   }

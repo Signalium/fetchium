@@ -3,6 +3,7 @@ import {
   ARRAY_KEY,
   ComplexTypeDef,
   EntityConfig,
+  EntityDef,
   EntityMethods,
   ExtractType,
   InternalTypeDef,
@@ -54,6 +55,20 @@ if (IS_DEV) {
 
     if (a instanceof Set && b instanceof Set) {
       return setsEqual(a, b);
+    }
+
+    // Union shape entries: every union owns fresh VariantGroups, so compare
+    // structurally rather than by reference.
+    if (a instanceof VariantGroup && b instanceof VariantGroup) {
+      if (a.variantField !== b.variantField) return false;
+      const aKeys = Object.keys(a.defs);
+      const bKeys = Object.keys(b.defs);
+      if (aKeys.length !== bKeys.length) return false;
+      for (const key of aKeys) {
+        const bDef = b.defs[key];
+        if (bDef === undefined || !fieldTypesCompatible(a.defs[key], bDef)) return false;
+      }
+      return true;
     }
 
     if (a instanceof ValidatorDef && b instanceof ValidatorDef) {
@@ -120,6 +135,7 @@ function mergeObjectShapes(
   shapes: (Record<string, unknown> | undefined)[],
   count: number,
   typename: string,
+  variantField?: string,
 ): Record<string, unknown> {
   const allKeys = new Set<string>();
   for (const shape of shapes) {
@@ -133,6 +149,33 @@ function mergeObjectShapes(
   const merged: Record<string, unknown> = {};
 
   for (const key of allKeys) {
+    // The variant field intentionally differs across defs (one literal per
+    // variant), so merge it to the union of the values instead of asserting
+    // field-type compatibility.
+    if (key === variantField) {
+      let allSets = true;
+      let variantPresent = 0;
+      for (const shape of shapes) {
+        const fieldDef = shape?.[key];
+        if (fieldDef === undefined) continue;
+        variantPresent++;
+        if (!(fieldDef instanceof Set)) allSets = false;
+      }
+
+      if (allSets && variantPresent > 0) {
+        const values = new Set<string | boolean | number>();
+        for (const shape of shapes) {
+          const fieldDef = shape?.[key];
+          if (fieldDef instanceof Set) {
+            for (const v of fieldDef) values.add(v as string | boolean | number);
+          }
+        }
+        merged[key] =
+          variantPresent < count ? new ValidatorDef(Mask.UNDEFINED, undefined, values) : (values as unknown);
+        continue;
+      }
+    }
+
     let presentCount = 0;
     let firstDef: unknown = undefined;
     const nestedShapes: (Record<string, unknown> | undefined)[] = [];
@@ -175,6 +218,8 @@ export class ValidatorDef<T> {
   public shape: InternalTypeDef | InternalObjectShape | UnionTypeDefs | ComplexTypeDef[] | undefined;
   public typenameField: string | undefined = undefined;
   public typenameValue: string | undefined = undefined;
+  public variantField: string | undefined = undefined;
+  public variantValue: string | undefined = undefined;
   public idField: string | symbol | undefined = undefined;
   public values: Set<string | boolean | number> | undefined = undefined;
 
@@ -228,7 +273,19 @@ export class ValidatorDef<T> {
     const shapes = defs.map(d => d.shape as Record<string, unknown> | undefined);
     const typename = defs[0].typenameValue ?? '(unknown)';
 
-    const mergedShape = mergeObjectShapes(shapes, count, typename);
+    let variantField: string | undefined;
+
+    for (const def of defs) {
+      if (variantField === undefined) {
+        variantField = def.variantField;
+      } else if (def.variantField !== undefined && def.variantField !== variantField) {
+        throw new Error(
+          `[fetchium] Entity typename '${def.typenameValue}' has conflicting variant fields: '${variantField}' vs '${def.variantField}'`,
+        );
+      }
+    }
+
+    const mergedShape = mergeObjectShapes(shapes, count, typename, variantField);
 
     let idField: string | symbol | undefined;
     let typenameField: string | undefined;
@@ -247,7 +304,7 @@ export class ValidatorDef<T> {
       if (typenameValue === undefined) typenameValue = def.typenameValue;
     }
 
-    return new ValidatorDef(
+    const merged = new ValidatorDef(
       Mask.ENTITY | Mask.OBJECT,
       mergedShape as any,
       undefined,
@@ -255,6 +312,9 @@ export class ValidatorDef<T> {
       typenameValue,
       idField,
     );
+    // The merged def spans all variants, so it carries the field but no value.
+    merged.variantField = variantField;
+    return merged;
   }
 
   static cloneWith(def: ValidatorDef<any>, mask: Mask): ValidatorDef<any> {
@@ -266,6 +326,8 @@ export class ValidatorDef<T> {
       def.typenameValue,
       def.idField,
     );
+    newDef.variantField = def.variantField;
+    newDef.variantValue = def.variantValue;
     newDef._methods = def._methods;
     newDef._entityConfig = def._entityConfig;
     newDef._entityClass = def._entityClass;
@@ -346,6 +408,43 @@ registerCustomHash(CaseInsensitiveSet, set => {
 });
 
 // -----------------------------------------------------------------------------
+// Variants
+// -----------------------------------------------------------------------------
+
+/**
+ * A single-value Set marking its field as the owning type's variant tag.
+ * Validates exactly like `t.const(value)`; additionally records the
+ * (field, value) pair on the def so unions can dispatch on it when several
+ * members share a typename. Unlike the typename, the variant is not part of
+ * entity identity.
+ */
+export class VariantSet<T extends string> extends Set<T> {
+  readonly value: T;
+
+  constructor(value: T) {
+    super([value]);
+    this.value = value;
+  }
+}
+
+const VARIANT_SET_SEED = 0x56415254;
+
+registerCustomHash(VariantSet, set => (VARIANT_SET_SEED + hashValue(set.value)) >>> 0);
+
+/**
+ * Union shape entry for members that share a typename: a second-level
+ * dispatch table keyed by each member's variant value.
+ */
+export class VariantGroup {
+  readonly variantField: string;
+  readonly defs: Record<string, ObjectDef | EntityDef> = Object.create(null);
+
+  constructor(variantField: string) {
+    this.variantField = variantField;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Complex Type Definitions
 // -----------------------------------------------------------------------------
 
@@ -376,6 +475,8 @@ function defineObjectOrEntity(baseMask: Mask, shape: InternalObjectShape): Valid
   let idField: string | undefined = undefined;
   let typenameField: string | undefined = undefined;
   let typenameValue: string | undefined = undefined;
+  let variantField: string | undefined = undefined;
+  let variantValue: string | undefined = undefined;
 
   for (const [key, value] of entries(shape)) {
     switch (typeof value) {
@@ -397,6 +498,16 @@ function defineObjectOrEntity(baseMask: Mask, shape: InternalObjectShape): Valid
         typenameValue = value;
         break;
       case 'object':
+        if (value instanceof VariantSet) {
+          if (variantField !== undefined) {
+            throw new Error(`Duplicate variant field: ${key}`);
+          }
+
+          variantField = key;
+          variantValue = value.value;
+          break;
+        }
+
         if (value instanceof CaseInsensitiveSet || value instanceof Set) {
           break;
         }
@@ -408,13 +519,58 @@ function defineObjectOrEntity(baseMask: Mask, shape: InternalObjectShape): Valid
     }
   }
 
-  return new ValidatorDef(mask, shape, undefined, typenameField, typenameValue, idField);
+  const def = new ValidatorDef(mask, shape, undefined, typenameField, typenameValue, idField);
+  def.variantField = variantField;
+  def.variantValue = variantValue;
+  return def;
 }
 
 export function defineObject<T extends Record<string, TypeDef>>(shape: T): TypeDef<ExtractType<T>> {
   return defineObjectOrEntity(Mask.OBJECT, shape as unknown as InternalObjectShape) as unknown as TypeDef<
     ExtractType<T>
   >;
+}
+
+function duplicateTypenameError(typename: string): Error {
+  return new Error(
+    `Duplicate typename value '${typename}' in union. Union members must be unique by typename, or by (typename, variant) when members sharing a typename declare a t.variant(...) field`,
+  );
+}
+
+/**
+ * Add one variant def under `typename`, creating or extending its
+ * VariantGroup. The group is always owned by `unionShape` (never a caller's),
+ * so nested unions can be merged without aliasing.
+ */
+function addVariantDefToUnion(
+  unionShape: UnionTypeDefs,
+  typename: string,
+  variantField: string,
+  variantValue: string,
+  def: ObjectDef | EntityDef,
+): void {
+  const existing = unionShape[typename];
+
+  if (existing === undefined) {
+    const group = new VariantGroup(variantField);
+    group.defs[variantValue] = def;
+    unionShape[typename] = group;
+  } else if (existing instanceof VariantGroup) {
+    if (existing.variantField !== variantField) {
+      throw new Error(
+        `Union variant field conflict: typename '${typename}' has variants keyed on '${existing.variantField}' and '${variantField}'`,
+      );
+    }
+
+    const duplicate = existing.defs[variantValue];
+    if (duplicate !== undefined && duplicate !== def) {
+      throw new Error(`Duplicate variant value '${variantValue}' for typename '${typename}' in union`);
+    }
+
+    existing.defs[variantValue] = def;
+  } else {
+    throw duplicateTypenameError(typename);
+  }
 }
 
 function addDefToUnion(
@@ -441,10 +597,20 @@ function addDefToUnion(
     if (nestedShape !== undefined) {
       for (const key of [...keys(nestedShape), ARRAY_KEY, RECORD_KEY] as const) {
         const value = nestedShape[key];
+        if (value === undefined) continue;
 
-        if (unionShape[key] !== undefined && unionShape[key] !== value) {
+        if (value instanceof VariantGroup) {
+          for (const variantKey of keys(value.defs)) {
+            addVariantDefToUnion(unionShape, key as string, value.variantField, variantKey, value.defs[variantKey]);
+          }
+          continue;
+        }
+
+        const existing = unionShape[key];
+
+        if (existing !== undefined && existing !== value) {
           throw new Error(
-            `Union merge conflict: Duplicate typename value '${String(key)}' found when merging nested unions (${String(unionShape[key])} vs ${String(value)})`,
+            `Union merge conflict: Duplicate typename value '${String(key)}' found when merging nested unions`,
           );
         }
 
@@ -478,7 +644,20 @@ function addDefToUnion(
     }
 
     unionTypenameField = typenameField;
-    unionShape[typename] = def as ObjectDef;
+
+    const variantValue = (def as ObjectDef).variantValue;
+
+    if (variantValue !== undefined) {
+      addVariantDefToUnion(unionShape, typename, (def as ObjectDef).variantField!, variantValue, def as ObjectDef);
+    } else {
+      const existing = unionShape[typename];
+
+      if (existing !== undefined && existing !== def) {
+        throw duplicateTypenameError(typename);
+      }
+
+      unionShape[typename] = def as ObjectDef;
+    }
   }
 
   return unionTypenameField;
@@ -591,6 +770,10 @@ function defineNullable<T extends TypeDef>(type: T): TypeDef<ExtractType<T> | nu
 
 function defineTypename<T extends string>(value: T): TypeDef<T> {
   return value as unknown as TypeDef<T>;
+}
+
+function defineVariant<T extends string>(value: T): TypeDef<T> {
+  return new VariantSet(value) as unknown as TypeDef<T>;
 }
 
 function defineConst<T extends string | boolean | number>(value: T): TypeDef<T> {
@@ -941,6 +1124,7 @@ function defineLiveValue(valueType: TypeDef, entityOrArray: unknown, opts: LiveV
 export const t: APITypes = {
   format: defineFormatted,
   typename: defineTypename,
+  variant: defineVariant,
   const: defineConst,
   enum: defineEnum,
   id: (Mask.ID | Mask.STRING | Mask.NUMBER) as unknown as TypeDef<string | number>,

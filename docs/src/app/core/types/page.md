@@ -62,6 +62,7 @@ In addition to these basic primitives, there are a number of additional special 
 | `t.enum(...values)`                 | Union of literals       | One of a set of constant values                                                                                                                                                                   |
 | `t.enum.caseInsensitive(...values)` | Union of literals       | Case-insensitive set of values. All values get coerced to the casing in the _definition_. While not _recommended_, this is helpful for legacy APIs which may have inconsistent casing             |
 | `t.typename(value)`                 | Literal string          | Type identifier for object and [Entity](/core/entities) types                                                                                                                                     |
+| `t.variant(value)`                  | Literal string          | Variant tag for object and [Entity](/core/entities) types that share a typename in a union. Validates like `t.const(value)`; see [Unions with Shared Typenames](#unions-with-shared-typenames)    |
 | `t.id`                              | `string \| number`      | Identifier for [Entity](/core/entities) types                                                                                                                                                     |
 | `t.result(type)`                    | `ParseResult<T>`        | Parse result for explicit handling of parse errors                                                                                                                                                |
 | `t.format(name)`                    | Registered format type  | Formatted string or number value, such as `date` or `date-time`. Formatted values are serialized and deserialized via a registered format function, and types are registered in a global registry |
@@ -208,7 +209,7 @@ This is a massive performance penalty on one of the most common patterns in API 
 
 This brings us to Fetchium's _first_ major restriction on unions:
 
-> **Object/entity unions must be discriminated.** When a union contains multiple object or entity types, each must have a _type_ field, denoted with `t.typename(...)`. This field can be _any_ field (you can call it `type` or `typename` or `__typename` or anything else that is a valid string), but ALL objects in a union must have the _same_ typename field, and each object must have a _unique_ typename _value_.
+> **Object/entity unions must be discriminated.** When a union contains multiple object or entity types, each must have a _type_ field, denoted with `t.typename(...)`. This field can be _any_ field (you can call it `type` or `typename` or `__typename` or anything else that is a valid string), but ALL objects in a union must have the _same_ typename field, and each object must be unique within the union: either by its typename _value_, or by its `(typename, variant)` pair when members deliberately share a typename (see [Unions with Shared Typenames](#unions-with-shared-typenames) below).
 
 So for example, to define our `TextItem` and `ImageItem` types, we could do the following:
 
@@ -272,6 +273,39 @@ const ImageItem = t.object({
 
 const FeedItem = t.union(TextItem, ImageItem);
 ```
+
+### Unions with Shared Typenames
+
+Sometimes one entity type has multiple _shapes_: the API returns a single conceptual type, with one typename and one id space, but payloads come in two or more forms selected by a separate tag field. The typename can't discriminate such a union, because it is the same for every member. Declaring the tag field with `t.variant(...)` lets the union dispatch on it instead:
+
+```ts
+// ✅ Valid, shared typename discriminated by variant
+class ImagePost extends Entity {
+  __typename = t.typename('Post');
+  id = t.id;
+  kind = t.variant('image');
+  url = t.string;
+}
+
+class GalleryPost extends Entity {
+  __typename = t.typename('Post');
+  id = t.id;
+  kind = t.variant('gallery');
+  images = t.array(t.entity(ImagePost));
+}
+
+const Post = t.union(t.entity(ImagePost), t.entity(GalleryPost));
+```
+
+`t.typename` establishes the entity's _identity_: all variants share one cache key space, `[typename, id]`, and [mutation events](/core/streaming) target the shared typename. `t.variant` only selects which shape a payload parses as; it is not part of identity, and validates exactly like `t.const(value)`.
+
+Three rules follow from this:
+
+- All members sharing a typename must declare the _same_ variant field.
+- Each member must have a _unique_ variant value within its typename.
+- The variant is _fixed_ for the lifetime of an entity. A tag that can change at runtime is a state field, not a variant: use `t.enum` on a single shape instead.
+
+Because ids are shared across variants of a typename, the API must guarantee that ids never collide between two variants; two values with the same id are the same entity as far as the cache is concerned.
 
 ### Unions of Collections
 

@@ -7,7 +7,14 @@
 
 import { hashValue } from 'signalium/utils';
 import type { QueryClient, PreloadedEntityMap } from './QueryClient.js';
-import { CaseInsensitiveSet, FormattedValue, FORMAT_MASK_SHIFT, ValidatorDef } from './typeDefs.js';
+import {
+  CaseInsensitiveSet,
+  FormattedValue,
+  FORMAT_MASK_SHIFT,
+  ValidatorDef,
+  VariantGroup,
+  VariantSet,
+} from './typeDefs.js';
 import { typeError, UnknownUnionVariantError } from './errors.js';
 import {
   ARRAY_KEY,
@@ -323,10 +330,26 @@ function parseUnionData(
       return parseRecordData(value as Record<string, unknown>, recordShape as ComplexTypeDef, ctx, path);
     }
 
-    const matchingDef = unionDef.shape![typename];
+    const entry = unionDef.shape![typename];
 
-    if (matchingDef === undefined || typeof matchingDef === 'number') {
+    if (entry === undefined || typeof entry === 'number') {
       throw new UnknownUnionVariantError(typename, path);
+    }
+
+    // Members sharing a typename are grouped by variant; resolve the second
+    // level from the payload's variant field.
+    let matchingDef: ObjectDef | EntityDef;
+    if (entry instanceof VariantGroup) {
+      const variantValue = (value as Record<string, unknown>)[entry.variantField];
+      const variantDef = typeof variantValue === 'string' ? entry.defs[variantValue] : undefined;
+
+      if (variantDef === undefined) {
+        throw new UnknownUnionVariantError(typename, path, String(variantValue));
+      }
+
+      matchingDef = variantDef;
+    } else {
+      matchingDef = entry as ObjectDef | EntityDef;
     }
 
     if (matchingDef.mask & Mask.ENTITY && ctx.queryClient !== undefined) {
@@ -490,6 +513,13 @@ function objectSatisfiesShape(
     if (key === typenameField) continue;
 
     const fieldDef = shape[key];
+
+    // A variant tag must match by value: an entity of one variant does not
+    // satisfy a sibling variant's shape even when field profiles overlap.
+    if (fieldDef instanceof VariantSet) {
+      if (data[key] !== fieldDef.value) return false;
+      continue;
+    }
 
     if (fieldDef instanceof ValidatorDef) {
       if ((fieldDef.mask & Mask.UNDEFINED) !== 0) continue;
