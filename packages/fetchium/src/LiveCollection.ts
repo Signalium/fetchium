@@ -54,8 +54,8 @@ export interface LiveCollectionParent {
   key: number;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[];
-  addChildRef(child: EntityInstance): void;
-  removeChildRef(child: EntityInstance): void;
+  addChildRef(child: EntityInstance, persist?: boolean): void;
+  removeChildRef(child: EntityInstance, persist?: boolean): void;
   save(): void;
 }
 
@@ -341,7 +341,7 @@ export class LiveArrayInstance {
         if (key !== undefined) {
           const child = this._queryClient.entityMap.getEntity(key);
           if (child !== undefined) {
-            this._parent.addChildRef(child);
+            this._parent.addChildRef(child, false);
           }
         }
       }
@@ -352,7 +352,7 @@ export class LiveArrayInstance {
         if (key !== undefined) {
           const child = this._queryClient.entityMap.getEntity(key);
           if (child !== undefined) {
-            this._parent.removeChildRef(child);
+            this._parent.removeChildRef(child, false);
           }
         }
       }

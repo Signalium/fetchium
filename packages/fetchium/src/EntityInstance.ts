@@ -225,15 +225,15 @@ export class EntityInstance {
     if (persist) this.save();
   }
 
-  addChildRef(child: EntityInstance): void {
+  addChildRef(child: EntityInstance, persist: boolean = true): void {
     if (this.entityRefs === undefined) this.entityRefs = new Map();
     const count = this.entityRefs.get(child) ?? 0;
     this.entityRefs.set(child, count + 1);
     if (count === 0) child.retain();
-    this.save();
+    if (persist) this.save();
   }
 
-  removeChildRef(child: EntityInstance): void {
+  removeChildRef(child: EntityInstance, persist: boolean = true): void {
     if (this.entityRefs === undefined) return;
     const count = this.entityRefs.get(child);
     if (count === undefined) return;
@@ -243,7 +243,7 @@ export class EntityInstance {
     } else {
       this.entityRefs.set(child, count - 1);
     }
-    this.save();
+    if (persist) this.save();
   }
 
   getProxy(shape: EntityDef): Record<string, unknown> {
