@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { reactive } from 'signalium';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
@@ -11,6 +11,7 @@ import type { MutationEvent } from '../types.js';
 import { QueryClient } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { RESTQueryAdapter } from '../rest/index.js';
+import { getProxyId } from '../proxyId.js';
 
 async function applyEventOutsideReactiveContext(client: QueryClient, event: MutationEvent): Promise<void> {
   await new Promise<void>(resolve => {
@@ -103,6 +104,70 @@ describe('LiveArray', () => {
       const result = relay.value!;
       const items = reactive(() => result.items);
       expect(items()).toHaveLength(2);
+    });
+  });
+
+  it('retains shared children and saves the parent once when a refetch resets the array', async () => {
+    const { client, mockFetch, store } = getClient();
+    class Item extends Entity {
+      __typename = t.typename('ResetItem');
+      id = t.id;
+      listId = t.string;
+      name = t.string;
+    }
+
+    class List extends Entity {
+      __typename = t.typename('ResetList');
+      id = t.id;
+      items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
+    }
+
+    class GetList extends RESTQuery {
+      params = { id: t.id };
+      path = `/reset-list/${this.params.id}`;
+      result = { list: t.entity(List) };
+    }
+
+    mockFetch.get('/reset-list/[id]', {
+      list: {
+        __typename: 'ResetList',
+        id: '1',
+        items: [
+          { __typename: 'ResetItem', id: '1', listId: '1', name: 'A' },
+          { __typename: 'ResetItem', id: '2', listId: '1', name: 'B' },
+        ],
+      },
+    });
+
+    await testWithClient(client, async () => {
+      const relay = fetchQuery(GetList, { id: '1' });
+      await relay;
+      const list = relay.value!.list;
+      const retainedItem = list.items[1];
+      const retainedKey = getProxyId(retainedItem)!;
+      const saveEntity = vi.spyOn(store, 'saveEntity');
+
+      mockFetch.get('/reset-list/[id]', {
+        list: {
+          __typename: 'ResetList',
+          id: '1',
+          items: [
+            { __typename: 'ResetItem', id: '2', listId: '1', name: 'B updated' },
+            { __typename: 'ResetItem', id: '3', listId: '1', name: 'C' },
+          ],
+        },
+      });
+
+      (relay.value as any).__refetch();
+      await relay;
+
+      const parentSaves = saveEntity.mock.calls.filter(
+        ([, value]) => (value as Record<string, unknown>).__typename === 'ResetList',
+      );
+      expect(parentSaves).toHaveLength(1);
+      expect(list.items.map(item => item.name)).toEqual(['B updated', 'C']);
+      expect(list.items[0]).toBe(retainedItem);
+      expect(client.entityMap.getEntity(retainedKey)?.refCount).toBe(1);
     });
   });
 
