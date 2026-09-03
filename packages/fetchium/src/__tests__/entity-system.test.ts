@@ -4,7 +4,6 @@ import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import {
-  createTestClient,
   getClientEntityMap,
   getEntityMapSize,
   testWithClient,
@@ -1419,7 +1418,7 @@ describe('Entity System', () => {
 
   describe('destroy()', () => {
     it('clears the entity graph', async () => {
-      const { client, mockFetch } = createTestClient();
+      const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
