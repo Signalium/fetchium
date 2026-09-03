@@ -172,7 +172,7 @@ describe('Mutation Events', () => {
       });
     });
 
-    it('should apply independent sequential events to different entities without leaking state between them', async () => {
+    it('should apply a second sequential event to the same entity, not a stale parse of the first', async () => {
       const { client, mockFetch } = getClient();
       class MutSeqItem extends Entity {
         __typename = t.typename('MutSeqItem');
@@ -180,54 +180,43 @@ describe('Mutation Events', () => {
         name = t.string;
       }
 
-      class GetMutSeqItemOne extends RESTQuery {
+      class GetMutSeqItem extends RESTQuery {
         params = { id: t.id };
-        path = `/mut-seq-item-one/${this.params.id}`;
+        path = `/mut-seq-item/${this.params.id}`;
         result = { item: t.entity(MutSeqItem) };
       }
 
-      class GetMutSeqItemTwo extends RESTQuery {
-        params = { id: t.id };
-        path = `/mut-seq-item-two/${this.params.id}`;
-        result = { item: t.entity(MutSeqItem) };
-      }
-
-      mockFetch.get('/mut-seq-item-one/[id]', {
-        item: { __typename: 'MutSeqItem', id: '1', name: 'First' },
-      });
-      mockFetch.get('/mut-seq-item-two/[id]', {
-        item: { __typename: 'MutSeqItem', id: '2', name: 'Second' },
+      mockFetch.get('/mut-seq-item/[id]', {
+        item: { __typename: 'MutSeqItem', id: '1', name: 'Original' },
       });
 
       await testWithClient(client, async () => {
-        const relayOne = await fetchQuery(GetMutSeqItemOne, { id: '1' });
-        const relayTwo = await fetchQuery(GetMutSeqItemTwo, { id: '2' });
+        const relay = await fetchQuery(GetMutSeqItem, { id: '1' });
+        const item = relay.item;
+        const name = reactive(() => item.name);
 
-        const itemOne = relayOne.item;
-        const itemTwo = relayTwo.item;
-        const nameOne = reactive(() => itemOne.name);
-        const nameTwo = reactive(() => itemTwo.name);
+        expect(name()).toBe('Original');
 
-        expect(nameOne()).toBe('First');
-        expect(nameTwo()).toBe('Second');
-
-        // Two sequential events on the same client reuse the client's
-        // ParseContext (see QueryClient.applyMutationEvent). Firing them
-        // back-to-back for different entities catches stale `seen` /
-        // `seenByKey` state leaking from one event's parse into the next.
+        // Two sequential events for the SAME entity share the client's reused
+        // ParseContext (see QueryClient.applyMutationEvent). seenByKey is keyed
+        // by hashValue([typename, id]), so if reset() failed to clear it between
+        // calls, the second event would hit the stale entry left by the first
+        // and parseEntityData would return that cached data instead of parsing
+        // this event's payload — the entity would silently keep the first
+        // event's value.
         await applyEventOutsideReactiveContext(client, {
           type: 'update',
           typename: 'MutSeqItem',
-          data: { id: '1', name: 'First Updated' },
+          data: { id: '1', name: 'First Update' },
         });
+        expect(name()).toBe('First Update');
+
         await applyEventOutsideReactiveContext(client, {
           type: 'update',
           typename: 'MutSeqItem',
-          data: { id: '2', name: 'Second Updated' },
+          data: { id: '1', name: 'Second Update' },
         });
-
-        expect(nameOne()).toBe('First Updated');
-        expect(nameTwo()).toBe('Second Updated');
+        expect(name()).toBe('Second Update');
       });
     });
   });
