@@ -81,6 +81,10 @@ export class QueryClient {
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
   private adapters = new Map<QueryAdapterClass, QueryAdapter>();
   private networkUnsubscribe: (() => void) | undefined;
+  // Reused across applyMutationEvent() calls — that path is synchronous and the
+  // context never escapes the call, so a fresh ParseContext (plus its two Maps)
+  // per SSE event is unnecessary allocation on a hot path.
+  private mutationParseContext = new ParseContext();
 
   constructor(config: QueryClientConfig = {}) {
     const {
@@ -387,7 +391,7 @@ export class QueryClient {
 
     try {
       const warn = this.context.log?.warn ?? (() => {});
-      const parseCtx = new ParseContext();
+      const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
       applyEntityRefs(parseCtx, parsedData, true);

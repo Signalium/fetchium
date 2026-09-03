@@ -171,6 +171,65 @@ describe('Mutation Events', () => {
         expect(detail.description).toBe('A fine widget');
       });
     });
+
+    it('should apply independent sequential events to different entities without leaking state between them', async () => {
+      const { client, mockFetch } = getClient();
+      class MutSeqItem extends Entity {
+        __typename = t.typename('MutSeqItem');
+        id = t.id;
+        name = t.string;
+      }
+
+      class GetMutSeqItemOne extends RESTQuery {
+        params = { id: t.id };
+        path = `/mut-seq-item-one/${this.params.id}`;
+        result = { item: t.entity(MutSeqItem) };
+      }
+
+      class GetMutSeqItemTwo extends RESTQuery {
+        params = { id: t.id };
+        path = `/mut-seq-item-two/${this.params.id}`;
+        result = { item: t.entity(MutSeqItem) };
+      }
+
+      mockFetch.get('/mut-seq-item-one/[id]', {
+        item: { __typename: 'MutSeqItem', id: '1', name: 'First' },
+      });
+      mockFetch.get('/mut-seq-item-two/[id]', {
+        item: { __typename: 'MutSeqItem', id: '2', name: 'Second' },
+      });
+
+      await testWithClient(client, async () => {
+        const relayOne = await fetchQuery(GetMutSeqItemOne, { id: '1' });
+        const relayTwo = await fetchQuery(GetMutSeqItemTwo, { id: '2' });
+
+        const itemOne = relayOne.item;
+        const itemTwo = relayTwo.item;
+        const nameOne = reactive(() => itemOne.name);
+        const nameTwo = reactive(() => itemTwo.name);
+
+        expect(nameOne()).toBe('First');
+        expect(nameTwo()).toBe('Second');
+
+        // Two sequential events on the same client reuse the client's
+        // ParseContext (see QueryClient.applyMutationEvent). Firing them
+        // back-to-back for different entities catches stale `seen` /
+        // `seenByKey` state leaking from one event's parse into the next.
+        await applyEventOutsideReactiveContext(client, {
+          type: 'update',
+          typename: 'MutSeqItem',
+          data: { id: '1', name: 'First Updated' },
+        });
+        await applyEventOutsideReactiveContext(client, {
+          type: 'update',
+          typename: 'MutSeqItem',
+          data: { id: '2', name: 'Second Updated' },
+        });
+
+        expect(nameOne()).toBe('First Updated');
+        expect(nameTwo()).toBe('Second Updated');
+      });
+    });
   });
 
   // ============================================================
