@@ -171,6 +171,54 @@ describe('Mutation Events', () => {
         expect(detail.description).toBe('A fine widget');
       });
     });
+
+    it('should apply a second sequential event to the same entity, not a stale parse of the first', async () => {
+      const { client, mockFetch } = getClient();
+      class MutSeqItem extends Entity {
+        __typename = t.typename('MutSeqItem');
+        id = t.id;
+        name = t.string;
+      }
+
+      class GetMutSeqItem extends RESTQuery {
+        params = { id: t.id };
+        path = `/mut-seq-item/${this.params.id}`;
+        result = { item: t.entity(MutSeqItem) };
+      }
+
+      mockFetch.get('/mut-seq-item/[id]', {
+        item: { __typename: 'MutSeqItem', id: '1', name: 'Original' },
+      });
+
+      await testWithClient(client, async () => {
+        const relay = await fetchQuery(GetMutSeqItem, { id: '1' });
+        const item = relay.item;
+        const name = reactive(() => item.name);
+
+        expect(name()).toBe('Original');
+
+        // Two sequential events for the SAME entity share the client's reused
+        // ParseContext (see QueryClient.applyMutationEvent). seenByKey is keyed
+        // by hashValue([typename, id]), so if reset() failed to clear it between
+        // calls, the second event would hit the stale entry left by the first
+        // and parseEntityData would return that cached data instead of parsing
+        // this event's payload — the entity would silently keep the first
+        // event's value.
+        await applyEventOutsideReactiveContext(client, {
+          type: 'update',
+          typename: 'MutSeqItem',
+          data: { id: '1', name: 'First Update' },
+        });
+        expect(name()).toBe('First Update');
+
+        await applyEventOutsideReactiveContext(client, {
+          type: 'update',
+          typename: 'MutSeqItem',
+          data: { id: '1', name: 'Second Update' },
+        });
+        expect(name()).toBe('Second Update');
+      });
+    });
   });
 
   // ============================================================

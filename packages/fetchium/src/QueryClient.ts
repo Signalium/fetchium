@@ -81,6 +81,7 @@ export class QueryClient {
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
   private adapters = new Map<QueryAdapterClass, QueryAdapter>();
   private networkUnsubscribe: (() => void) | undefined;
+  private mutationParseContext = new ParseContext();
 
   constructor(config: QueryClientConfig = {}) {
     const {
@@ -387,7 +388,7 @@ export class QueryClient {
 
     try {
       const warn = this.context.log?.warn ?? (() => {});
-      const parseCtx = new ParseContext();
+      const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
       applyEntityRefs(parseCtx, parsedData, true);
