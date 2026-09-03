@@ -4,6 +4,7 @@ import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import {
+  createTestClient,
   getClientEntityMap,
   getEntityMapSize,
   testWithClient,
@@ -1413,6 +1414,41 @@ describe('Entity System', () => {
         expect(result.users[1].__typename).toBe('User');
         expect(result.users[1].name).toBe('Bob');
       });
+    });
+  });
+
+  describe('destroy()', () => {
+    it('clears the entity graph', async () => {
+      const { client, mockFetch } = createTestClient();
+      class User extends Entity {
+        __typename = t.typename('User');
+        id = t.id;
+        name = t.string;
+      }
+
+      mockFetch.get('/users/[id]', {
+        user: {
+          __typename: 'User',
+          id: 1,
+          name: 'Alice',
+        },
+      });
+
+      await testWithClient(client, async () => {
+        class GetUser extends RESTQuery {
+          params = { id: t.id };
+          path = `/users/${this.params.id}`;
+          result = { user: t.entity(User) };
+        }
+
+        await fetchQuery(GetUser, { id: '1' });
+      });
+
+      expect(getEntityMapSize(client)).toBeGreaterThan(0);
+
+      client.destroy();
+
+      expect(getEntityMapSize(client)).toBe(0);
     });
   });
 });

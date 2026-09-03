@@ -519,6 +519,7 @@ export class QueryClient {
     this.adapters.clear();
     this.queryInstances.clear();
     this.mutationInstances.clear();
+    this.entityMap.clear();
     this.constraintRegistry.clear();
     this.typenameRegistry.clear();
     this.mergedDefCache.clear();

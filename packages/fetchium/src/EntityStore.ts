@@ -54,6 +54,10 @@ export class EntityStore {
     this.instances.delete(key);
   }
 
+  clear(): void {
+    this.instances.clear();
+  }
+
   save(instance: EntityInstance): void {
     let refKeys: Set<number> | undefined;
     if (instance.entityRefs) {
