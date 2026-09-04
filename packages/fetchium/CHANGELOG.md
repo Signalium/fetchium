@@ -1,5 +1,13 @@
 # fetchium
 
+## 0.5.1
+
+### Patch Changes
+
+- e5fc04f: Batch parent saves during live array resets. `addChildRef`/`removeChildRef` each called `save()`, and `LiveArrayInstance.reset()` called them once per item — serializing and persisting the full parent once per child reference update instead of once overall. The entity-apply flow now writes the completed parent a single time, preserving add-before-remove retention.
+- e5fc04f: Add `EntityStore.clear()` and call it from `QueryClient.destroy()`. Previously `destroy()` cleared query instances, mutation instances, and every other internal registry, but left the entity map fully populated — a full teardown had no supported way to drop cached entities, forcing consumers to reach into `EntityStore`'s private `instances` map directly.
+- e5fc04f: Reuse a single `ParseContext` across `applyMutationEvent()` calls instead of allocating a fresh one (plus two `Map`s) per event. This path runs once for every entity update received over a live subscription (e.g. SSE), often many times per frame on high-frequency streams.
+
 ## 0.5.0
 
 ### Minor Changes
