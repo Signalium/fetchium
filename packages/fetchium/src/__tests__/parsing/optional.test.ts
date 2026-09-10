@@ -421,6 +421,51 @@ describe('t.optional', () => {
         );
       });
 
+      it('should name the expected and received type in the warn context', () => {
+        const warnLogger = vi.fn();
+        const OptionalNumber = t.optional(t.number);
+
+        parseValue('1234.5', OptionalNumber, 'item.total', warnLogger);
+
+        expect(warnLogger).toHaveBeenCalledWith(
+          'Invalid value for optional type, defaulting to undefined',
+          expect.objectContaining({
+            path: 'item.total',
+            value: '1234.5',
+            expected: expect.stringContaining('number'),
+            received: 'string',
+          }),
+        );
+      });
+
+      it('should report an object-typed field that received a primitive', () => {
+        const warnLogger = vi.fn();
+        const OptionalObject = t.optional(t.object({}));
+
+        parseValue('US', OptionalObject, 'location.country', warnLogger);
+
+        expect(warnLogger).toHaveBeenCalledWith(
+          'Invalid value for optional type, defaulting to undefined',
+          expect.objectContaining({
+            path: 'location.country',
+            expected: 'object',
+            received: 'string',
+          }),
+        );
+      });
+
+      it('should list the permitted members when an optional enum misses', () => {
+        const warnLogger = vi.fn();
+        const OptionalStatus = t.optional(t.enum('active', 'inactive'));
+
+        parseValue('unknown_status', OptionalStatus, 'test.status', warnLogger);
+
+        const context = warnLogger.mock.calls[0]?.[1] as { expected: string; received: string };
+        expect(context.expected).toContain('"active"');
+        expect(context.expected).toContain('"inactive"');
+        expect(context.received).toBe('string');
+      });
+
       it('should fall back to undefined even without warn logger', () => {
         const OptionalNumber = t.optional(t.number);
 
