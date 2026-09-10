@@ -15,7 +15,7 @@ import {
   VariantGroup,
   VariantSet,
 } from './typeDefs.js';
-import { typeError, UnknownUnionVariantError } from './errors.js';
+import { typeError, typeToString, UnknownUnionVariantError } from './errors.js';
 import {
   ARRAY_KEY,
   ArrayDef,
@@ -211,7 +211,12 @@ function parseData(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: Parse
 
     if ((def & valueType) === 0) {
       if ((def & Mask.UNDEFINED) !== 0) {
-        ctx.warn('Invalid value for optional type, defaulting to undefined', { value, path });
+        ctx.warn('Invalid value for optional type, defaulting to undefined', {
+          value,
+          path,
+          expected: typeToString(def),
+          received: typeToString(valueType),
+        });
         return undefined;
       }
       throw typeError(path, def, value);
@@ -249,7 +254,12 @@ function parseData(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: Parse
 
   if ((propMask & valueType) === 0 && !def.values?.has(value as string | boolean | number)) {
     if ((propMask & Mask.UNDEFINED) !== 0) {
-      ctx.warn('Invalid value for optional type, defaulting to undefined', { value, path });
+      ctx.warn('Invalid value for optional type, defaulting to undefined', {
+        value,
+        path,
+        expected: typeToString(def as InternalObjectFieldTypeDef),
+        received: typeToString(valueType),
+      });
       return undefined;
     }
     throw typeError(path, propMask, value);
