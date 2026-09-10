@@ -391,7 +391,7 @@ export class QueryClient {
       const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
-      applyEntityRefs(parseCtx, parsedData, true);
+      applyEntityRefs(parseCtx, parsedData, /* persist */ true);
     } catch (e) {
       // Unknown required-union variant: surface as an error (not a silent warn)
       // so the dropped update is visible. Optional unions degrade during parse.
@@ -409,8 +409,6 @@ export class QueryClient {
 
     const entity = this.entityMap.getEntity(key);
     if (entity === undefined) return;
-
-    this.entityMap.save(entity);
 
     const wasNew = existing === undefined;
     let matched = false;

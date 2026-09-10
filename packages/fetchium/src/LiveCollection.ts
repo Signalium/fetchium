@@ -300,8 +300,11 @@ export class LiveArrayInstance {
 
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
+      // Only the parent's ref set changes here; the child's own write belongs
+      // to the apply pass that produced the insert. An append merge run with
+      // `persist: false` therefore no longer writes a child the caller asked
+      // to keep out of the store.
       this._parent.addChildRef(child);
-      child.save();
     }
 
     this._notifier.notify();
