@@ -156,6 +156,7 @@
     "test:unit": "vitest run --project unit",
     "test:transform": "vitest run --project transform",
     "test:react": "vitest run --project react",
+    "bench": "vitest bench --project bench",
     "check-types": "tsc --noEmit",
     "copy-docs": "node scripts/copy-docs.mjs",
     "build": "npm run copy-docs && npm run build:clean && npm run build:types && npm run build:dev && npm run build:prod && node scripts/generate-legacy-entries.cjs",
