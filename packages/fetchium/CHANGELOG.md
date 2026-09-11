@@ -1,5 +1,21 @@
 # fetchium
 
+## 0.6.0
+
+### Minor Changes
+
+- 837938c: Applying data identical to what an entity already holds no longer notifies consumers. Previously an unchanged refetch or poll produced one notify per entity, plus a consumer recompute and a re-snapshot for each. Comparison is by value, and anything that can't be compared confidently — a `Date`, a typed array, a class instance — counts as changed, so the failure mode is a redundant notify rather than a dropped update. An unchanged entity is also no longer written to the store by the apply itself, though a streamed mutation event still writes it afterwards through a separate unconditional save in `applyMutationEvent`.
+
+  Two behavior changes: a refetch returning identical data no longer re-renders consumers, though `isPending`/`isFetching` still transition and the query's freshness record is still written; and record fields (`t.record(...)`) now apply updates at all, where merging previously recursed into the record's value type, iterated nothing, and restored the previous value.
+
+### Patch Changes
+
+- 1cf5318: Entity snapshots no longer walk the proxy to read fields, and an entity whose data hasn't changed is no longer re-read at all. Previously `Object.keys(proxy)` triggered a descriptor trap per key that computed the value in order to report it, so every field was read twice on every dependency change. Each entity now carries a version, and a snapshot taken at the same version re-reads only the fields whose values live elsewhere: child entities, live collections, and a query's own getters.
+
+  Array items are paired with the snapshot they produced themselves rather than the one at the same index, so inserting into or re-sorting a list no longer gives every existing row a new snapshot identity. Output is otherwise unchanged. Dev builds re-read the skipped fields to verify that, so the speedup is a production-build property.
+
+- 2f4a5a3: Include `expected` and `received` type names in the warning logged when an optional field's value fails to match its type. Previously only the value and path were reported, while the required-field branch already named both through `typeError`.
+
 ## 0.5.1
 
 ### Patch Changes
