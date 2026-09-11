@@ -318,12 +318,17 @@ describe('Entity Change Detection', () => {
       await query;
     });
 
+    const instance = client.entityMap.getEntity(hashValue(['Token', 'tok-0']))!;
     recorder = recordNotifies();
+
+    // The no-op must leave the value intact; the real change must land it.
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-0', price: 0 } });
     expect(recorder.notified).toEqual([]);
+    expect(instance.data.price).toBe(0);
 
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-0', price: 7 } });
     expect(recorder.notified).toEqual(['Token:tok-0']);
+    expect(instance.data.price).toBe(7);
   });
 
   it('notifies only the nested entity a mutation event actually changes', async () => {
@@ -360,7 +365,7 @@ describe('Entity Change Detection', () => {
     const owner = client.entityMap.getEntity(hashValue(['Owner', 'o-1']))!;
     recorder = recordNotifies();
 
-    // Skipping the notify must not skip the merge, so assert the value either way.
+    // The no-op must leave the value intact; the real change must land it.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Ann') });
     expect(recorder.notified).toEqual([]);
     expect(owner.data.name).toBe('Ann');
