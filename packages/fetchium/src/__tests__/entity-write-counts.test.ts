@@ -14,7 +14,7 @@ import { testWithClient, setupTestClient, sleep } from './utils.js';
  * A streamed entity event used to write the entity twice: once through
  * `applyEntityRefs(persist: true)` and again through an unconditional save in
  * `applyMutationEvent`. These pin the write count so the duplicate can't come
- * back, and pin that a single write is still enough to survive a restart.
+ * back, and pin that a single write is still enough for a later client to read.
  */
 
 class Item extends Entity {
@@ -27,6 +27,17 @@ class Item extends Entity {
 class GetItems extends RESTQuery {
   path = '/items';
   result = { items: t.array(t.entity(Item)) };
+}
+
+class List extends Entity {
+  __typename = t.typename('List');
+  id = t.id;
+  items = t.liveArray(Item, { constraints: { listId: (this as unknown as { id: string }).id } });
+}
+
+class GetList extends RESTQuery {
+  path = '/list';
+  result = { list: t.entity(List) };
 }
 
 function itemSaves(spy: ReturnType<typeof vi.spyOn>, typename = 'Item') {
@@ -97,16 +108,6 @@ describe('Entity Write Counts', () => {
   it('does not re-write a child when a live array gains it', async () => {
     const { client, mockFetch, store } = getClient();
 
-    class List extends Entity {
-      __typename = t.typename('List');
-      id = t.id;
-      items = t.liveArray(Item, { constraints: { listId: (this as unknown as { id: string }).id } });
-    }
-    class GetList extends RESTQuery {
-      path = '/list';
-      result = { list: t.entity(List) };
-    }
-
     mockFetch.get('/list', {
       list: {
         __typename: 'List',
@@ -135,6 +136,36 @@ describe('Entity Write Counts', () => {
     expect(itemSaves(saveEntity, 'List')).toHaveLength(1);
   });
 
+  it('writes only the parent when a live array gains a child that did not change', async () => {
+    const { client, mockFetch, store } = getClient();
+    mockFetch.get('/items', { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }] });
+    mockFetch.get('/list', { list: { __typename: 'List', id: 'l-1', items: [] } });
+
+    let listQuery!: { value: { list: { items: { id: string }[] } } };
+    await testWithClient(client, async () => {
+      const items = fetchQuery(GetItems);
+      await items;
+      const query = fetchQuery(GetList);
+      await query;
+      listQuery = query as unknown as typeof listQuery;
+    });
+
+    const saveEntity = vi.spyOn(store, 'saveEntity');
+    // The item is already current in the store from the first query, so the
+    // apply declines its write. The insert must not put one back.
+    client.applyMutationEvent({
+      type: 'update',
+      typename: 'Item',
+      data: { id: 'i-1', listId: 'l-1', name: 'A' },
+    });
+    await sleep(5);
+
+    expect(itemSaves(saveEntity)).toHaveLength(0);
+    // Only the parent's ref set changed, and that write proves the insert ran.
+    expect(itemSaves(saveEntity, 'List')).toHaveLength(1);
+    expect(listQuery.value.list.items.map(i => i.id)).toEqual(['i-1']);
+  });
+
   it('keeps an entity written by an event readable by a later client', async () => {
     const { client, mockFetch, store } = getClient();
     mockFetch.get('/items', { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }] });
@@ -155,7 +186,7 @@ describe('Entity Write Counts', () => {
     mockFetch.get(
       '/items',
       { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'Refetched' }] },
-      { delay: 50 },
+      { delay: 10_000 },
     );
 
     const client2 = new QueryClient({
@@ -165,8 +196,8 @@ describe('Entity Write Counts', () => {
 
     await testWithClient(client2, async () => {
       const query = fetchQuery(GetItems);
-      // Force a pull so the store hydration starts, without awaiting the
-      // refetch — the cached value has to win.
+      // Force a pull so the store hydration starts. The refetch is too slow
+      // to land, so only the store read can satisfy this.
       void query.value;
       await sleep();
       expect((query.value as unknown as { items: { name: string }[] }).items[0].name).toBe('Persisted');
