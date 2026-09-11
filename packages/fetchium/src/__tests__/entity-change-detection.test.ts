@@ -357,14 +357,18 @@ describe('Entity Change Detection', () => {
       await query;
     });
 
+    const owner = client.entityMap.getEntity(hashValue(['Owner', 'o-1']))!;
     recorder = recordNotifies();
 
+    // Skipping the notify must not skip the merge, so assert the value either way.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Ann') });
     expect(recorder.notified).toEqual([]);
+    expect(owner.data.name).toBe('Ann');
 
     // The parent's own fields and its ref set are unchanged, so it stays quiet.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Bea') });
     expect(recorder.notified).toEqual(['Owner:o-1']);
+    expect(owner.data.name).toBe('Bea');
   });
 
   it('applies a key removed from a shapeless record', async () => {
