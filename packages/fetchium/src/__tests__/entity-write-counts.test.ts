@@ -52,6 +52,29 @@ describe('Entity Write Counts', () => {
     expect(client.entityMap.getEntity(hashValue(['Item', 'i-1']))!.data.name).toBe('B');
   });
 
+  it('writes nothing for streamed events that repeat the current value', async () => {
+    const { client, mockFetch, store } = getClient();
+    mockFetch.get('/items', { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }] });
+
+    await testWithClient(client, async () => {
+      const query = fetchQuery(GetItems);
+      await query;
+    });
+
+    const saveEntity = vi.spyOn(store, 'saveEntity');
+
+    // A subscription re-broadcasting what the store already holds: the apply
+    // declines the write, and nothing writes on its behalf afterwards.
+    for (let i = 0; i < 10; i++) {
+      client.applyMutationEvent({ type: 'update', typename: 'Item', data: { id: 'i-1', name: 'A' } });
+    }
+    expect(itemSaves(saveEntity)).toHaveLength(0);
+
+    client.applyMutationEvent({ type: 'update', typename: 'Item', data: { id: 'i-1', name: 'B' } });
+    expect(itemSaves(saveEntity)).toHaveLength(1);
+    expect(client.entityMap.getEntity(hashValue(['Item', 'i-1']))!.data.name).toBe('B');
+  });
+
   it('writes an entity once per streamed event that creates it', async () => {
     const { client, mockFetch, store } = getClient();
     mockFetch.get('/items', { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }] });
