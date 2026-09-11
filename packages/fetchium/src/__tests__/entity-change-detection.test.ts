@@ -309,7 +309,7 @@ describe('Entity Change Detection', () => {
     });
   });
 
-  it('notifies nothing for a mutation event that carries only unchanged fields', async () => {
+  it('notifies for a mutation event only when it changes a field', async () => {
     const { client, mockFetch } = getClient();
     mockFetch.get('/portfolio', portfolio(2));
 
