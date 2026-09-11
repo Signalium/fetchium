@@ -186,7 +186,7 @@ describe('Entity Write Counts', () => {
     mockFetch.get(
       '/items',
       { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'Refetched' }] },
-      { delay: 10_000 },
+      { delay: 1000 },
     );
 
     const client2 = new QueryClient({
@@ -196,8 +196,8 @@ describe('Entity Write Counts', () => {
 
     await testWithClient(client2, async () => {
       const query = fetchQuery(GetItems);
-      // Force a pull so the store hydration starts. The refetch is too slow
-      // to land, so only the store read can satisfy this.
+      // Force a pull so the store hydration starts. The refetch is far slower
+      // than this tick, so only the store read can satisfy the assertion.
       void query.value;
       await sleep();
       expect((query.value as unknown as { items: { name: string }[] }).items[0].name).toBe('Persisted');
