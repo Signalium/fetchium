@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sameValue, sameRefs } from '../applyEntities.js';
+import { sameValue, sameRefs, sameKeys } from '../applyEntities.js';
 import { FormattedValue } from '../typeDefs.js';
 import { PROXY_ID } from '../proxyId.js';
 import type { EntityInstance } from '../EntityInstance.js';
@@ -124,5 +124,29 @@ describe('sameRefs', () => {
     // `EntityStore.save` writes a key set; `setChildRefs` acts on a key
     // appearing or disappearing. A count change writes identical bytes.
     expect(sameRefs(new Map([[a, 1]]), new Map([[a, 3]]))).toBe(true);
+  });
+});
+
+describe('sameKeys', () => {
+  // A wrong `true` here leaves a key the server removed in the store.
+  const cases: [string, Record<string, unknown>, Record<string, unknown>, boolean][] = [
+    ['both empty', {}, {}, true],
+    ['same keys, same values', { a: 1 }, { a: 1 }, true],
+    ['same keys, different values', { a: 1 }, { a: 2 }, true],
+    ['same keys in a different order', { a: 1, b: 2 }, { b: 9, a: 9 }, true],
+    ['a key added', { a: 1 }, { a: 1, b: 2 }, false],
+    ['a key removed', { a: 1, b: 2 }, { a: 1 }, false],
+    ['same count, different keys', { a: 1 }, { b: 1 }, false],
+    ['a key holding undefined still counts', { a: undefined }, {}, false],
+  ];
+
+  it.each(cases)('%s', (_label, a, b, expected) => {
+    expect(sameKeys(a, b)).toBe(expected);
+  });
+
+  it('answers on own keys only, not inherited ones', () => {
+    const inherited = Object.create({ a: 1 }) as Record<string, unknown>;
+    expect(sameKeys({ a: 1 }, inherited)).toBe(false);
+    expect(sameKeys(inherited, { a: 1 })).toBe(false);
   });
 });

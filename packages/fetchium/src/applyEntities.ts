@@ -159,10 +159,7 @@ function applyEntity(
 
   const newRefs = childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
-  // Skipping the write needs something already written to skip. `persist` is
-  // caller-supplied — `applyRefs` takes it as a parameter and the cache-hydrate
-  // path passes `false` — so an entity that has never been saved is written
-  // even when this apply changed nothing.
+  // An entity hydrated from the store was never written, so there is no write to skip.
   const needsPersist = changed || refsChanged || !entityInstance._persisted;
   entityInstance.setChildRefs(newRefs, persist && needsPersist);
 
@@ -201,8 +198,9 @@ function mergeFields(
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
       const existingValue = existingData[fieldKey];
       if (existingValue instanceof LiveCollectionBinding) {
-        const live = appendMode ? existingValue.append(data[fieldKey]) : existingValue.reset(data[fieldKey]);
-        if (live) changed = true;
+        if (appendMode ? existingValue.append(data[fieldKey]) : existingValue.reset(data[fieldKey])) {
+          changed = true;
+        }
       } else {
         existingData[fieldKey] = createLiveCollection(
           propShape._liveConfig,
@@ -281,12 +279,8 @@ function mergeFields(
   return changed;
 }
 
-/**
- * Structural equality for parsed field values. Entity proxies compare by
- * identity (one proxy per entity and shape), formatted values by the raw input
- * they were built from, arrays and plain objects element by element.
- */
-function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+/** Whether both records have the same set of own keys. */
+export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const aKeys = Object.keys(a);
   if (aKeys.length !== Object.keys(b).length) return false;
   for (let i = 0; i < aKeys.length; i++) {
@@ -295,6 +289,11 @@ function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boole
   return true;
 }
 
+/**
+ * Structural equality for parsed field values. Entity proxies compare by
+ * identity (one proxy per entity and shape), formatted values by the raw input
+ * they were built from, arrays and plain objects element by element.
+ */
 export function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;

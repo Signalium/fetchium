@@ -40,6 +40,35 @@ class GetPortfolio extends RESTQuery {
   result = { tokens: t.array(t.entity(Token)) };
 }
 
+class Item extends Entity {
+  __typename = t.typename('Item');
+  id = t.id;
+  listId = t.string;
+  name = t.string;
+}
+
+class List extends Entity {
+  __typename = t.typename('List');
+  id = t.id;
+  items = t.liveArray(Item, { constraints: { listId: (this as unknown as { id: string }).id } });
+}
+
+class GetList extends RESTQuery {
+  path = '/list';
+  result = { list: t.entity(List) };
+}
+
+/** A list whose members are named in order; `i-1`, `i-2`, ... */
+function list(...names: string[]) {
+  return {
+    list: {
+      __typename: 'List',
+      id: 'l-1',
+      items: names.map((name, i) => ({ __typename: 'Item', id: `i-${i + 1}`, listId: 'l-1', name })),
+    },
+  };
+}
+
 function token(i: number, price = i) {
   return {
     __typename: 'Token',
@@ -210,32 +239,7 @@ describe('Entity Change Detection', () => {
   it('notifies nothing when a refetch returns identical live-array membership', async () => {
     const { client, mockFetch } = getClient();
 
-    class Item extends Entity {
-      __typename = t.typename('Item');
-      id = t.id;
-      listId = t.string;
-      name = t.string;
-    }
-    class List extends Entity {
-      __typename = t.typename('List');
-      id = t.id;
-      items = t.liveArray(Item, { constraints: { listId: (this as unknown as { id: string }).id } });
-    }
-    class GetList extends RESTQuery {
-      path = '/list';
-      result = { list: t.entity(List) };
-    }
-
-    const response = {
-      list: {
-        __typename: 'List',
-        id: 'l-1',
-        items: [
-          { __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' },
-          { __typename: 'Item', id: 'i-2', listId: 'l-1', name: 'B' },
-        ],
-      },
-    };
+    const response = list('A', 'B');
     mockFetch.get('/list', response);
 
     await testWithClient(client, async () => {
@@ -261,29 +265,7 @@ describe('Entity Change Detection', () => {
   it('notifies when a live array gains a member on refetch', async () => {
     const { client, mockFetch } = getClient();
 
-    class Item extends Entity {
-      __typename = t.typename('Item');
-      id = t.id;
-      listId = t.string;
-      name = t.string;
-    }
-    class List extends Entity {
-      __typename = t.typename('List');
-      id = t.id;
-      items = t.liveArray(Item, { constraints: { listId: (this as unknown as { id: string }).id } });
-    }
-    class GetList extends RESTQuery {
-      path = '/list';
-      result = { list: t.entity(List) };
-    }
-
-    mockFetch.get('/list', {
-      list: {
-        __typename: 'List',
-        id: 'l-1',
-        items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }],
-      },
-    });
+    mockFetch.get('/list', list('A'));
 
     await testWithClient(client, async () => {
       const query = fetchQuery(GetList);
@@ -291,16 +273,7 @@ describe('Entity Change Detection', () => {
 
       recorder = recordNotifies();
 
-      mockFetch.get('/list', {
-        list: {
-          __typename: 'List',
-          id: 'l-1',
-          items: [
-            { __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' },
-            { __typename: 'Item', id: 'i-2', listId: 'l-1', name: 'B' },
-          ],
-        },
-      });
+      mockFetch.get('/list', list('A', 'B'));
       (query.value as unknown as { __refetch(): void }).__refetch();
       await query;
 
@@ -308,6 +281,30 @@ describe('Entity Change Detection', () => {
       expect((query.value as unknown as { list: { items: { name: string }[] } }).list.items.map(i => i.name)).toEqual([
         'A',
         'B',
+      ]);
+    });
+  });
+
+  it("notifies the changed member, not the list, when a live-array member's own field changes", async () => {
+    const { client, mockFetch } = getClient();
+
+    mockFetch.get('/list', list('A', 'B'));
+
+    await testWithClient(client, async () => {
+      const query = fetchQuery(GetList);
+      await query;
+
+      recorder = recordNotifies();
+
+      // Membership is unchanged, so the list stays quiet.
+      mockFetch.get('/list', list('A', 'B2'));
+      (query.value as unknown as { __refetch(): void }).__refetch();
+      await query;
+
+      expect(recorder.notified).toEqual(['Item:i-2']);
+      expect((query.value as unknown as { list: { items: { name: string }[] } }).list.items.map(i => i.name)).toEqual([
+        'A',
+        'B2',
       ]);
     });
   });
@@ -327,6 +324,47 @@ describe('Entity Change Detection', () => {
 
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-0', price: 7 } });
     expect(recorder.notified).toEqual(['Token:tok-0']);
+  });
+
+  it('notifies only the nested entity a mutation event actually changes', async () => {
+    const { client, mockFetch } = getClient();
+
+    class Owner extends Entity {
+      __typename = t.typename('Owner');
+      id = t.id;
+      name = t.string;
+    }
+    class Doc extends Entity {
+      __typename = t.typename('Doc');
+      id = t.id;
+      title = t.string;
+      owner = t.entity(Owner);
+    }
+    class GetDoc extends RESTQuery {
+      path = '/doc';
+      result = { doc: t.entity(Doc) };
+    }
+
+    const doc = (owner: string) => ({
+      id: 'd-1',
+      title: 'T',
+      owner: { __typename: 'Owner', id: 'o-1', name: owner },
+    });
+    mockFetch.get('/doc', { doc: { __typename: 'Doc', ...doc('Ann') } });
+
+    await testWithClient(client, async () => {
+      const query = fetchQuery(GetDoc);
+      await query;
+    });
+
+    recorder = recordNotifies();
+
+    client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Ann') });
+    expect(recorder.notified).toEqual([]);
+
+    // The parent's own fields and its ref set are unchanged, so it stays quiet.
+    client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Bea') });
+    expect(recorder.notified).toEqual(['Owner:o-1']);
   });
 
   it('applies a key removed from a shapeless record', async () => {

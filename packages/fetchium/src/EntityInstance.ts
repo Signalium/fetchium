@@ -149,12 +149,7 @@ export class EntityInstance {
   idField: string | symbol;
   data: Record<string, unknown>;
   refCount: number = 0;
-  /**
-   * Whether this instance has been written to the store. `applyEntity` skips
-   * the write for an unchanged entity, which is only safe once there is
-   * something to skip; an entity hydrated from the store rather than saved
-   * reads `false` and pays one write on its first fresh apply.
-   */
+  /** Whether this instance has been written to the store. */
   _persisted: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];

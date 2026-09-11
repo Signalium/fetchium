@@ -35,7 +35,7 @@ function resolveEventDef(
   return undefined;
 }
 
-/** Same entities in the same order? */
+/** Whether both lists hold the same entities in the same order. */
 function sameMembers(oldItems: unknown[], newItems: unknown[]): boolean {
   if (oldItems.length !== newItems.length) return false;
   for (let i = 0; i < newItems.length; i++) {
