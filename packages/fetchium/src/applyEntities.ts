@@ -119,8 +119,11 @@ function applyEntity(
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
 
+  // A refetch or a poll that returns identical data is a no-op: nothing to
+  // notify consumers about, and nothing new to write to the store.
+  let changed = true;
   if (isUpdate) {
-    mergeFields(
+    changed = mergeFields(
       shapeFields,
       data,
       existingData,
@@ -133,7 +136,7 @@ function applyEntity(
       childRefs,
       appendMode,
     );
-    entityInstance.notify();
+    if (changed) entityInstance.notify();
   } else {
     initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode);
   }
@@ -154,7 +157,11 @@ function applyEntity(
     }
   }
 
-  entityInstance.setChildRefs(childRefs.size > 0 ? childRefs : undefined, persist);
+  const newRefs = childRefs.size > 0 ? childRefs : undefined;
+  const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
+  // An entity hydrated from the store was never written, so there is no write to skip.
+  const needsPersist = changed || refsChanged || !entityInstance._persisted;
+  entityInstance.setChildRefs(newRefs, persist && needsPersist);
 
   const proxy = entityInstance.getProxy(entityShape);
 
@@ -179,7 +186,8 @@ function mergeFields(
   persist: boolean,
   childRefs: Map<EntityInstance, number>,
   appendMode: boolean,
-): void {
+): boolean {
+  let changed = false;
   for (const [fieldKey, propShape] of entries(shape)) {
     if (rawKeys !== undefined && !rawKeys.has(fieldKey)) continue;
 
@@ -190,10 +198,8 @@ function mergeFields(
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
       const existingValue = existingData[fieldKey];
       if (existingValue instanceof LiveCollectionBinding) {
-        if (appendMode) {
-          existingValue.append(data[fieldKey]);
-        } else {
-          existingValue.reset(data[fieldKey]);
+        if (appendMode ? existingValue.append(data[fieldKey]) : existingValue.reset(data[fieldKey])) {
+          changed = true;
         }
       } else {
         existingData[fieldKey] = createLiveCollection(
@@ -203,45 +209,138 @@ function mergeFields(
           entityData,
           queryClient,
         );
+        changed = true;
       }
     } else {
       const newVal = data[fieldKey];
       const oldVal = existingData[fieldKey];
+      if (newVal === oldVal) continue;
       // Replace a union wholesale instead of merging by field, otherwise a
       // changed variant keeps the old variant's fields. Unlike entity unions,
       // there is no partial-update path to preserve here: a partial variant
       // payload fails validation, so every update carries the full variant.
       const isUnion = propShape instanceof ValidatorDef && (propShape.mask & Mask.UNION) !== 0;
       if (!isUnion && isPlainObject(newVal) && isPlainObject(oldVal)) {
+        // Only an object/entity def carries a record of field defs. A record
+        // def's shape is its *value* type — a bare `Mask` for `t.record(t.string)`
+        // — and recursing into that iterated `Object.entries(8)`, merged
+        // nothing, and then restored the old value: record fields never
+        // applied an update, an addition or a removal.
         const nestedShape =
-          propShape instanceof ValidatorDef && propShape.shape !== undefined
+          propShape instanceof ValidatorDef &&
+          propShape.shape !== undefined &&
+          typeof propShape.shape === 'object' &&
+          !(propShape.shape instanceof ValidatorDef) &&
+          !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
         if (nestedShape !== undefined) {
-          mergeFields(
-            nestedShape,
-            newVal,
-            oldVal,
-            undefined,
-            entityInstance,
-            entityData,
-            seen,
-            queryClient,
-            persist,
-            childRefs,
-            appendMode,
-          );
-        } else {
-          for (const k of Object.keys(newVal)) {
-            oldVal[k] = newVal[k];
+          if (
+            mergeFields(
+              nestedShape,
+              newVal,
+              oldVal,
+              undefined,
+              entityInstance,
+              entityData,
+              seen,
+              queryClient,
+              persist,
+              childRefs,
+              appendMode,
+            )
+          ) {
+            changed = true;
           }
+          existingData[fieldKey] = oldVal;
+        } else if (sameKeys(oldVal, newVal)) {
+          // Shapeless object (e.g. a record) with the same keys: copy field by field, keeping the
+          // existing value — and its identity — wherever it already matches.
+          for (const k of Object.keys(newVal)) {
+            if (!sameValue(oldVal[k], newVal[k])) {
+              oldVal[k] = newVal[k];
+              changed = true;
+            }
+          }
+          existingData[fieldKey] = oldVal;
+        } else {
+          // A key was added or removed. Copying field by field would never
+          // apply a removal, leaving the old key in `data` indefinitely.
+          existingData[fieldKey] = newVal;
+          changed = true;
         }
-        existingData[fieldKey] = oldVal;
-      } else {
+      } else if (!sameValue(oldVal, newVal)) {
+        // Otherwise the existing value stays, so its identity survives.
         existingData[fieldKey] = newVal;
+        changed = true;
       }
     }
   }
+  return changed;
+}
+
+/** Whether both records have the same set of own keys. */
+export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    if (!Object.hasOwn(b, aKeys[i])) return false;
+  }
+  return true;
+}
+
+/**
+ * Structural equality for parsed field values. Entity proxies compare by
+ * identity (one proxy per entity and shape), formatted values by the raw input
+ * they were built from, arrays and plain objects element by element.
+ */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (a instanceof FormattedValue || b instanceof FormattedValue) {
+    return a instanceof FormattedValue && b instanceof FormattedValue && a._raw === b._raw;
+  }
+  // Distinct proxies are distinct entities, and anything else exotic (a Date, a
+  // live collection binding, a class instance) is not safely comparable.
+  if (PROXY_ID.has(a) || PROXY_ID.has(b)) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!sameValue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (Object.getPrototypeOf(a) !== ObjectProto || Object.getPrototypeOf(b) !== ObjectProto) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    const key = aKeys[i];
+    // `hasOwn`, not `in`: `in` reaches the prototype, so a key missing from `b`
+    // can be answered by `Object.prototype` and compared against instead.
+    if (!Object.hasOwn(b, key)) return false;
+    if (!sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
+/**
+ * Compares the ref *key set*, which is what a write would change: the store
+ * persists `refKeys` with no counts, and `setChildRefs` retains and releases on
+ * a key appearing or disappearing. Comparing counts would force a write that
+ * produced byte-identical bytes.
+ */
+export function sameRefs(
+  a: Map<EntityInstance, number> | undefined,
+  b: Map<EntityInstance, number> | undefined,
+): boolean {
+  const aSize = a === undefined ? 0 : a.size;
+  const bSize = b === undefined ? 0 : b.size;
+  if (aSize !== bSize) return false;
+  if (aSize === 0) return true;
+  for (const entity of a!.keys()) {
+    if (!b!.has(entity)) return false;
+  }
+  return true;
 }
 
 // ======================================================
@@ -277,8 +376,17 @@ function initFields(
     } else {
       const val = data[fieldKey];
       if (isPlainObject(val)) {
+        // Only an object/entity def carries a record of field defs. A record
+        // def's shape is its *value* type — a bare `Mask` for `t.record(t.string)`
+        // — and recursing into that iterated `Object.entries(8)`, merged
+        // nothing, and then restored the old value: record fields never
+        // applied an update, an addition or a removal.
         const nestedShape =
-          propShape instanceof ValidatorDef && propShape.shape !== undefined
+          propShape instanceof ValidatorDef &&
+          propShape.shape !== undefined &&
+          typeof propShape.shape === 'object' &&
+          !(propShape.shape instanceof ValidatorDef) &&
+          !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
         if (nestedShape !== undefined) {
