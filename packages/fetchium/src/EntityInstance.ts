@@ -359,6 +359,8 @@ export class EntityInstance {
   idField: string | symbol;
   data: Record<string, unknown>;
   refCount: number = 0;
+  /** Whether this instance has been written to the store. */
+  _persisted: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
   satisfiedDefs: WeakSet<ValidatorDef<unknown>> = new WeakSet();
@@ -482,6 +484,7 @@ export class EntityInstance {
   }
 
   save(): void {
+    this._persisted = true;
     this._queryClient.entityMap.save(this);
   }
 
