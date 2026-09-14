@@ -160,7 +160,7 @@ function applyEntity(
   const newRefs = childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
   // An entity hydrated from the store was never written, so there is no write to skip.
-  const needsPersist = changed || refsChanged || !entityInstance._persisted;
+  const needsPersist = changed || refsChanged || !entityInstance._persisted || !queryClient.storeReportsDeletes;
   entityInstance.setChildRefs(newRefs, persist && needsPersist);
 
   const proxy = entityInstance.getProxy(entityShape);
