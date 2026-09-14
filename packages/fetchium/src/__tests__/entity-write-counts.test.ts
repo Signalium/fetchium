@@ -86,7 +86,7 @@ describe('Entity Write Counts', () => {
     expect(client.entityMap.getEntity(hashValue(['Item', 'i-1']))!.data.name).toBe('B');
   });
 
-  it('writes an entity once per streamed event that creates it', async () => {
+  it('writes nothing for a created entity that no live collection routes', async () => {
     const { client, mockFetch, store } = getClient();
     mockFetch.get('/items', { items: [{ __typename: 'Item', id: 'i-1', listId: 'l-1', name: 'A' }] });
 
@@ -102,7 +102,9 @@ describe('Entity Write Counts', () => {
       data: { __typename: 'Item', id: 'i-2', listId: 'l-1', name: 'C' },
     });
 
-    expect(itemSaves(saveEntity)).toHaveLength(1);
+    // Evicted, and an unreferenced record would never be collected.
+    expect(itemSaves(saveEntity)).toHaveLength(0);
+    expect(client.entityMap.getEntity(hashValue(['Item', 'i-2']))).toBeUndefined();
   });
 
   it('does not re-write a child when a live array gains it', async () => {
