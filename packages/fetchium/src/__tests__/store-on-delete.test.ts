@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { watcher, withContexts } from 'signalium';
 import { hashValue } from 'signalium/utils';
 import { AsyncQueryStore, type AsyncPersistentStore, type StoreMessage } from '../stores/async.js';
@@ -71,7 +71,7 @@ describe('QueryStore.onDelete', () => {
       connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
     });
     const deleted: number[] = [];
-    writer.onDelete(key => deleted.push(key));
+    writer.onDelete!(key => deleted.push(key));
 
     const q1 = hashValue(['GET:/y', { id: '1' }]);
     const e1 = hashValue(['User', 1]);
@@ -99,7 +99,7 @@ describe('QueryStore.onDelete', () => {
       connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
     });
     const deleted: number[] = [];
-    writer.onDelete(key => deleted.push(key));
+    writer.onDelete!(key => deleted.push(key));
 
     const q1 = hashValue(['GET:/z', { id: '1' }]);
     const q2 = hashValue(['GET:/z', { id: '2' }]);
@@ -160,6 +160,46 @@ describe('stores without onDelete', () => {
     await sleep(5);
     // Identical data, but the store cannot vouch for the record.
     expect(entityWrites).toBe(afterLoad * 2);
+    client.destroy();
+  });
+
+  it('an AsyncQueryStore reader offers no onDelete, so its client writes every apply', async () => {
+    const delegate = new MockAsyncPersistentStore();
+    let writerHandle: ((msg: StoreMessage) => void) | undefined;
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate,
+      connect: h => ((writerHandle = h), { sendMessage: () => {} }),
+    });
+    const reader = new AsyncQueryStore({
+      isWriter: false,
+      delegate,
+      connect: () => ({ sendMessage: msg => writerHandle!(msg) }),
+    });
+    expect(writer.onDelete).toBeTypeOf('function');
+    expect(reader.onDelete).toBeUndefined();
+
+    const mockFetch = createMockFetch();
+    mockFetch.get('/user', { user: { __typename: 'User', id: 1, name: 'Alice' } });
+    const client = new QueryClient({
+      store: reader,
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as never, baseUrl: 'http://localhost' })],
+    } as any);
+    const saveEntity = vi.spyOn(reader, 'saveEntity');
+
+    const query = withContexts([[QueryClientContext, client]], () => {
+      const q = fetchQuery(GetUser);
+      watcher(() => (q as any).value).addListener(() => {});
+      return q;
+    });
+    await query;
+    const afterLoad = saveEntity.mock.calls.length;
+    expect(afterLoad).toBeGreaterThan(0);
+
+    await (query.value as any).__refetch();
+    await sleep(5);
+    // Deletions happen in the writer; the reader cannot know, so it keeps writing.
+    expect(saveEntity.mock.calls.length).toBe(afterLoad * 2);
     client.destroy();
   });
 });

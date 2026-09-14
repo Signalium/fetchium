@@ -6,4 +6,6 @@ Keep the "skip the write when nothing changed" optimisation consistent with the 
 
 `QueryStore` gains an optional `onDelete(listener)`; both built-in stores call it with every id they drop, and the client clears the entity's persisted flag so the next apply writes it again. A custom store that does not implement `onDelete` gets every persisted apply written, as before 0.6.0.
 
+An `AsyncQueryStore` in reader role does not offer `onDelete` (deletions happen in the writer), so a reader-backed client writes every persisted apply, as before 0.6.0.
+
 Also: an entity-array field narrowed by a shared-typename def (`t.array(t.entity(X))` with two entity classes for `X`) is re-narrowed after each apply, so a member that gains the fields the def requires shows up without the array itself having to change.

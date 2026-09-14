@@ -76,10 +76,13 @@ export class AsyncQueryStore implements QueryStore {
   private queueProcessorPromise?: Promise<void>;
   private resolveQueueWait?: () => void;
   private deleteListeners: Array<(key: number) => void> = [];
+  // Only the writer sees deletions; a reader offers no hook, so the client writes every apply.
+  onDelete?: (listener: (key: number) => void) => void;
 
   constructor(config: AsyncQueryStoreConfig) {
     this.isWriter = config.isWriter;
     this.delegate = config.delegate;
+    if (this.isWriter) this.onDelete = listener => this.deleteListeners.push(listener);
 
     // Connect and get sendMessage function
     const { sendMessage } = config.connect(this.handleMessage.bind(this));
@@ -92,10 +95,6 @@ export class AsyncQueryStore implements QueryStore {
       }
       this.startQueueProcessor();
     }
-  }
-
-  onDelete(listener: (key: number) => void): void {
-    this.deleteListeners.push(listener);
   }
 
   private handleMessage(msg: StoreMessage): void {
