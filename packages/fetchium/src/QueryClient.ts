@@ -74,6 +74,8 @@ export class QueryClient {
   store: QueryStore;
 
   currentParseId: number = 0;
+  /** Without `store.onDelete`, `_persisted` cannot be trusted. */
+  storeReportsDeletes: boolean = false;
 
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
@@ -101,6 +103,12 @@ export class QueryClient {
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
     this.entityMap = new EntityStore((key, data, refs) => this.store.saveEntity(key, data, refs));
+    // A record the store drops must be written again by the next apply.
+    this.storeReportsDeletes = typeof this.store.onDelete === 'function';
+    this.store.onDelete?.(key => {
+      const entity = this.entityMap.getEntity(key);
+      if (entity !== undefined) entity._persisted = false;
+    });
 
     // Register user-supplied adapters
     for (const adapter of config.adapters ?? []) {
