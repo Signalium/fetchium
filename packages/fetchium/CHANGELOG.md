@@ -1,5 +1,12 @@
 # fetchium
 
+## 0.5.2
+
+### Patch Changes
+
+- 2f4a5a3: Include `expected` and `received` type names in the warning logged when an optional field's value fails to match its type. Previously only the value and path were reported, while the required-field branch already named both through `typeError`.
+- 227d73d: Stop query subscriptions (such as `poll()`) from leaking after a query deactivates. If a query deactivated while a fetch was in flight, the aborted fetch restarted the subscription on the inactive query, and nothing ever stopped it, even after the query was evicted. Pollers built up with each navigation and kept refetching. Subscriptions now start only while the query is active, and eviction also stops any subscription still running.
+
 ## 0.5.1
 
 ### Patch Changes
