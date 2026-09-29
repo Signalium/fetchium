@@ -463,6 +463,7 @@ export class QueryClient {
     if (type === GcKeyType.Query) {
       const instance = this.queryInstances.get(key);
       if (instance === undefined) return;
+      instance.stopSubscription();
       instance.rootEntity?.evict();
       this.queryInstances.delete(key);
       return;
