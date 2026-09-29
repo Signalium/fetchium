@@ -35,15 +35,6 @@ function resolveEventDef(
   return undefined;
 }
 
-/** Whether both lists hold the same entities in the same order. */
-function sameMembers(oldItems: unknown[], newItems: unknown[]): boolean {
-  if (oldItems.length !== newItems.length) return false;
-  for (let i = 0; i < newItems.length; i++) {
-    if (newItems[i] !== oldItems[i]) return false;
-  }
-  return true;
-}
-
 function buildKeySet(items: unknown[]): Set<number> {
   const keys = new Set<number>();
   for (const item of items) {
@@ -75,10 +66,8 @@ export interface LiveCollectionParent {
 export interface LiveInstance {
   getValue(): unknown;
   getRawValue(): unknown;
-  /** Returns whether the value/membership actually changed. */
-  reset(raw: unknown): boolean;
-  /** Returns whether anything was actually added. */
-  append(raw: unknown): boolean;
+  reset(raw: unknown): void;
+  append(raw: unknown): void;
   onEvent(
     entityKey: number,
     entity: unknown,
@@ -136,12 +125,12 @@ export class LiveCollectionBinding {
     return this.instance.getRawValue();
   }
 
-  reset(parsed: unknown): boolean {
-    return this.instance.reset(parsed);
+  reset(parsed: unknown): void {
+    this.instance.reset(parsed);
   }
 
-  append(parsed: unknown): boolean {
-    return this.instance.append(parsed);
+  append(parsed: unknown): void {
+    this.instance.append(parsed);
   }
 
   /**
@@ -338,10 +327,9 @@ export class LiveArrayInstance {
     return this._keys.has(key);
   }
 
-  reset(rawValue: unknown): boolean {
+  reset(rawValue: unknown): void {
     const oldItems = this._items;
     const newItems = Array.isArray(rawValue) ? rawValue : [];
-    if (sameMembers(oldItems, newItems)) return false;
     this._items = newItems;
     this._keys = buildKeySet(newItems);
 
@@ -370,18 +358,17 @@ export class LiveArrayInstance {
       }
     }
     this._notifier.notify();
-    return true;
   }
 
-  append(rawValue: unknown): boolean {
-    if (!Array.isArray(rawValue)) return false;
-    let added = false;
+  append(rawValue: unknown): void {
+    if (!Array.isArray(rawValue)) return;
     for (const item of rawValue) {
       if (typeof item !== 'object' || item === null) continue;
       const key = getProxyId(item as Record<string, unknown>);
-      if (key !== undefined && this.add(key, item)) added = true;
+      if (key !== undefined) {
+        this.add(key, item);
+      }
     }
-    return added;
   }
 
   private _findIndex(key: number): number {
@@ -462,26 +449,16 @@ export class LiveValueInstance {
     return this._value;
   }
 
-  /**
-   * Shaped differently from `LiveArrayInstance.reset`, which returns before
-   * touching anything: the dedup sets have to be cleared either way, or a
-   * repeated `create` would apply its reducer twice. Only the notify is
-   * conditional.
-   */
-  reset(value: unknown): boolean {
-    const changed = this._value !== value;
+  reset(value: unknown): void {
     this._value = value;
     this._createdKeys.clear();
     this._deletedKeys.clear();
-    if (!changed) return false;
     this._notifier.notify();
-    return true;
   }
 
-  append(_value: unknown): boolean {
+  append(_value: unknown): void {
     // LiveValue doesn't accumulate — append is a no-op.
     // New page's reducer events are handled via the normal event system.
-    return false;
   }
 }
 
