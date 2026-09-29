@@ -93,6 +93,9 @@ export interface QueryStore {
   deleteQuery(queryKey: number): void;
 
   purgeStaleQueries?(): MaybePromise<void>;
+
+  /** Called with the key of every record the store drops on its own (eviction, cascade, purge). */
+  onDelete?(listener: (key: number) => void): void;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

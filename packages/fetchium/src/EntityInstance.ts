@@ -498,6 +498,12 @@ export class EntityInstance {
   }
 }
 
+function sameMembers(a: unknown[], b: unknown[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 function filterEntityArray(array: unknown[], innerDef: ValidatorDef<unknown>, queryClient: QueryClient): unknown[] {
   const result: unknown[] = [];
   for (const item of array) {
@@ -564,7 +570,13 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
   if (shape instanceof ValidatorDef) return isStaticFieldDef(shape);
   if (typeof shape !== 'object') return isStaticFieldDef(shape);
   if (shape instanceof Set) return true;
-  return Object.values(shape as Record<string, unknown>).every(isStaticFieldDef);
+  // Reflect.ownKeys: a union's array/record members sit under symbol keys.
+  const fields = shape as Record<string | symbol, unknown>;
+  const keys = Reflect.ownKeys(fields);
+  for (let i = 0; i < keys.length; i++) {
+    if (!isStaticFieldDef(fields[keys[i]])) return false;
+  }
+  return true;
 }
 
 // ======================================================
@@ -668,7 +680,7 @@ function narrowEntityArray(
   prop: string,
   value: unknown[],
   shapeFields: Record<string, unknown>,
-  filterCache: Map<string, { source: unknown[]; filtered: unknown[] }>,
+  filterCache: Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>,
   queryClient: QueryClient,
 ): unknown[] {
   const fieldDef = shapeFields[prop];
@@ -679,12 +691,15 @@ function narrowEntityArray(
       if (typename !== undefined) {
         const defs = queryClient.getEntityDefsForTypename(typename);
         if (defs !== undefined && defs.length > 1) {
+          // Keyed on the apply epoch too: a member can gain the def's fields without the array changing.
+          const parseId = queryClient.currentParseId;
           const cached = filterCache.get(prop);
-          if (cached !== undefined && cached.source === value) {
+          if (cached !== undefined && cached.source === value && cached.parseId === parseId) {
             return cached.filtered;
           }
-          const filtered = filterEntityArray(value, innerDef, queryClient);
-          filterCache.set(prop, { source: value, filtered });
+          let filtered = filterEntityArray(value, innerDef, queryClient);
+          if (cached !== undefined && sameMembers(cached.filtered, filtered)) filtered = cached.filtered;
+          filterCache.set(prop, { source: value, filtered, parseId });
           return filtered;
         }
       }
@@ -713,7 +728,7 @@ function createProxy(
   const typenameField = shape.typenameField;
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
-  const filterCache = new Map<string, { source: unknown[]; filtered: unknown[] }>();
+  const filterCache = new Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>();
 
   const toJSON = () => ({ __entityRef: key });
 
