@@ -135,9 +135,7 @@ export class QueryInstance<T extends Query> {
           this._fetchNextAbort = undefined;
           this._fetchNextPromise = undefined;
 
-          this.unsubscribe?.();
-          this.unsubscribe = undefined;
-          this.lastSubscribeFn = undefined;
+          this.stopSubscription();
 
           if (isPausing) return;
 
@@ -294,7 +292,18 @@ export class QueryInstance<T extends Query> {
     }
   }
 
+  /** Tears down the running subscription, if any. */
+  stopSubscription(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+    this.lastSubscribeFn = undefined;
+  }
+
   private reconcileSubscription(): void {
+    // A fetch aborted by deactivate() still reaches this from runQuery's
+    // finally. Subscribing then would leave a subscription nothing tears down.
+    if (!this._isActive) return;
+
     const subscribeFn = this.config?.subscribe;
     if (subscribeFn === this.lastSubscribeFn) return;
 

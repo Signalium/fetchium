@@ -11,7 +11,7 @@ import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
-import { setupTestClient } from './utils.js';
+import { setupTestClient, sleep } from './utils.js';
 
 /**
  * Entity Snapshot Tests
@@ -639,5 +639,46 @@ describe('Entity Snapshots', () => {
     instance.data.symbol = original;
     instance.notify();
     read();
+  });
+
+  it('re-snapshots a union field whose only entity-bearing member is an array', async () => {
+    class Item extends Entity {
+      __typename = t.typename('Item');
+      id = t.id;
+      name = t.string;
+    }
+
+    class Container extends Entity {
+      __typename = t.typename('Container');
+      id = t.id;
+      // The array member sits under the ARRAY_KEY symbol; this used to classify as static.
+      content = t.union(t.array(t.entity(Item)), t.object({ __typename: t.typename('Empty'), reason: t.string }));
+    }
+
+    class GetContainer extends RESTQuery {
+      path = '/container';
+      result = { container: t.entity(Container) };
+    }
+
+    const { client, mockFetch } = getClient();
+    mockFetch.get('/container', {
+      container: {
+        __typename: 'Container',
+        id: 'c-1',
+        content: [{ __typename: 'Item', id: 'i-1', name: 'A' }],
+      },
+    });
+
+    const { query, read } = snapshotHarness(client, () => fetchQuery(GetContainer));
+    await query;
+
+    const first = read();
+    expect((first.container as any).content[0].name).toBe('A');
+
+    client.applyMutationEvent({ type: 'update', typename: 'Item', data: { id: 'i-1', name: 'B' } });
+    await sleep(5);
+
+    const second = read();
+    expect((second.container as any).content[0].name).toBe('B');
   });
 });
