@@ -88,6 +88,56 @@ describe('poll() factory', () => {
         expect(callCount).toBeGreaterThan(countAfterFirst);
       });
     });
+
+    it('should not start polling when deactivated during the initial fetch', async () => {
+      const { client, mockFetch } = getClient();
+      let callCount = 0;
+      mockFetch.get('/deactivate-mid-initial-fetch', () => ({ n: ++callCount }), { delay: 50 });
+
+      class GetDeactivateMidInitialFetch extends RESTQuery {
+        path = '/deactivate-mid-initial-fetch';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 100 }) };
+      }
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetDeactivateMidInitialFetch);
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        relay.value;
+        await sleep(20);
+      });
+
+      // Let the in-flight fetch settle, then give a stray poller time to tick.
+      await sleep(400);
+      expect(callCount).toBe(1);
+    });
+
+    it('should not restart polling when deactivated during a poll refetch', async () => {
+      const { client, mockFetch } = getClient();
+      let callCount = 0;
+      mockFetch.get('/deactivate-mid-refetch', async () => {
+        const n = ++callCount;
+        if (n > 1) await sleep(80);
+        return { n };
+      });
+
+      class GetDeactivateMidRefetch extends RESTQuery {
+        path = '/deactivate-mid-refetch';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 100 }) };
+      }
+
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetDeactivateMidRefetch);
+        await relay;
+        // The first poll tick fires at ~100ms and stays in flight for 80ms.
+        await sleep(130);
+        expect(callCount).toBe(2);
+      });
+
+      await sleep(400);
+      expect(callCount).toBe(2);
+    });
   });
 
   describe('getConfig subscribe', () => {
