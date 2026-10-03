@@ -64,14 +64,14 @@ const StatusClosed = t.object({ __typename: t.typename('StatusClosed'), closedAt
 
 class CardReq extends Entity {
   __typename = t.typename('CardReq');
-  id = t.id;
+  id = t.id();
   disabled = t.boolean;
   status = t.union(StatusActive, StatusClosed); // non-optional union
 }
 
 class CardOpt extends Entity {
   __typename = t.typename('CardOpt');
-  id = t.id;
+  id = t.id();
   disabled = t.boolean;
   status = t.optional(t.union(StatusActive, StatusClosed)); // optional union
 }

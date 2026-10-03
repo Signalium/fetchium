@@ -93,7 +93,7 @@ describe('Query Behavior', () => {
 
       await testWithClient(client, async () => {
         class GetItem extends RESTQuery {
-          params = { orgId: t.id, teamId: t.id, userId: t.id };
+          params = { orgId: t.id(), teamId: t.id(), userId: t.id() };
           path = `/org/${this.params.orgId}/team/${this.params.teamId}/user/${this.params.userId}`;
           result = { data: t.string };
         }
@@ -206,7 +206,7 @@ describe('Query Behavior', () => {
 
       await testWithClient(client, async () => {
         class GetItem extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/items/${this.params.id}`;
           result = { url: t.string };
         }

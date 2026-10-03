@@ -234,7 +234,7 @@ describe('t.null', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.union(t.string, t.null);
         }
 
@@ -261,7 +261,7 @@ describe('t.null', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           metadata = t.object({
             avatar: t.union(t.string, t.null),
           });
@@ -294,7 +294,7 @@ describe('t.null', () => {
 
         class Container extends Entity {
           __typename = t.typename('Container');
-          id = t.id;
+          id = t.id();
           items = t.array(t.union(t.string, t.null));
         }
 
@@ -325,7 +325,7 @@ describe('t.null', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.union(t.string, t.null));
         }
 
@@ -356,7 +356,7 @@ describe('t.null', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.number, t.null);
         }
 

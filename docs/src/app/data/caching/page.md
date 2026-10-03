@@ -259,7 +259,7 @@ class User extends Entity {
   static cache = { gcTime: 10 }; // keep in memory 10 minutes after last reference
 
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
 }

@@ -25,7 +25,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
         __subscribe(onEvent: any) {
@@ -37,7 +37,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -87,7 +87,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           streamActivated = true;
@@ -98,7 +98,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -128,7 +128,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           streamActivated = true;
@@ -139,7 +139,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -188,7 +188,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           return () => {
@@ -198,7 +198,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -233,7 +233,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
         age = t.number;
@@ -244,7 +244,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -294,7 +294,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         count = t.number;
         __subscribe(onEvent: any) {
           streamCallback = onEvent;
@@ -303,7 +303,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -346,7 +346,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           streamCallbacks.set(String(this.id), onEvent);
@@ -357,7 +357,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -413,12 +413,12 @@ describe('Entity Subscribe', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -451,7 +451,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           receivedId = this.id as string | number;
@@ -460,7 +460,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -495,7 +495,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           receivedContext = (this as any).__context;
@@ -504,7 +504,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -540,7 +540,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any) {
           streamCallback = onEvent;
@@ -549,7 +549,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -593,7 +593,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         profile = t.object({
           name: t.string,
           bio: t.string,
@@ -605,7 +605,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -641,7 +641,7 @@ describe('Entity Subscribe', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         __subscribe(onEvent: any): (() => void) | undefined {
           throw new Error('Stream error');
@@ -649,7 +649,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -683,7 +683,7 @@ describe('Entity Subscribe', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         fullName() {
@@ -696,7 +696,7 @@ describe('Entity Subscribe', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }

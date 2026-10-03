@@ -53,7 +53,7 @@ class MockTopicAdapter extends TopicQueryAdapter {
 
 class TopicPrice extends Entity {
   __typename = t.typename('TopicPrice');
-  id = t.id;
+  id = t.id();
   value = t.number;
 }
 

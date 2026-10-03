@@ -72,7 +72,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           createdAt = t.format('date-time');
         }
@@ -89,7 +89,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -107,7 +107,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           createdAt = t.format('date-time');
         }
 
@@ -122,7 +122,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -142,7 +142,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           createdAt = t.format('date-time');
         }
@@ -159,7 +159,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -183,7 +183,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           createdAt = t.format('date-time');
         }
 
@@ -197,7 +197,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -215,7 +215,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           birthDate = t.format('date');
         }
 
@@ -230,7 +230,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -252,7 +252,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           birthDate = t.format('date');
         }
 
@@ -267,7 +267,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -303,7 +303,7 @@ describe('Format System', () => {
     it('should type entity fields with formats correctly', () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
         birthDate = t.format('date');
       }
@@ -330,7 +330,7 @@ describe('Format System', () => {
 
       class Product extends Entity {
         __typename = t.typename('Product');
-        id = t.id;
+        id = t.id();
         name = t.string;
         price = t.format('price');
       }
@@ -346,7 +346,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetProduct extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/product/${this.params.id}`;
           result = { product: t.entity(Product) };
         }
@@ -378,7 +378,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
       }
 
@@ -392,7 +392,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -410,7 +410,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
       }
 
@@ -425,7 +425,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -443,7 +443,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
       }
 
@@ -458,7 +458,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -482,7 +482,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         createdAt = t.format('date-time');
         birthDate = t.format('date');
@@ -503,7 +503,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -531,7 +531,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
       }
 
@@ -546,7 +546,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -571,7 +571,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           createdAt = t.format('date-time');
         }
@@ -588,7 +588,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -631,7 +631,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           createdAt = t.format('date-time');
         }
 
@@ -646,7 +646,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -684,7 +684,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           birthDate = t.format('date');
         }
 
@@ -699,7 +699,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -749,7 +749,7 @@ describe('Format System', () => {
 
         class Product extends Entity {
           __typename = t.typename('Product');
-          id = t.id;
+          id = t.id();
           name = t.string;
           price = t.format('price');
         }
@@ -765,7 +765,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetProduct extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/product/${this.params.id}`;
             result = { product: t.entity(Product) };
           }
@@ -819,7 +819,7 @@ describe('Format System', () => {
 
         class Product extends Entity {
           __typename = t.typename('Product');
-          id = t.id;
+          id = t.id();
           price = t.format('money');
         }
 
@@ -833,7 +833,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetProduct extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/product/${this.params.id}`;
             result = { product: t.entity(Product) };
           }
@@ -872,7 +872,7 @@ describe('Format System', () => {
         const { client, mockFetch, kv } = getClient();
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           createdAt = t.format('date-time');
           birthDate = t.format('date');
@@ -890,7 +890,7 @@ describe('Format System', () => {
 
         await testWithClient(client, async () => {
           class GetUser extends RESTQuery {
-            params = { id: t.id };
+            params = { id: t.id() };
             path = `/user/${this.params.id}`;
             result = { user: t.entity(User) };
           }
@@ -937,7 +937,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         createdAt = t.format('date-time');
         birthDate = t.format('date');
@@ -957,7 +957,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -985,7 +985,7 @@ describe('Format System', () => {
       const { client, mockFetch, kv } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         createdAt = t.format('date-time');
       }
 
@@ -1010,7 +1010,7 @@ describe('Format System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/user/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1035,12 +1035,12 @@ describe('Format System', () => {
 
       class Product extends Entity {
         __typename = t.typename('Product');
-        id = t.id;
+        id = t.id();
         price = t.format('price');
       }
 
       class GetProduct extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/product/${this.params.id}`;
         result = { product: t.entity(Product) };
       }

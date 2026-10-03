@@ -274,7 +274,7 @@ describe('t.const', () => {
 
         class Feature extends Entity {
           __typename = t.typename('Feature');
-          id = t.id;
+          id = t.id();
           status = t.const('enabled');
         }
 
@@ -301,7 +301,7 @@ describe('t.const', () => {
 
         class Settings extends Entity {
           __typename = t.typename('Settings');
-          id = t.id;
+          id = t.id();
           config = t.object({
             mode: t.const('dark'),
           });
@@ -334,7 +334,7 @@ describe('t.const', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           flags = t.array(t.const('on'));
         }
 
@@ -365,7 +365,7 @@ describe('t.const', () => {
 
         class Status extends Entity {
           __typename = t.typename('Status');
-          id = t.id;
+          id = t.id();
           checks = t.record(t.const('passed'));
         }
 
@@ -396,7 +396,7 @@ describe('t.const', () => {
 
         class Toggle extends Entity {
           __typename = t.typename('Toggle');
-          id = t.id;
+          id = t.id();
           state = t.union(t.const('on'), t.const('off'));
         }
 

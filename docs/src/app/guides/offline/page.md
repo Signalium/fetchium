@@ -65,11 +65,11 @@ import { t, NetworkMode } from 'fetchium';
 import { RESTQuery } from 'fetchium/rest';
 
 class GetUser extends RESTQuery {
-  params = { id: t.id };
+  params = { id: t.id(t.string) };
 
   path = `/users/${this.params.id}`;
 
-  result = { id: t.id, name: t.string };
+  result = { id: t.id(t.string), name: t.string };
 
   config = {
     networkMode: NetworkMode.OfflineFirst,

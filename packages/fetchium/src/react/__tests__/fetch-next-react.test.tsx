@@ -18,7 +18,7 @@ describe('__fetchNext React Integration', () => {
 
   class Item extends Entity {
     __typename = t.typename('Item');
-    id = t.id;
+    id = t.id();
     name = t.string;
   }
 

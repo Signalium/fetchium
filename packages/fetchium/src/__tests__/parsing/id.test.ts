@@ -13,10 +13,10 @@ import {
 } from './test-utils.js';
 
 /**
- * t.id Tests
+ * t.id() Tests
  *
- * t.id is used to mark the identifier field within an entity.
- * It accepts both string and number values and is used for entity normalization.
+ * t.id() marks the identifier field within an entity.
+ * It preserves the supplied string or number type for entity normalization.
  *
  * Tests cover:
  * - Basic entity usage
@@ -24,7 +24,7 @@ import {
  * - Entities within arrays, records, and unions
  */
 
-describe('t.id', () => {
+describe('t.id()', () => {
   describe('Entity integration', () => {
     const getContext = setupParsingTests();
 
@@ -34,7 +34,7 @@ describe('t.id', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id(t.string);
           name = t.string;
         }
 
@@ -60,7 +60,7 @@ describe('t.id', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id(t.number);
           name = t.string;
         }
 
@@ -86,7 +86,7 @@ describe('t.id', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -114,7 +114,7 @@ describe('t.id', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -145,7 +145,7 @@ describe('t.id', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -174,13 +174,13 @@ describe('t.id', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -207,13 +207,13 @@ describe('t.id', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -242,13 +242,13 @@ describe('t.id', () => {
 
         class Address extends Entity {
           __typename = t.typename('Address');
-          id = t.id;
+          id = t.id();
           city = t.string;
         }
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           address = t.entity(Address);
         }
@@ -290,7 +290,7 @@ describe('t.id', () => {
         await testWithClient(client, async () => {
           class User extends Entity {
             __typename = t.typename('User');
-            id = t.id;
+            id = t.id();
             name = t.string;
           }
 
@@ -321,7 +321,7 @@ describe('t.id', () => {
         await testWithClient(client, async () => {
           class User extends Entity {
             __typename = t.typename('User');
-            id = t.id;
+            id = t.id();
             name = t.string;
           }
 
@@ -353,7 +353,7 @@ describe('t.id', () => {
         await testWithClient(client, async () => {
           class User extends Entity {
             __typename = t.typename('User');
-            id = t.id;
+            id = t.id();
             name = t.string;
           }
 

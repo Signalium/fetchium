@@ -32,7 +32,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -89,7 +89,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/[userId]/posts', { posts: [], userId: 5 });
 
       class GetUserPosts extends RESTQuery {
-        params = { userId: t.id, status: t.string };
+        params = { userId: t.id(), status: t.string };
         path = `/users/${this.params.userId}/posts`;
         searchParams = { status: this.params.status };
         result = {
@@ -147,7 +147,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/[id]', null, { error });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -171,7 +171,7 @@ describe('REST Query API', () => {
       });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -193,7 +193,7 @@ describe('REST Query API', () => {
     it('should require QueryClient context', async () => {
       const { client, mockFetch } = getClient();
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -212,7 +212,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -243,7 +243,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/2', { id: 2, name: 'User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -342,7 +342,7 @@ describe('REST Query API', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -357,7 +357,7 @@ describe('REST Query API', () => {
       });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           user: t.entity(User),
@@ -380,7 +380,7 @@ describe('REST Query API', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -417,7 +417,7 @@ describe('REST Query API', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -430,7 +430,7 @@ describe('REST Query API', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = {
             user: t.entity(User),
@@ -497,7 +497,7 @@ describe('REST Query API', () => {
       mockFetch.get('/items/[itemId]/details/[detailId]', { id: 1, name: 'Test' });
 
       class GetItem extends RESTQuery {
-        params = { itemId: t.id, detailId: t.id };
+        params = { itemId: t.id(), detailId: t.id() };
         path = `/items/${this.params.itemId}/details/${this.params.detailId}`;
         result = {
           id: t.number,
@@ -522,7 +522,7 @@ describe('REST Query API', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         getPath() {
           return `/users/${this.params.id}`;
         }
@@ -595,7 +595,7 @@ describe('REST Query API', () => {
       mockFetch.get('/api/[id]', { id: 1, data: 'test' });
 
       class GetResource extends RESTQuery {
-        params = { id: t.id, version: t.string };
+        params = { id: t.id(), version: t.string };
         getBasePath() {
           return `/api/${this.params.id}`;
         }
@@ -639,7 +639,7 @@ describe('BaseUrl and RequestOptions', () => {
       });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -1016,7 +1016,7 @@ describe('Query definition getter methods', () => {
       let receivedId: any;
 
       class ParamStream extends RESTQuery {
-        params = { channelId: t.id };
+        params = { channelId: t.id() };
         path = `/channels/${this.params.channelId}`;
         result = { id: t.string };
 
@@ -1045,7 +1045,7 @@ describe('Query definition getter methods', () => {
       mockFetch.get('/users/[id]', { id: 1, name: 'Alice' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { id: t.number, name: t.string };
         config = { staleTime: 10000 };
@@ -1091,7 +1091,7 @@ describe('Query definition getter methods', () => {
       mockFetch.get('/users/[userId]/posts', { posts: [] });
 
       class GetUserPosts extends RESTQuery {
-        params = { userId: t.id, status: t.string };
+        params = { userId: t.id(), status: t.string };
         path = `/users/${this.params.userId}/posts`;
         searchParams = { status: this.params.status };
         result = { posts: t.array(t.object({ id: t.number, title: t.string })) };
@@ -1214,7 +1214,7 @@ describe('Query definition getter methods', () => {
     it('should resolve all getter methods together', () => {
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 

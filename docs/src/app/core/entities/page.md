@@ -8,14 +8,14 @@ Queries may be the foundation of Fetchium's data model, but _entities_ are its c
 
 ## Defining an Entity
 
-To define an entity, extend the `Entity` class and declare fields using the type DSL. Every entity must have a typename and an ID, defined with `t.typename` and `t.id` respectively.
+To define an entity, extend the `Entity` class and declare fields using the type DSL. Every entity must have a typename and an ID, defined with `t.typename` and `t.id(t.string)` respectively.
 
 ```tsx
 import { Entity, t } from 'fetchium';
 
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   email = t.string;
@@ -31,14 +31,14 @@ Entities can be referenced using `t.entity` in queries or in other entities:
 ```ts
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
 }
 
 class Post extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
 
   title = t.string;
   author = t.entity(User);
@@ -113,7 +113,7 @@ Entities can reference other entities using `t.entity(EntityClass)`. Nested enti
 ```tsx
 class Comment extends Entity {
   __typename = t.typename('Comment');
-  id = t.id;
+  id = t.id(t.string);
 
   body = t.string;
   author = t.entity(User);
@@ -121,7 +121,7 @@ class Comment extends Entity {
 
 class Post extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
 
   title = t.string;
   body = t.string;
@@ -134,7 +134,7 @@ In this example, if a `Post` and one of its `Comment`s reference the same `User`
 
 ```tsx
 class GetPost extends RESTQuery {
-  params = { id: t.id };
+  params = { id: t.id(t.string) };
 
   path = `/posts/${this.params.id}`;
 
@@ -160,7 +160,7 @@ You can define methods directly on entity classes. Methods have access to the en
 ```tsx
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   firstName = t.string;
   lastName = t.string;
@@ -200,7 +200,7 @@ class User extends Entity {
   static cache = { gcTime: 5 }; // Keep in cache for 5 minutes after last use
 
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
 }
@@ -228,7 +228,7 @@ Consider a social feed where you fetch a list of posts and also fetch individual
 ```tsx
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   avatar = t.string;
@@ -236,7 +236,7 @@ class User extends Entity {
 
 class Post extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
 
   title = t.string;
   author = t.entity(User);
@@ -249,7 +249,7 @@ class GetFeed extends RESTQuery {
 }
 
 class GetUser extends RESTQuery {
-  params = { id: t.id };
+  params = { id: t.id(t.string) };
 
   path = `/users/${this.params.id}`;
 
@@ -316,7 +316,7 @@ Entities can subscribe to real-time updates by defining a `__subscribe` method. 
 ```tsx
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   email = t.string;

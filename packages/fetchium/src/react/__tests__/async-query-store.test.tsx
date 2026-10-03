@@ -130,12 +130,12 @@ describe('React AsyncQueryStore Integration', () => {
   describe('Basic Reader-Writer Flow', () => {
     it('should fetch data in reader component and persist to writer', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
       }
@@ -180,12 +180,12 @@ describe('React AsyncQueryStore Integration', () => {
 
     it('should load persisted data in new reader without fetching', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
         config = { staleTime: 10000 };
@@ -253,12 +253,12 @@ describe('React AsyncQueryStore Integration', () => {
 
     it('should refetch stale data in background while showing cached data', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
         config = { staleTime: 50 };
@@ -337,24 +337,24 @@ describe('React AsyncQueryStore Integration', () => {
   describe('Multiple Components and Queries', () => {
     it('should handle multiple components fetching different queries', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Post extends Entity {
-        id = t.id;
+        id = t.id();
         title = t.string;
         authorId = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
       }
 
       class GetPost extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/posts/${this.params.id}`;
         result = t.entity(Post);
       }
@@ -411,12 +411,12 @@ describe('React AsyncQueryStore Integration', () => {
   describe('Refetch and Updates', () => {
     it('should persist updated data after refetch', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
       }
@@ -476,12 +476,12 @@ describe('React AsyncQueryStore Integration', () => {
   describe('Error States', () => {
     it('should handle fetch errors without crashing', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
       }
@@ -514,12 +514,12 @@ describe('React AsyncQueryStore Integration', () => {
   describe('Cross-Thread Simulation', () => {
     it('should simulate data flowing from reader thread to writer thread and back', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
         config = { staleTime: 10000 };

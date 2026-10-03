@@ -317,7 +317,7 @@ describe('t.number', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           age = t.number;
         }
 
@@ -344,7 +344,7 @@ describe('t.number', () => {
 
         class Product extends Entity {
           __typename = t.typename('Product');
-          id = t.id;
+          id = t.id();
           pricing = t.object({
             amount: t.number,
             discount: t.number,
@@ -379,7 +379,7 @@ describe('t.number', () => {
 
         class Stats extends Entity {
           __typename = t.typename('Stats');
-          id = t.id;
+          id = t.id();
           scores = t.array(t.number);
         }
 
@@ -410,7 +410,7 @@ describe('t.number', () => {
 
         class Metrics extends Entity {
           __typename = t.typename('Metrics');
-          id = t.id;
+          id = t.id();
           counts = t.record(t.number);
         }
 
@@ -441,7 +441,7 @@ describe('t.number', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.number);
         }
 

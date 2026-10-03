@@ -115,7 +115,7 @@ class GetUser extends RESTQuery {
   path = `/api/users/${this.params.id}`;
 
   result = {
-    id: t.id,
+    id: t.id(t.string),
     name: t.string,
     email: t.string,
   };
@@ -147,7 +147,7 @@ class User extends Entity {
   static cache = { gcTime: 10 };
 
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   email = t.optional(t.string);
@@ -513,14 +513,14 @@ The `t` object provides a declarative type definition DSL for describing query p
 
 ### Primitive types
 
-| Property      | Type                        | Description                                                                                 |
-| ------------- | --------------------------- | ------------------------------------------------------------------------------------------- |
-| `t.string`    | `TypeDef<string>`           | String type.                                                                                |
-| `t.number`    | `TypeDef<number>`           | Number type.                                                                                |
-| `t.boolean`   | `TypeDef<boolean>`          | Boolean type.                                                                               |
-| `t.null`      | `TypeDef<null>`             | Null literal type.                                                                          |
-| `t.undefined` | `TypeDef<undefined>`        | Undefined literal type.                                                                     |
-| `t.id`        | `TypeDef<string \| number>` | Identity field marker. Marks the field as the entity's unique ID. Accepts string or number. |
+| Property      | Type                 | Description                                                        |
+| ------------- | -------------------- | ------------------------------------------------------------------ |
+| `t.string`    | `TypeDef<string>`    | String type.                                                       |
+| `t.number`    | `TypeDef<number>`    | Number type.                                                       |
+| `t.boolean`   | `TypeDef<boolean>`   | Boolean type.                                                      |
+| `t.null`      | `TypeDef<null>`      | Null literal type.                                                 |
+| `t.undefined` | `TypeDef<undefined>` | Undefined literal type.                                            |
+| `t.id(type)`  | `TypeDef<T>`         | Identity marker that preserves the supplied string or number type. |
 
 ### Composite types
 

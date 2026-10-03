@@ -24,7 +24,7 @@ describe('Entity Methods', () => {
     it('should define methods on an entity', () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         age = t.number;
         greet() {
@@ -50,7 +50,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         age = t.number;
         greet() {
@@ -75,7 +75,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -94,7 +94,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
-        id = t.id;
+        id = t.id();
         baseValue = t.number;
         add(n: number) {
           return this.baseValue + n;
@@ -117,7 +117,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetCalc extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/calc/${this.params.id}`;
           result = { calc: t.entity(Calculator) };
         }
@@ -135,7 +135,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         email = t.string;
@@ -163,7 +163,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -181,7 +181,7 @@ describe('Entity Methods', () => {
     it('should include methods in ExtractType', () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         greet() {
           return `Hello!`;
@@ -205,14 +205,14 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
-        id = t.id;
+        id = t.id();
         city = t.string;
         country = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.entity(Address);
         getLocation() {
@@ -239,7 +239,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -258,7 +258,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         tags = t.array(t.string);
         scores = t.array(t.number);
@@ -286,7 +286,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -307,7 +307,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class Author extends Entity {
         __typename = t.typename('Author');
-        id = t.id;
+        id = t.id();
         name = t.string;
         getDisplayName() {
           return `Author: ${this.name}`;
@@ -316,7 +316,7 @@ describe('Entity Methods', () => {
 
       class Book extends Entity {
         __typename = t.typename('Book');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(Author);
         getFullTitle() {
@@ -339,7 +339,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetBook extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/books/${this.params.id}`;
           result = { book: t.entity(Book) };
         }
@@ -360,7 +360,7 @@ describe('Entity Methods', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         age = t.number;
         expensiveComputation() {
@@ -380,7 +380,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -409,7 +409,7 @@ describe('Entity Methods', () => {
 
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
-        id = t.id;
+        id = t.id();
         baseValue = t.number;
         multiply(factor: number) {
           const key = `multiply-${factor}`;
@@ -433,7 +433,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetCalc extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/calc/${this.params.id}`;
           result = { calc: t.entity(Calculator) };
         }
@@ -474,7 +474,7 @@ describe('Entity Methods', () => {
 
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
-        id = t.id;
+        id = t.id();
         baseValue = t.number;
         computeWithMultiplier() {
           computeCount++;
@@ -493,7 +493,7 @@ describe('Entity Methods', () => {
       // First: Get the entity and call the method
       let calc: any;
       class GetCalc extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/calc/${this.params.id}`;
         result = { calc: t.entity(Calculator) };
       }
@@ -538,7 +538,7 @@ describe('Entity Methods', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         getThemedGreeting() {
           const theme = getContext(ThemeContext);
@@ -547,7 +547,7 @@ describe('Entity Methods', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -602,7 +602,7 @@ describe('Entity Methods', () => {
 
       class Product extends Entity {
         __typename = t.typename('Product');
-        id = t.id;
+        id = t.id();
         name = t.string;
         price = t.number;
         getLocalizedPrice() {
@@ -621,7 +621,7 @@ describe('Entity Methods', () => {
       }
 
       class GetProduct extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/products/${this.params.id}`;
         result = { product: t.entity(Product) };
       }
@@ -694,7 +694,7 @@ describe('Entity Methods', () => {
 
       class Document extends Entity {
         __typename = t.typename('Document');
-        id = t.id;
+        id = t.id();
         title = t.string;
         content = t.string;
         secretNotes = t.string;
@@ -716,7 +716,7 @@ describe('Entity Methods', () => {
       }
 
       class GetDoc extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/docs/${this.params.id}`;
         result = { doc: t.entity(Document) };
       }
@@ -812,7 +812,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         age = t.number;
@@ -845,7 +845,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -870,7 +870,7 @@ describe('Entity Methods', () => {
       const { client, mockFetch } = getClient();
       class Calculator extends Entity {
         __typename = t.typename('Calculator');
-        id = t.id;
+        id = t.id();
         baseValue = t.number;
         add(n: number) {
           return this.baseValue + n;
@@ -905,7 +905,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetCalc extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/calc/${this.params.id}`;
           result = { calc: t.entity(Calculator) };
         }
@@ -937,7 +937,7 @@ describe('Entity Methods', () => {
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         getFullName() {
@@ -966,7 +966,7 @@ describe('Entity Methods', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }

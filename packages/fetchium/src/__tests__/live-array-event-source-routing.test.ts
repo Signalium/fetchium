@@ -16,7 +16,7 @@ import type { MutationEvent } from '../types.js';
 
 class Balance extends Entity {
   __typename = t.typename('Balance');
-  id = t.id;
+  id = t.id();
   name = t.string;
   valueUsdString = t.string;
 }

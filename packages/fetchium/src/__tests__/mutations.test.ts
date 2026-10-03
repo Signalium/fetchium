@@ -63,7 +63,7 @@ describe('Mutations', () => {
       mockFetch.put('/users/[id]', { id: 123, name: 'Updated User', email: 'updated@example.com' });
 
       class UpdateUser extends RESTMutation {
-        readonly params = { id: t.id, name: t.string, email: t.string };
+        readonly params = { id: t.id(), name: t.string, email: t.string };
         readonly path = `/users/${this.params.id}`;
         readonly method = 'PUT' as const;
         readonly body = { name: this.params.name, email: this.params.email };
@@ -90,7 +90,7 @@ describe('Mutations', () => {
       mockFetch.patch('/users/[id]', { id: 123, name: 'Patched User' });
 
       class PatchUser extends RESTMutation {
-        readonly params = { id: t.id, name: t.string };
+        readonly params = { id: t.id(), name: t.string };
         readonly path = `/users/${this.params.id}`;
         readonly method = 'PATCH' as const;
         readonly body = { name: this.params.name };
@@ -115,7 +115,7 @@ describe('Mutations', () => {
       mockFetch.delete('/users/[id]', { success: true });
 
       class DeleteUser extends RESTMutation {
-        readonly params = { id: t.id };
+        readonly params = { id: t.id() };
         readonly path = `/users/${this.params.id}`;
         readonly method = 'DELETE' as const;
         readonly result = {
@@ -163,7 +163,7 @@ describe('Mutations', () => {
       mockFetch.delete('/items/[id]', { ok: true });
 
       class DeleteItem extends RESTMutation {
-        readonly params = { id: t.id };
+        readonly params = { id: t.id() };
         readonly path = `/items/${this.params.id}`;
         readonly method = 'DELETE' as const;
         readonly result = { ok: t.boolean };
@@ -388,7 +388,7 @@ describe('Mutations', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -401,7 +401,7 @@ describe('Mutations', () => {
       });
 
       class GetUser extends RESTQuery {
-        readonly params = { id: t.id };
+        readonly params = { id: t.id() };
         readonly path = `/users/${this.params.id}`;
         readonly result = t.entity(User);
       }
@@ -624,19 +624,19 @@ describe('Mutations', () => {
     function defineEffectEntities() {
       class TodoItem extends Entity {
         __typename = t.typename('TodoItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class TodoList extends Entity {
         __typename = t.typename('TodoList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(TodoItem, { constraints: { listId: this.id } });
       }
 
       class GetTodoList extends RESTQuery {
-        readonly params = { id: t.id };
+        readonly params = { id: t.id() };
         readonly path = `/lists/${this.params.id}`;
         readonly result = { list: t.entity(TodoList) };
       }
@@ -654,7 +654,7 @@ describe('Mutations', () => {
       mockFetch.post('/items', { ok: true });
 
       class CreateTodo extends RESTMutation {
-        readonly params = { __typename: t.string, id: t.id, listId: t.string, name: t.string };
+        readonly params = { __typename: t.string, id: t.id(), listId: t.string, name: t.string };
         readonly path = '/items';
         readonly method = 'POST' as const;
         readonly result = { ok: t.boolean };
@@ -695,7 +695,7 @@ describe('Mutations', () => {
         readonly result = {
           item: t.object({
             __typename: t.string,
-            id: t.id,
+            id: t.id(),
             listId: t.string,
             name: t.string,
           }),
@@ -734,14 +734,14 @@ describe('Mutations', () => {
       });
 
       class UpdateTodo extends RESTMutation {
-        readonly params = { id: t.id, name: t.string };
+        readonly params = { id: t.id(), name: t.string };
         readonly path = `/items/${this.params.id}`;
         readonly method = 'PUT' as const;
         readonly body = { name: this.params.name };
         readonly result = {
           item: t.object({
             __typename: t.string,
-            id: t.id,
+            id: t.id(),
             listId: t.string,
             name: t.string,
           }),
@@ -777,7 +777,7 @@ describe('Mutations', () => {
       mockFetch.delete('/items/[id]', { ok: true });
 
       class DeleteTodo extends RESTMutation {
-        readonly params = { id: t.id };
+        readonly params = { id: t.id() };
         readonly path = `/items/${this.params.id}`;
         readonly method = 'DELETE' as const;
         readonly result = { ok: t.boolean };
@@ -817,7 +817,7 @@ describe('Mutations', () => {
         readonly result = {
           item: t.object({
             __typename: t.string,
-            id: t.id,
+            id: t.id(),
             listId: t.string,
             name: t.string,
           }),

@@ -234,7 +234,7 @@ abstract class MockTopicQuery extends TopicQuery {
 
 class TopicBalance extends Entity {
   __typename = t.typename('TopicBalance');
-  id = t.id;
+  id = t.id();
   walletId = t.string;
   token = t.string;
   amount = t.number;
@@ -242,7 +242,7 @@ class TopicBalance extends Entity {
 
 class TopicPrice extends Entity {
   __typename = t.typename('TopicPrice');
-  id = t.id;
+  id = t.id();
   token = t.string;
   value = t.number;
   change24h = t.number;
@@ -250,7 +250,7 @@ class TopicPrice extends Entity {
 
 class TopicPosition extends Entity {
   __typename = t.typename('TopicPosition');
-  id = t.id;
+  id = t.id();
   walletId = t.string;
   token = t.string;
   size = t.number;
@@ -259,7 +259,7 @@ class TopicPosition extends Entity {
 
 class TopicWallet extends Entity {
   __typename = t.typename('TopicWallet');
-  id = t.id;
+  id = t.id();
   name = t.string;
   totalValue = t.number;
 }
@@ -763,7 +763,7 @@ describe('TopicQuery', () => {
     it('should add entity to live array via create event with constraints', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -804,7 +804,7 @@ describe('TopicQuery', () => {
     it('should remove entity from live array via delete event', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -847,7 +847,7 @@ describe('TopicQuery', () => {
     it('should handle delete event with string id', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1058,7 +1058,7 @@ describe('TopicQuery', () => {
     it('should add to live array via mutation create effect', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1069,7 +1069,7 @@ describe('TopicQuery', () => {
       }
 
       class AddBalance extends RESTMutation {
-        params = { __typename: t.string, id: t.id, walletId: t.string, token: t.string, amount: t.number };
+        params = { __typename: t.string, id: t.id(), walletId: t.string, token: t.string, amount: t.number };
         path = '/balances';
         method = 'POST' as const;
         result = { ok: t.boolean };
@@ -1118,7 +1118,7 @@ describe('TopicQuery', () => {
       }
 
       class UpdatePrice extends RESTMutation {
-        params = { id: t.id, value: t.number };
+        params = { id: t.id(), value: t.number };
         path = '/prices/update';
         method = 'PUT' as const;
         result = { ok: t.boolean };
@@ -1151,7 +1151,7 @@ describe('TopicQuery', () => {
     it('should remove from live array via mutation delete effect', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1162,7 +1162,7 @@ describe('TopicQuery', () => {
       }
 
       class RemoveBalance extends RESTMutation {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/balances/${this.params.id}`;
         method = 'DELETE' as const;
         result = { ok: t.boolean };
@@ -1204,7 +1204,7 @@ describe('TopicQuery', () => {
     it('should support getEffects() dynamic effects', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1264,7 +1264,7 @@ describe('TopicQuery', () => {
     it('should handle multiple mutations in sequence', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1275,7 +1275,7 @@ describe('TopicQuery', () => {
       }
 
       class AddBalance extends RESTMutation {
-        params = { __typename: t.string, id: t.id, walletId: t.string, token: t.string, amount: t.number };
+        params = { __typename: t.string, id: t.id(), walletId: t.string, token: t.string, amount: t.number };
         path = '/balances';
         method = 'POST' as const;
         result = { ok: t.boolean };
@@ -1324,7 +1324,7 @@ describe('TopicQuery', () => {
     it('should create entity matching live array constraint', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1364,7 +1364,7 @@ describe('TopicQuery', () => {
     it('should not add entity to live array when constraint does not match', async () => {
       class TopicBalanceList extends Entity {
         __typename = t.typename('TopicBalanceList');
-        id = t.id;
+        id = t.id();
         walletId = t.string;
         items = t.liveArray(TopicBalance, { constraints: { walletId: (this as any).id } });
       }
@@ -1408,7 +1408,7 @@ describe('TopicQuery', () => {
   describe('fetchNext with TopicQuery', () => {
     class TopicItem extends Entity {
       __typename = t.typename('TopicItem');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 
@@ -1734,14 +1734,14 @@ describe('TopicQuery', () => {
   describe('Combined Scenarios', () => {
     class TopicItem extends Entity {
       __typename = t.typename('TopicCombinedItem');
-      id = t.id;
+      id = t.id();
       listId = t.string;
       name = t.string;
     }
 
     class TopicCombinedList extends Entity {
       __typename = t.typename('TopicCombinedList');
-      id = t.id;
+      id = t.id();
       items = t.liveArray(TopicItem, { constraints: { listId: (this as any).id } });
     }
 
@@ -1861,7 +1861,7 @@ describe('TopicQuery', () => {
       }
 
       class AddItem extends RESTMutation {
-        params = { __typename: t.string, id: t.id, listId: t.string, name: t.string };
+        params = { __typename: t.string, id: t.id(), listId: t.string, name: t.string };
         path = '/items';
         method = 'POST' as const;
         result = { ok: t.boolean };
@@ -1915,7 +1915,7 @@ describe('TopicQuery', () => {
       }
 
       class AddItem extends RESTMutation {
-        params = { __typename: t.string, id: t.id, listId: t.string, name: t.string };
+        params = { __typename: t.string, id: t.id(), listId: t.string, name: t.string };
         path = '/items';
         method = 'POST' as const;
         result = { ok: t.boolean };
@@ -2043,7 +2043,7 @@ describe('TopicQuery', () => {
       }
 
       class RemoveItem extends RESTMutation {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         method = 'DELETE' as const;
         result = { ok: t.boolean };

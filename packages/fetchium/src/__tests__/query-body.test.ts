@@ -152,7 +152,7 @@ describe('Query Body Support', () => {
       mockFetch.post('/users/[id]/preferences', { success: true });
 
       class UpdateUserPreferences extends RESTQuery {
-        params = { id: t.id, theme: t.string, language: t.string };
+        params = { id: t.id(), theme: t.string, language: t.string };
         path = `/users/${this.params.id}/preferences`;
         method = 'POST' as const;
         body = { theme: this.params.theme, language: this.params.language };
@@ -189,7 +189,7 @@ describe('Query Body Support', () => {
       mockFetch.post('/orgs/[orgId]/teams/[teamId]/settings', { updated: true });
 
       class UpdateTeamSettings extends RESTQuery {
-        params = { orgId: t.id, teamId: t.id, name: t.string, visibility: t.string };
+        params = { orgId: t.id(), teamId: t.id(), name: t.string, visibility: t.string };
         path = `/orgs/${this.params.orgId}/teams/${this.params.teamId}/settings`;
         method = 'POST' as const;
         body = { name: this.params.name, visibility: this.params.visibility };
@@ -292,7 +292,7 @@ describe('Query Body Support', () => {
 
       class CreateUserPost extends RESTQuery {
         params = {
-          userId: t.id,
+          userId: t.id(),
           draft: t.boolean,
           notify: t.boolean,
           title: t.string,

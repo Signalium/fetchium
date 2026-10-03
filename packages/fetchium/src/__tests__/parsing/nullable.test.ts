@@ -225,7 +225,7 @@ describe('t.nullable', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           deletedAt = t.nullable(t.string);
         }
 
@@ -250,7 +250,7 @@ describe('t.nullable', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           deletedAt = t.nullable(t.string);
         }
 
@@ -277,7 +277,7 @@ describe('t.nullable', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           details = t.object({
             bio: t.nullable(t.string),
             website: t.nullable(t.string),
@@ -312,7 +312,7 @@ describe('t.nullable', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           tags = t.nullable(t.array(t.string));
         }
 
@@ -343,7 +343,7 @@ describe('t.nullable', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.nullable(t.string));
         }
 

@@ -20,7 +20,7 @@ import { RESTQuery } from 'fetchium/rest';
 
 class Item extends Entity {
   __typename = t.typename('Item');
-  id = t.id;
+  id = t.id(t.string);
 
   listId = t.string;
   name = t.string;
@@ -28,7 +28,7 @@ class Item extends Entity {
 
 class List extends Entity {
   __typename = t.typename('List');
-  id = t.id;
+  id = t.id(t.string);
 
   items = t.liveArray(Item, {
     constraints: { listId: this.id },
@@ -36,7 +36,7 @@ class List extends Entity {
 }
 
 class GetList extends RESTQuery {
-  params = { id: t.id };
+  params = { id: t.id(t.string) };
 
   path = `/lists/${this.params.id}`;
 
@@ -94,14 +94,14 @@ A common pattern is to scope a live array to a parent entity. For example, a `Li
 ```tsx
 class Item extends Entity {
   __typename = t.typename('Item');
-  id = t.id;
+  id = t.id(t.string);
   listId = t.string;
   name = t.string;
 }
 
 class List extends Entity {
   __typename = t.typename('List');
-  id = t.id;
+  id = t.id(t.string);
   items = t.liveArray(Item, {
     constraints: { listId: this.id },
   });
@@ -139,7 +139,7 @@ You can pass an array of entity classes to `t.liveArray` to watch for multiple e
 ```tsx
 class Notification extends Entity {
   __typename = t.typename('Notification');
-  id = t.id;
+  id = t.id(t.string);
 
   userId = t.string;
   message = t.string;
@@ -147,7 +147,7 @@ class Notification extends Entity {
 
 class Alert extends Entity {
   __typename = t.typename('Alert');
-  id = t.id;
+  id = t.id(t.string);
 
   userId = t.string;
   message = t.string;
@@ -155,7 +155,7 @@ class Alert extends Entity {
 
 class UserInbox extends Entity {
   __typename = t.typename('UserInbox');
-  id = t.id;
+  id = t.id(t.string);
 
   items = t.liveArray([Notification, Alert], {
     constraints: { userId: this.id },
@@ -219,7 +219,7 @@ Define a live value using `t.liveValue(valueType, EntityClass, options)`:
 ```tsx
 class List extends Entity {
   __typename = t.typename('List');
-  id = t.id;
+  id = t.id(t.string);
 
   items = t.liveArray(Item, {
     constraints: { listId: this.id },
@@ -252,7 +252,7 @@ The initial value of a live value comes from the server response. In the example
 ```tsx
 class Order extends Entity {
   __typename = t.typename('Order');
-  id = t.id;
+  id = t.id(t.string);
 
   customerId = t.string;
   total = t.number;
@@ -260,7 +260,7 @@ class Order extends Entity {
 
 class Customer extends Entity {
   __typename = t.typename('Customer');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   orderTotal = t.liveValue(t.number, Order, {
@@ -412,7 +412,7 @@ Entities can subscribe to real-time updates by defining a `__subscribe` method o
 ```tsx
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
-  id = t.id;
+  id = t.id(t.string);
 
   channelId = t.string;
   text = t.string;

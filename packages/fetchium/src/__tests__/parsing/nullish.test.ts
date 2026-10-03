@@ -269,7 +269,7 @@ describe('t.nullish', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.nullish(t.string);
         }
 
@@ -294,7 +294,7 @@ describe('t.nullish', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.nullish(t.string);
         }
 
@@ -321,7 +321,7 @@ describe('t.nullish', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           details = t.object({
             bio: t.nullish(t.string),
             website: t.nullish(t.string),
@@ -356,7 +356,7 @@ describe('t.nullish', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           tags = t.nullish(t.array(t.string));
         }
 
@@ -387,7 +387,7 @@ describe('t.nullish', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.nullish(t.string));
         }
 

@@ -18,14 +18,14 @@ describe('LiveValue', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -36,7 +36,7 @@ describe('LiveValue', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -74,14 +74,14 @@ describe('LiveValue', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -92,7 +92,7 @@ describe('LiveValue', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -129,14 +129,14 @@ describe('LiveValue', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -147,7 +147,7 @@ describe('LiveValue', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -194,14 +194,14 @@ describe('LiveValue', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -212,7 +212,7 @@ describe('LiveValue', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -245,14 +245,14 @@ describe('LiveValue', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -263,7 +263,7 @@ describe('LiveValue', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }

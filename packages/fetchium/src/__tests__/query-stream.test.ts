@@ -22,7 +22,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
         content = t.string;
       }
@@ -75,7 +75,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Message extends Entity {
         __typename = t.typename('StreamMessage');
-        id = t.id;
+        id = t.id();
         text = t.string;
         userId = t.string;
       }
@@ -87,7 +87,7 @@ describe('Query Stream Option', () => {
       });
 
       class GetUserMessages extends RESTQuery {
-        params = { userId: t.id, limit: t.number };
+        params = { userId: t.id(), limit: t.number };
         path = `/users/${this.params.userId}/messages`;
         searchParams = { limit: this.params.limit };
         result = {
@@ -118,7 +118,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamUpdatePost');
-        id = t.id;
+        id = t.id();
         title = t.string;
         content = t.string;
       }
@@ -170,13 +170,13 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class StreamAuthor extends Entity {
         __typename = t.typename('StreamAuthor');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class StreamNestedPost extends Entity {
         __typename = t.typename('StreamNestedPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(StreamAuthor);
       }
@@ -232,7 +232,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamLifecyclePost');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
@@ -278,7 +278,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamResubPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
@@ -365,7 +365,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamRapidPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
@@ -422,7 +422,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('StreamResubItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -433,7 +433,7 @@ describe('Query Stream Option', () => {
       });
 
       class GetChannelItems extends RESTQuery {
-        params = { channelId: t.id };
+        params = { channelId: t.id() };
         path = `/channels/${this.params.channelId}/items`;
         result = {
           items: t.array(t.entity(Item)),
@@ -489,7 +489,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('StreamNewSubItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -501,7 +501,7 @@ describe('Query Stream Option', () => {
       });
 
       class GetChannelItems extends RESTQuery {
-        params = { channelId: t.id };
+        params = { channelId: t.id() };
         path = `/channels/${this.params.channelId}/items`;
         result = {
           items: t.array(t.entity(Item)),
@@ -555,7 +555,7 @@ describe('Query Stream Option', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('StreamCtxPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 

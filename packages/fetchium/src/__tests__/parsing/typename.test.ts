@@ -35,7 +35,7 @@ describe('t.typename', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -61,7 +61,7 @@ describe('t.typename', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -88,13 +88,13 @@ describe('t.typename', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -121,13 +121,13 @@ describe('t.typename', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -154,13 +154,13 @@ describe('t.typename', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -183,13 +183,13 @@ describe('t.typename', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -226,13 +226,13 @@ describe('t.typename', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -265,13 +265,13 @@ describe('t.typename', () => {
 
         class Address extends Entity {
           __typename = t.typename('Address');
-          id = t.id;
+          id = t.id();
           city = t.string;
         }
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           address = t.entity(Address);
         }
@@ -313,7 +313,7 @@ describe('t.typename', () => {
         await testWithClient(client, async () => {
           class User extends Entity {
             __typename = t.typename('User');
-            id = t.id;
+            id = t.id();
             name = t.string;
           }
 
@@ -341,13 +341,13 @@ describe('t.typename', () => {
         await testWithClient(client, async () => {
           class Dog extends Entity {
             __typename = t.typename('Dog');
-            id = t.id;
+            id = t.id();
             breed = t.string;
           }
 
           class Cat extends Entity {
             __typename = t.typename('Cat');
-            id = t.id;
+            id = t.id();
             color = t.string;
           }
 
@@ -378,13 +378,13 @@ describe('t.typename', () => {
         await testWithClient(client, async () => {
           class Dog extends Entity {
             __typename = t.typename('Dog');
-            id = t.id;
+            id = t.id();
             breed = t.string;
           }
 
           class Cat extends Entity {
             __typename = t.typename('Cat');
-            id = t.id;
+            id = t.id();
             color = t.string;
           }
 
@@ -418,7 +418,7 @@ describe('t.typename', () => {
         await testWithClient(client, async () => {
           class Item extends Entity {
             __typename = t.typename('Item');
-            id = t.id;
+            id = t.id();
             name = t.string;
           }
 
@@ -450,7 +450,7 @@ describe('t.typename', () => {
         await testWithClient(client, async () => {
           class Config extends Entity {
             __typename = t.typename('Config');
-            id = t.id;
+            id = t.id();
             value = t.string;
           }
 

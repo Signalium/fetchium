@@ -326,7 +326,7 @@ describe('t.object', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           profile = t.object({
             bio: t.string,
             website: t.string,
@@ -361,13 +361,13 @@ describe('t.object', () => {
 
         class Address extends Entity {
           __typename = t.typename('Address');
-          id = t.id;
+          id = t.id();
           city = t.string;
         }
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           address = t.entity(Address);
         }
@@ -399,19 +399,19 @@ describe('t.object', () => {
 
         class EntityB extends Entity {
           __typename = t.typename('EntityB');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
         class EntityC extends Entity {
           __typename = t.typename('EntityC');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
         class EntityA extends Entity {
           __typename = t.typename('EntityA');
-          id = t.id;
+          id = t.id();
           name = t.string;
           b = t.entity(EntityB);
           c = t.entity(EntityC);
@@ -452,7 +452,7 @@ describe('t.object', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           comments = t.array(
             t.object({
               author: t.string,
@@ -492,7 +492,7 @@ describe('t.object', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(
             t.object({
               enabled: t.boolean,

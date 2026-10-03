@@ -38,7 +38,7 @@ describe('Cache Error Handling', () => {
     it('should continue query execution if loadCachedQuery throws an error', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -79,7 +79,7 @@ describe('Cache Error Handling', () => {
     it('should continue query execution if loadCachedQuery returns a rejected promise', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -120,7 +120,7 @@ describe('Cache Error Handling', () => {
     it('should continue query execution if cached value JSON parsing fails', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -149,12 +149,12 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
         config = {
@@ -195,12 +195,12 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -239,12 +239,12 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -285,12 +285,12 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
 
@@ -335,7 +335,7 @@ describe('Cache Error Handling', () => {
     it('should delete corrupted cache entry when loading fails', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -371,7 +371,7 @@ describe('Cache Error Handling', () => {
     it('should still perform background refetch if cache is stale after error', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
         config = {
@@ -412,7 +412,7 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -443,7 +443,7 @@ describe('Cache Error Handling', () => {
 
       await testWithClient(errorClient, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
 
@@ -492,7 +492,7 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -501,7 +501,7 @@ describe('Cache Error Handling', () => {
       let updateCallback: ((update: any) => void) | undefined;
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
         getConfig() {
@@ -557,7 +557,7 @@ describe('Cache Error Handling', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -566,7 +566,7 @@ describe('Cache Error Handling', () => {
       let updateCallback: ((update: any) => void) | undefined;
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
         getConfig() {

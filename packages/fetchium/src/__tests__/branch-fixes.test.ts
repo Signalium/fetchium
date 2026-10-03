@@ -32,7 +32,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class Config extends Entity {
         __typename = t.typename('Config');
-        id = t.id;
+        id = t.id();
         name = t.string;
         settings = t.record(t.string);
       }
@@ -48,7 +48,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetConfig extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/config/${this.params.id}`;
           result = { config: t.entity(Config) };
         }
@@ -78,7 +78,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
-        id = t.id;
+        id = t.id();
         label = t.union(t.object({ text: t.string, color: t.string }), t.string);
       }
 
@@ -92,7 +92,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetTag extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/tags/${this.params.id}`;
           result = { tag: t.entity(Tag) };
         }
@@ -131,7 +131,7 @@ describe('Branch Fixes', () => {
 
       class Job extends Entity {
         __typename = t.typename('Job');
-        id = t.id;
+        id = t.id();
         state = t.union(QueuedState, RunningState);
       }
 
@@ -145,7 +145,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetJob extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/jobs/${this.params.id}`;
           result = { job: t.entity(Job) };
         }
@@ -181,7 +181,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class Profile extends Entity {
         __typename = t.typename('Profile');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.nullable(t.object({ city: t.string, zip: t.string }));
       }
@@ -197,7 +197,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetProfile extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/profiles/${this.params.id}`;
           result = { profile: t.entity(Profile) };
         }
@@ -231,19 +231,19 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class RItem extends Entity {
         __typename = t.typename('RItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class RList extends Entity {
         __typename = t.typename('RList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(RItem, { constraints: { listId: (this as any).id } });
       }
 
       class GetRList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/rlist/${this.params.id}`;
         result = { list: t.entity(RList) };
       }
@@ -297,14 +297,14 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class WItem extends Entity {
         __typename = t.typename('WItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class WList extends Entity {
         __typename = t.typename('WList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(WItem, { constraints: { listId: (this as any).id } });
       }
 
@@ -318,7 +318,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetWList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/wlist/${this.params.id}`;
           result = { list: t.entity(WList) };
         }
@@ -337,13 +337,13 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class WItem2 extends Entity {
         __typename = t.typename('WItem2');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class WOwner extends Entity {
         __typename = t.typename('WOwner');
-        id = t.id;
+        id = t.id();
         tags = t.array(t.string);
       }
 
@@ -357,7 +357,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetWOwner extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/wowner/${this.params.id}`;
           result = { owner: t.entity(WOwner) };
         }
@@ -376,13 +376,13 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class WItem3 extends Entity {
         __typename = t.typename('WItem3');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class WOwner2 extends Entity {
         __typename = t.typename('WOwner2');
-        id = t.id;
+        id = t.id();
         tags = t.array(t.string);
       }
 
@@ -396,7 +396,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetWOwner2 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/wowner2/${this.params.id}`;
           result = { owner: t.entity(WOwner2) };
         }
@@ -421,7 +421,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser extends Entity {
         __typename = t.typename('EUser');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -431,7 +431,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser/${this.params.id}`;
           result = { user: t.entity(EUser) };
         }
@@ -446,7 +446,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser2 extends Entity {
         __typename = t.typename('EUser2');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -456,7 +456,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser2 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser2/${this.params.id}`;
           result = { user: t.entity(EUser2) };
         }
@@ -471,7 +471,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser3 extends Entity {
         __typename = t.typename('EUser3');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -481,7 +481,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser3 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser3/${this.params.id}`;
           result = { user: t.entity(EUser3) };
         }
@@ -499,7 +499,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser4 extends Entity {
         __typename = t.typename('EUser4');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -509,7 +509,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser4 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser4/${this.params.id}`;
           result = { user: t.entity(EUser4) };
         }
@@ -531,7 +531,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser5 extends Entity {
         __typename = t.typename('EUser5');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -541,7 +541,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser5 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser5/${this.params.id}`;
           result = { user: t.entity(EUser5) };
         }
@@ -559,7 +559,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EUser6 extends Entity {
         __typename = t.typename('EUser6');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -569,7 +569,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEUser6 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/euser6/${this.params.id}`;
           result = { user: t.entity(EUser6) };
         }
@@ -592,7 +592,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class DRUser extends Entity {
         __typename = t.typename('DRUser');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -602,7 +602,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetDRUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/druser/${this.params.id}`;
           result = { user: t.entity(DRUser) };
         }
@@ -631,13 +631,13 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class EChild extends Entity {
         __typename = t.typename('EChild');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EParent extends Entity {
         __typename = t.typename('EParent');
-        id = t.id;
+        id = t.id();
         child = t.entity(EChild);
       }
 
@@ -651,7 +651,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetEParent extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/eparent/${this.params.id}`;
           result = { parent: t.entity(EParent) };
         }
@@ -681,7 +681,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class NullIdEntity extends Entity {
         __typename = t.typename('NullIdEntity');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -706,7 +706,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class BoolIdEntity extends Entity {
         __typename = t.typename('BoolIdEntity');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -731,7 +731,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class StringIdEntity extends Entity {
         __typename = t.typename('StringIdEntity');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -755,7 +755,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class NumIdEntity extends Entity {
         __typename = t.typename('NumIdEntity');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -785,7 +785,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class NullFieldEntity extends Entity {
         __typename = t.typename('NullFieldEntity');
-        id = t.id;
+        id = t.id();
         name = t.nullable(t.string);
       }
 
@@ -810,7 +810,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class StrictItem extends Entity {
         __typename = t.typename('StrictItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         email = t.string;
@@ -818,7 +818,7 @@ describe('Branch Fixes', () => {
 
       class StrictList extends Entity {
         __typename = t.typename('StrictList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(StrictItem, { constraints: { listId: (this as any).id } });
       }
 
@@ -828,7 +828,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetStrictList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/strictlist/${this.params.id}`;
           result = { list: t.entity(StrictList) };
         }
@@ -848,7 +848,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetStrictList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/strictlist/${this.params.id}`;
           result = { list: t.entity(StrictList) };
         }
@@ -898,7 +898,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class SItem extends Entity {
         __typename = t.typename('SItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         order = t.number;
@@ -906,7 +906,7 @@ describe('Branch Fixes', () => {
 
       class SList extends Entity {
         __typename = t.typename('SList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(SItem, {
           constraints: { listId: (this as any).id },
           sort: (a: any, b: any) => a.order - b.order,
@@ -927,7 +927,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetSList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/slist/${this.params.id}`;
           result = { list: t.entity(SList) };
         }
@@ -946,7 +946,7 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class SItem2 extends Entity {
         __typename = t.typename('SItem2');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         order = t.number;
@@ -954,7 +954,7 @@ describe('Branch Fixes', () => {
 
       class SList2 extends Entity {
         __typename = t.typename('SList2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(SItem2, {
           constraints: { listId: (this as any).id },
           sort: (a: any, b: any) => a.order - b.order,
@@ -974,7 +974,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetSList2 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/slist2/${this.params.id}`;
           result = { list: t.entity(SList2) };
         }
@@ -1014,14 +1014,14 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class DItem extends Entity {
         __typename = t.typename('DItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class DList extends Entity {
         __typename = t.typename('DList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(DItem, { constraints: { listId: (this as any).id } });
       }
 
@@ -1037,7 +1037,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetDList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/dlist/${this.params.id}`;
           result = { list: t.entity(DList) };
         }
@@ -1061,7 +1061,7 @@ describe('Branch Fixes', () => {
       // Re-fetch and check: the new event should route to a fresh binding
       await testWithClient(client, async () => {
         class GetDList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/dlist/${this.params.id}`;
           result = { list: t.entity(DList) };
         }
@@ -1084,14 +1084,14 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class DupItem extends Entity {
         __typename = t.typename('DupItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class DupList extends Entity {
         __typename = t.typename('DupList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(DupItem, { constraints: { listId: (this as any).id } });
       }
 
@@ -1105,7 +1105,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetDupList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/duplist/${this.params.id}`;
           result = { list: t.entity(DupList) };
         }
@@ -1171,14 +1171,14 @@ describe('Branch Fixes', () => {
       const { client, mockFetch } = getClient();
       class LItem extends Entity {
         __typename = t.typename('LItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class LList extends Entity {
         __typename = t.typename('LList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(LItem, { constraints: { listId: (this as any).id } });
       }
 
@@ -1199,7 +1199,7 @@ describe('Branch Fixes', () => {
 
       await testWithClient(client, async () => {
         class GetLList extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/llist/${this.params.id}`;
           result = { list: t.entity(LList) };
         }

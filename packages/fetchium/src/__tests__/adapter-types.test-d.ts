@@ -4,12 +4,23 @@
 // at runtime.
 
 import { t } from '../typeDefs.js';
+import type { ExtractType } from '../types.js';
 import { Query } from '../query.js';
 import { Mutation } from '../mutation.js';
 import { QueryAdapter } from '../QueryAdapter.js';
 import { TopicQuery } from '../topic/TopicQuery.js';
 import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
+
+const stringId = t.id(t.string);
+const numberId = t.id(t.number);
+
+const _stringId: ExtractType<typeof stringId> = 'user-1';
+const _numberId: ExtractType<typeof numberId> = 1;
+// @ts-expect-error — string IDs remain strings
+const _invalidStringId: ExtractType<typeof stringId> = 1;
+// @ts-expect-error — number IDs remain numbers
+const _invalidNumberId: ExtractType<typeof numberId> = '1';
 
 // A realistic TopicQueryAdapter that requires construction arguments —
 // the shape of a real-world wallet/chain/websocket adapter. Before this

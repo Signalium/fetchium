@@ -250,7 +250,10 @@ export interface APITypes {
     caseInsensitive<T extends readonly (string | boolean | number)[]>(...values: T): TypeDef<T[number]>;
   };
 
-  id: TypeDef<string | number>;
+  id: {
+    <T extends string | number>(type: TypeDef<T>): TypeDef<T>;
+    (): TypeDef<string | number>;
+  };
   string: TypeDef<string>;
   number: TypeDef<number>;
   boolean: TypeDef<boolean>;

@@ -78,7 +78,7 @@ describe('invalidateQueries', () => {
     const { client, mockFetch } = getClient();
 
     class GetUser extends RESTQuery {
-      params = { id: t.id };
+      params = { id: t.id() };
       path = `/users/${this.params.id}`;
       result = { name: t.string };
       staleTime = 60_000;
