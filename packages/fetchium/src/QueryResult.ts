@@ -52,6 +52,11 @@ export class QueryInstance<T extends Query> {
   private wasPaused: boolean = false;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  /**
+   * Bumped to schedule or cancel a zero-delay refetch, which runs on a
+   * microtask and so can't be cleared like a timer.
+   */
+  private debounceGeneration: number = 0;
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
@@ -146,8 +151,7 @@ export class QueryInstance<T extends Query> {
         const deactivate = ({ isPausing = false }: DeactivateOptions = {}) => {
           this._isActive = false;
 
-          clearTimeout(this.debounceTimer);
-          this.debounceTimer = undefined;
+          this.cancelDebounced();
 
           this._abortController?.abort();
           this._abortController = undefined;
@@ -474,17 +478,51 @@ export class QueryInstance<T extends Query> {
     this.relayState.setPromise(this.runQuery());
   }
 
-  private runDebounced(extraDelay: number = 0): void {
+  /**
+   * Starts a refetch after the query's `debounce` (plus `extraDelay`). Calls
+   * made before it starts are coalesced into one fetch.
+   *
+   * With no delay the fetch starts on a microtask rather than a timer. That
+   * still runs outside the reactive computation that asked for it (a relay
+   * update) and still coalesces every call made in the same task, but doesn't
+   * wait for the next macrotask. On React Native a zero timer goes through the
+   * native timing module and can wait up to a frame.
+   *
+   * `nextTask` keeps the zero-delay fetch on a timer. Invalidation uses it: a
+   * query invalidated in the same task its last watcher left is still active
+   * until Signalium's deactivation flush, and the timer lets that flush cancel
+   * the fetch rather than start and abort it.
+   */
+  private runDebounced(extraDelay: number = 0, nextTask: boolean = false): void {
     if (this.relayState.isPending) return;
 
-    const debounce = this.config?.debounce ?? 0;
+    const delay = (this.config?.debounce ?? 0) + extraDelay;
 
-    clearTimeout(this.debounceTimer);
+    this.cancelDebounced();
 
-    this.debounceTimer = setTimeout(() => {
-      this.debounceTimer = undefined;
+    if (delay > 0 || nextTask) {
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = undefined;
+        this.runQueryImmediately();
+      }, delay);
+      return;
+    }
+
+    const generation = this.debounceGeneration;
+    queueMicrotask(() => {
+      if (generation !== this.debounceGeneration) return;
+      this.debounceGeneration++;
+      // Another path started a fetch in the meantime (refetch(), activation).
+      if (this.relayState.isPending && this._abortController !== undefined) return;
       this.runQueryImmediately();
-    }, debounce + extraDelay);
+    });
+  }
+
+  /** Cancels a refetch scheduled by runDebounced(). */
+  private cancelDebounced(): void {
+    this.debounceGeneration++;
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = undefined;
   }
 
   /**
@@ -500,15 +538,19 @@ export class QueryInstance<T extends Query> {
     const queuedAt = this.reactivationQueuedAt;
     if (this.fetchStarts !== queuedAt) return;
 
-    clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(
-      () => {
-        this.debounceTimer = undefined;
-        if (this.fetchStarts !== queuedAt) return;
-        this.runQueryImmediately();
-      },
-      (this.config?.debounce ?? 0) + delay,
-    );
+    const totalDelay = (this.config?.debounce ?? 0) + delay;
+    if (totalDelay === 0) {
+      // Within the flush task, on runDebounced()'s microtask.
+      this.runDebounced();
+      return;
+    }
+
+    this.cancelDebounced();
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = undefined;
+      if (this.fetchStarts !== queuedAt) return;
+      this.runQueryImmediately();
+    }, totalDelay);
   }
 
   /** Records that the subscription delivered data. See `lastPushAt`. */
@@ -529,7 +571,7 @@ export class QueryInstance<T extends Query> {
   markStale(): void {
     this.updatedAt = 0;
     if (this._isActive && !this.isPaused) {
-      this.runDebounced();
+      this.runDebounced(0, true);
     }
   }
 

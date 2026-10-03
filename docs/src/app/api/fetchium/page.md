@@ -245,7 +245,37 @@ new QueryClient(config: QueryClientConfig)
 | `getContext`         | `(): QueryContext`                                 | Returns the `QueryContext` passed at construction.                                                       |
 | `applyMutationEvent` | `(event: MutationEvent): void`                     | Applies an external mutation event (create/update/delete) to the entity store.                           |
 | `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void` | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering. |
-| `destroy`            | `(): void`                                         | Tears down the GC manager, network manager, and all caches.                                              |
+| `prefetch`           | `(QueryClass, params?, { ttl? }?): () => void`     | Starts a query now and keeps it active for `ttl` ms (default `DEFAULT_PREFETCH_TTL`, 10 s). See below.   |
+| `retain`             | `(fn: () => unknown, { ttl? }?): () => void`       | Keeps the queries `fn` reads active until the returned `release` is called, or for `ttl` ms. See below.  |
+| `destroy`            | `(): void`                                         | Tears down the GC manager, network manager, and all caches, and releases outstanding leases.             |
+
+#### `prefetch` and `retain`
+
+Both take a lease: the queries stay active (fetched, subscribed, exempt from GC) without a component reading them. A reader that mounts while the lease is held joins the active query, so it starts no request of its own and renders the data on its first render if it has arrived. Both return an idempotent `release` function. Releasing never interrupts other readers; once the last one goes, the query deactivates and its `gcTime` starts as usual. Calling `release` while a fetch is in flight, with no reader, aborts that fetch. A `prefetch` whose `ttl` runs out mid-fetch instead waits for the fetch to settle before letting go.
+
+`prefetch` is for the moment a user commits to a navigation, such as a tap. Call it in the handler, before navigating:
+
+```ts
+function onPressToken(id: string) {
+  queryClient.prefetch(GetTokenDetail, { id }, { ttl: 5_000 });
+  router.push(`/token/${id}`);
+}
+```
+
+With a synchronous store, a cached result is applied inside the call. A fresh one makes no request, and a stale one is refetched, as on any activation.
+
+`retain` keeps a set of queries warm, for example the queries of a screen that is hidden but likely to come back. `fn` runs immediately, with the client as `QueryClientContext`, and again when what it reads changes. It holds a query when it reads one of the query's fields, or when it returns the query's promise or an array of them:
+
+```ts
+const release = queryClient.retain(() => [
+  fetchQuery(GetPortfolio),
+  fetchQuery(GetPrices, { ids }),
+]);
+// when the surface is gone for good:
+release();
+```
+
+Without a `ttl`, a `retain` lease lasts until `release` is called.
 
 ---
 
@@ -625,7 +655,7 @@ The `t` object provides a declarative type definition DSL for describing query p
 | ------------------------- | ---------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `gcTime`                  | `number`                           | `5`                         | In-memory eviction time in minutes. `0` = next-tick, `Infinity` = never.                                                   |
 | `staleTime`               | `number`                           | `0`                         | Milliseconds data is considered fresh. `0` = always stale.                                                                 |
-| `debounce`                | `number`                           | `0`                         | Milliseconds to debounce param-change refetches.                                                                           |
+| `debounce`                | `number`                           | `0`                         | Milliseconds to debounce refetches. At `0`, a refetch starts on a microtask (invalidation: on the next task).              |
 | `networkMode`             | `NetworkMode`                      | `NetworkMode.Online`        | When to allow fetching.                                                                                                    |
 | `retry`                   | `RetryConfig \| number \| boolean` | `3` (client) / `0` (server) | Retry configuration.                                                                                                       |
 | `refreshStaleOnReconnect` | `boolean`                          | `true`                      | Whether to refetch stale queries when network reconnects.                                                                  |

@@ -295,7 +295,7 @@ if (result.isRejected) {
 
 ### Opting into throw behavior
 
-If you _want_ error boundaries to catch query failures --- for example, when using React Suspense or when you prefer a centralized error UI --- you can read `.value` directly. Reading `.value` on a rejected `ReactivePromise` throws the error, which will propagate up to the nearest error boundary.
+If you _want_ error boundaries to catch query failures --- for example, when using React Suspense or when you prefer a centralized error UI --- throw the error yourself. Reading `.value` does not throw: on a rejected query it holds the last successful value, or `undefined` if there never was one.
 
 ```tsx
 import { ErrorBoundary } from 'react-error-boundary';
@@ -303,13 +303,13 @@ import { ErrorBoundary } from 'react-error-boundary';
 function UserProfile({ userId }: { userId: number }) {
   const result = useQuery(GetUser, { id: userId });
 
-  // This throws if the query is rejected,
-  // which the ErrorBoundary above will catch
-  const user = result.value;
+  // Hand a failure with nothing to show to the ErrorBoundary above
+  if (result.isRejected && !result.isReady) throw result.error;
+  if (!result.isReady) return <Spinner />;
 
   return (
     <div>
-      <h1>{user.name}</h1>
+      <h1>{result.value.name}</h1>
     </div>
   );
 }
@@ -322,6 +322,8 @@ function App() {
   );
 }
 ```
+
+`useSuspenseQuery` from `fetchium/react` does this for you: it suspends while a query with no value loads, and throws a failed cold fetch to the error boundary.
 
 This is a conscious opt-in. The default explicit-checking pattern (`isRejected` + `error`) is recommended for most use cases because it gives you the most flexibility. Error boundaries are best reserved for catching truly unexpected failures that shouldn't be handled inline.
 

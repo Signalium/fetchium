@@ -137,7 +137,9 @@ function UserProfile() {
 }
 ```
 
-`useQuery` returns `ReactivePromise<QueryResult>` with: `value`, `isReady`, `isPending`, `isResolved`, `isRejected`, `error`. Pass `{ suspended: true/false }` to control whether the query is active.
+`useQuery` returns `ReactivePromise<QueryResult>` with: `value`, `isReady`, `isPending`, `isResolved`, `isRejected`, `error`. It never suspends; `value` is `undefined` until the first value arrives. `useSuspenseQuery` (same arguments) suspends on a cold miss only, never for a refetch, and throws a failed cold fetch to the error boundary.
+
+To start a destination's query when the user taps, call `queryClient.prefetch(QueryClass, params, { ttl })` before navigating; the screen's `useQuery` then joins the running query. `queryClient.retain(() => [fetchQuery(A), fetchQuery(B)], { ttl })` keeps a set of queries active until its returned `release()` is called.
 
 ## React + Signalium Usage
 

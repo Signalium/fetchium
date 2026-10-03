@@ -1,0 +1,323 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+import { describe, it, expect, afterEach } from 'vitest';
+import { signal, watcher, withContexts } from 'signalium';
+import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
+import { QueryClient, QueryClientContext, DEFAULT_PREFETCH_TTL } from '../QueryClient.js';
+import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
+import { t } from '../typeDefs.js';
+import { fetchQuery, QueryDefinition } from '../query.js';
+import type { MutationEvent } from '../types.js';
+import { createMockFetch, sleep } from './utils.js';
+
+/**
+ * client.retain() and client.prefetch(): app-level leases that keep queries
+ * active without a reader, so a reader that mounts inside the lease joins the
+ * running query instead of starting its own.
+ */
+
+async function flushMicrotasks(count = 30): Promise<void> {
+  for (let i = 0; i < count; i++) await Promise.resolve();
+}
+
+class GetItem extends RESTQuery {
+  path = '/item';
+  result = { n: t.number };
+  config = { staleTime: 0 };
+}
+
+class GetOther extends RESTQuery {
+  path = '/other';
+  result = { n: t.number };
+  config = { staleTime: 0 };
+}
+
+class GetUser extends RESTQuery {
+  params = { id: t.number };
+  path = `/users/${this.params.id}`;
+  result = { n: t.number };
+}
+
+class GetFreshUser extends RESTQuery {
+  params = { id: t.number };
+  path = `/users/${this.params.id}`;
+  result = { n: t.number };
+  config = { staleTime: 60_000 };
+}
+
+let subscribed = 0;
+let unsubscribed = 0;
+
+class GetStreamed extends RESTQuery {
+  path = '/streamed';
+  result = { n: t.number };
+  config = {
+    subscribe: (_onEvent: (event: MutationEvent) => void) => {
+      subscribed++;
+      return () => {
+        unsubscribed++;
+      };
+    },
+  };
+}
+
+let clients: QueryClient[] = [];
+
+afterEach(() => {
+  for (const c of clients) c.destroy();
+  clients = [];
+  subscribed = 0;
+  unsubscribed = 0;
+});
+
+function setup(kv: MemoryPersistentStore = new MemoryPersistentStore()) {
+  const mockFetch = createMockFetch();
+  let n = 0;
+  for (const path of ['/item', '/other', '/users/[id]', '/streamed']) {
+    mockFetch.get(path, () => ({ n: ++n }));
+  }
+  const client = new QueryClient({
+    store: new SyncQueryStore(kv),
+    adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+  });
+  clients.push(client);
+  return { client, mockFetch, kv };
+}
+
+/** Mounts a reader: watches `read` and runs it now, like a React render. */
+function mountReader<T>(client: QueryClient, read: () => T): { w: { value: T }; unsub: () => void } {
+  const w = withContexts([[QueryClientContext, client]], () => watcher(read));
+  const unsub = w.addListener(() => {});
+  w.value;
+  return { w: w as { value: T }, unsub };
+}
+
+describe('client.prefetch()', () => {
+  it('starts the fetch before returning control to a timer', async () => {
+    const { client, mockFetch } = setup();
+    client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(0);
+    await flushMicrotasks();
+    expect(mockFetch.calls).toHaveLength(1);
+  });
+
+  it('a reader mounting after the data arrives renders it on its first read, with no second request', async () => {
+    const { client, mockFetch } = setup();
+    client.prefetch(GetItem, undefined, { ttl: 1_000 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    // staleTime 0, yet the query is still active, so mounting is not a reactivation.
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(w.value).toMatchObject({ n: 1 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+  });
+
+  it('a reader mounting while the fetch is in flight joins it', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 7 }, { delay: 30 });
+    client.prefetch(GetItem, undefined, { ttl: 1_000 });
+    await sleep(5);
+
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(w.value).toBeUndefined();
+    await sleep(50);
+    expect(w.value).toMatchObject({ n: 7 });
+    expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+  });
+
+  it('passes params, and keys on them', async () => {
+    const { client, mockFetch } = setup();
+    client.prefetch(GetUser, { id: 4 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(mockFetch.calls[0].url).toContain('/users/4');
+
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetUser, { id: 4 }).value);
+    expect(w.value).toMatchObject({ n: 1 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+  });
+
+  it('serves fresh cached data from a synchronous store without a request', async () => {
+    const kv = new MemoryPersistentStore();
+    const seed = setup(kv);
+    seed.client.prefetch(GetFreshUser, { id: 1 });
+    await sleep(10);
+    expect(seed.mockFetch.calls).toHaveLength(1);
+    seed.client.destroy();
+
+    const { client, mockFetch } = setup(kv);
+    client.prefetch(GetFreshUser, { id: 1 });
+    // Hydrated by the activation inside prefetch(), before it returned.
+    expect(client.getQuery(QueryDefinition.for(GetFreshUser), { id: 1 }).value).toMatchObject({ n: 1 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(0);
+  });
+
+  it('expires after ttl: the query deactivates, and a later mount is a reactivation', async () => {
+    const { client, mockFetch } = setup();
+    client.prefetch(GetItem, undefined, { ttl: 20 });
+    await sleep(60);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    // staleTime 0 and no grace: reactivating refetches.
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(w.value).toMatchObject({ n: 1 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(2);
+    unsub();
+  });
+
+  it('a ttl that runs out mid-fetch waits for the fetch instead of aborting it', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/streamed', { n: 9 }, { delay: 40 });
+    client.prefetch(GetStreamed, undefined, { ttl: 10 });
+    await sleep(25);
+    // Past the ttl, before the response (40 ms): still held, request not cancelled.
+    expect(unsubscribed).toBe(0);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(false);
+    await sleep(60);
+    expect(mockFetch.calls).toHaveLength(1);
+    // The fetch landed (an aborted one applies nothing), then the lease went.
+    const relay = client.getQuery(QueryDefinition.for(GetStreamed), undefined);
+    expect(relay.value).toMatchObject({ n: 9 });
+    expect(unsubscribed).toBe(1);
+  });
+
+  it('defaults ttl to DEFAULT_PREFETCH_TTL', () => {
+    expect(DEFAULT_PREFETCH_TTL).toBe(10_000);
+  });
+
+  it('release() while a reader is mounted leaves the reader running', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 3 }, { delay: 30 });
+    const release = client.prefetch(GetItem);
+    await sleep(5);
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    release();
+    release();
+    await sleep(50);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(false);
+    expect(w.value).toMatchObject({ n: 3 });
+    unsub();
+  });
+
+  it('release() with no reader aborts an in-flight fetch', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 3 }, { delay: 30 });
+    const release = client.prefetch(GetItem);
+    await sleep(5);
+    release();
+    // Still before the response (30 ms): the request has been cancelled.
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
+    await sleep(40);
+  });
+});
+
+describe('client.retain()', () => {
+  it('holds the query promises the callback returns', async () => {
+    const { client, mockFetch } = setup();
+    const release = client.retain(() => [fetchQuery(GetItem), fetchQuery(GetOther)]);
+    await sleep(10);
+    expect(mockFetch.calls.map(c => new URL(c.url).pathname).sort()).toEqual(['/item', '/other']);
+
+    const { w, unsub } = mountReader(client, () => [fetchQuery(GetItem).value, fetchQuery(GetOther).value]);
+    expect(w.value).toEqual([expect.objectContaining({ n: expect.any(Number) }), expect.any(Object)]);
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(2);
+    unsub();
+    release();
+  });
+
+  it('holds queries whose fields the callback reads', async () => {
+    const { client, mockFetch } = setup();
+    const release = client.retain(() => {
+      fetchQuery(GetItem).isReady;
+    });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(w.value).toMatchObject({ n: 1 });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+    release();
+  });
+
+  it('keeps a subscription running until released', async () => {
+    const { client } = setup();
+    const release = client.retain(() => fetchQuery(GetStreamed));
+    await sleep(10);
+    expect(subscribed).toBe(1);
+
+    // A reader coming and going doesn't restart it.
+    const reader = mountReader(client, () => fetchQuery(GetStreamed).value);
+    reader.unsub();
+    await sleep(10);
+    expect(subscribed).toBe(1);
+    expect(unsubscribed).toBe(0);
+
+    release();
+    await sleep(10);
+    expect(unsubscribed).toBe(1);
+  });
+
+  it('follows Signal params', async () => {
+    const { client, mockFetch } = setup();
+    const id = signal(1);
+    const release = client.retain(() => fetchQuery(GetUser, { id }));
+    await sleep(10);
+    id.value = 2;
+    await sleep(20);
+    expect(mockFetch.calls.map(c => new URL(c.url).pathname)).toEqual(['/users/1', '/users/2']);
+    release();
+  });
+
+  it('without ttl, holds until released', async () => {
+    const { client } = setup();
+    const release = client.retain(() => fetchQuery(GetStreamed));
+    await sleep(50);
+    expect(unsubscribed).toBe(0);
+    release();
+    await sleep(10);
+    expect(unsubscribed).toBe(1);
+  });
+
+  it('with ttl, releases itself', async () => {
+    const { client } = setup();
+    client.retain(() => fetchQuery(GetStreamed), { ttl: 20 });
+    await sleep(10);
+    expect(subscribed).toBe(1);
+    await sleep(40);
+    expect(unsubscribed).toBe(1);
+  });
+
+  it('destroy() releases outstanding leases', async () => {
+    const { client } = setup();
+    client.retain(() => fetchQuery(GetStreamed));
+    await sleep(10);
+    client.destroy();
+    await sleep(10);
+    expect(unsubscribed).toBe(1);
+  });
+
+  it('releases and rethrows when the callback throws', () => {
+    const { client } = setup();
+    expect(() =>
+      client.retain(() => {
+        throw new Error('boom');
+      }),
+    ).toThrow('boom');
+  });
+});

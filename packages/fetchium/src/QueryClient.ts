@@ -1,4 +1,4 @@
-import { context, watcher, ReactiveTask, type Context } from 'signalium';
+import { context, watcher, withContexts, ReactivePromise, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
 import {
   EntityDef,
@@ -35,6 +35,8 @@ import {
   queryKeyFor,
 } from './query-types.js';
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
+import type { ExtractType } from './types.js';
+import type { Optionalize, Signalize } from './type-utils.js';
 
 export interface QueryClientConfig {
   store?: QueryStore;
@@ -84,6 +86,42 @@ export interface QueryClientConfig {
   pollResumeJitterMs?: number;
 }
 
+export interface RetainOptions {
+  /**
+   * Milliseconds after which the lease releases itself. Omit to hold it until
+   * the returned `release` is called.
+   */
+  ttl?: number;
+}
+
+export interface PrefetchOptions {
+  /**
+   * Milliseconds to keep the query active if nothing else reads it. Default:
+   * `DEFAULT_PREFETCH_TTL` (10 s).
+   */
+  ttl?: number;
+}
+
+/** How long `prefetch()` keeps a query active when no `ttl` is given. */
+export const DEFAULT_PREFETCH_TTL = 10_000;
+
+/**
+ * How long a suspense hold outlives its fetch settling when no reader commits
+ * to claim it (the suspended tree was abandoned).
+ */
+const SUSPENSE_HOLD_TTL = 10_000;
+
+interface SuspenseHold {
+  release: () => void;
+  /** Resolves (never rejects) once the cold fetch settles. */
+  settled: Promise<void> | undefined;
+  /** The fetch this hold suspended on has settled. */
+  done: boolean;
+  /** That fetch failed and its error has been handed to a render. */
+  failed: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
+
 export {
   type QueryContext,
   type ActivitySource,
@@ -121,6 +159,11 @@ export class QueryClient {
   /** Queries whose reactivation refetch waits for the current task's stagger flush. */
   private staggerQueue = new Set<QueryInstance<any>>();
   private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+
+  /** Release functions of outstanding `retain()` / `prefetch()` leases. */
+  private leases = new Set<() => void>();
+  /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
+  private suspenseHolds = new Map<number, SuspenseHold>();
 
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
@@ -326,6 +369,195 @@ export class QueryClient {
     }
 
     return queryInstance.relay;
+  }
+
+  // ======================================================
+  // Leases (retain / prefetch)
+  // ======================================================
+
+  /**
+   * Keeps the queries `fn` reads active (fetched, subscribed, and exempt from
+   * GC) until the returned `release` is called, or for `ttl` milliseconds,
+   * whichever comes first. Use it to keep a hidden surface's queries warm, or
+   * to start the queries a likely next screen needs.
+   *
+   * `fn` runs immediately with this client as the `QueryClientContext`, and
+   * again whenever what it reads changes (for example a Signal param). A query
+   * is held when `fn` reads one of its fields (`isReady`, `value`, ...), or
+   * when `fn` returns its promise or an array of them:
+   *
+   * ```ts
+   * const release = client.retain(() => [fetchQuery(GetTokens), fetchQuery(GetPrices, { ids })]);
+   * // later, when the surface is gone for good:
+   * release();
+   * ```
+   *
+   * A reader that mounts while the lease is held joins the already active
+   * query: no new request, and the data (if it has arrived) on its first
+   * render. Releasing never interrupts other readers; when the last one goes,
+   * the query deactivates and its `gcTime` starts as usual. `release` is
+   * idempotent.
+   */
+  retain(fn: () => unknown, options?: RetainOptions): () => void {
+    const w = withContexts([[QueryClientContext, this]], () => watcher(() => holdReturned(fn())));
+    const unsubscribe = w.addListener(noop);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let released = false;
+
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      this.leases.delete(release);
+      unsubscribe();
+    };
+
+    this.leases.add(release);
+
+    try {
+      // Run now, so the queries activate (and a synchronous store hydrates
+      // them) before this returns, not on Signalium's next flush.
+      void w.value;
+    } catch (error) {
+      release();
+      throw error;
+    }
+
+    const ttl = options?.ttl;
+    if (ttl !== undefined && Number.isFinite(ttl)) {
+      timer = setTimeout(release, Math.max(0, ttl));
+    }
+
+    return release;
+  }
+
+  /**
+   * Starts `QueryClass` with `params` now and keeps it active for `ttl`
+   * milliseconds (default {@link DEFAULT_PREFETCH_TTL}), or until the returned
+   * `release` is called. A fetch still in flight when `ttl` runs out is let
+   * finish before the lease goes; `release()` lets go at once. Meant for the moment a user commits to a navigation
+   * (a tap): the destination's reader, mounting within the window, reuses the
+   * in-flight or finished fetch instead of starting its own, and renders the
+   * data on its first render if it has arrived.
+   *
+   * Cached data counts: with a synchronous store a cached, fresh result is
+   * applied without a request. A stale one is shown and refetched, as on any
+   * activation.
+   */
+  prefetch<T extends Query>(
+    QueryClass: new () => T,
+    params?: Optionalize<Signalize<ExtractType<T['params']>>>,
+    options?: PrefetchOptions,
+  ): () => void {
+    const def = QueryDefinition.for(QueryClass);
+    let relay: QueryPromise<T> | undefined;
+    const release = this.retain(() => (relay = this.getQuery(def, params as QueryParams | undefined)));
+
+    const ttl = options?.ttl ?? DEFAULT_PREFETCH_TTL;
+    if (Number.isFinite(ttl)) {
+      const timer = setTimeout(
+        () => {
+          // Expiring mid-fetch would abort a request that is about to land:
+          // hold until it settles. An explicit release() still lets go at once.
+          if (relay?.isPending) relay.then(release, release);
+          else release();
+        },
+        Math.max(0, ttl),
+      );
+      return () => {
+        clearTimeout(timer);
+        release();
+      };
+    }
+
+    return release;
+  }
+
+  /**
+   * For `useSuspenseQuery`. Returns a promise to suspend on when the query has
+   * never produced a value (a cold miss), or `undefined` when it has one to
+   * render (in memory, or hydrated now from a synchronous store).
+   *
+   * A cold miss takes a hold that keeps the query active while the render is
+   * suspended, since React discards a suspended render without subscribing.
+   * The reader's commit releases it (`releaseSuspenseHold`); otherwise it
+   * releases itself `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose
+   * last fetch failed is refetched once per hold: when that attempt fails too,
+   * `error` is set and the hold is dropped, so the caller can throw it.
+   *
+   * @internal
+   */
+  suspendOnColdMiss(
+    def: QueryDefinition<any, any, any>,
+    params: QueryParams | undefined,
+  ): { promise: Promise<void> | undefined; failed?: true; error?: unknown; key: number } {
+    const key = queryKeyFor(def, params);
+    const relay = this.getQuery(def, params);
+    if (relay.isReady) return { promise: undefined, key };
+
+    let hold = this.suspenseHolds.get(key);
+    if (hold === undefined) {
+      const release = this.retain(() => this.getQuery(def, params));
+      hold = { release, settled: undefined, done: false, failed: false, timer: undefined };
+      this.suspenseHolds.set(key, hold);
+    }
+
+    if (relay.isReady) {
+      // Hydrated by the activation: render it, and keep the hold until the reader commits.
+      this.expireSuspenseHold(key, hold);
+      return { promise: undefined, key };
+    }
+
+    if (!relay.isPending) {
+      if (hold.done) {
+        // The fetch this hold waited for failed. Keep the hold until the next
+        // task: React re-renders a throwing component once more before giving
+        // up, and that render must throw the same error, not refetch. A later
+        // mount (an error boundary reset) gets a fresh hold and a new attempt.
+        const error = relay.error;
+        if (!hold.failed) {
+          hold.failed = true;
+          clearTimeout(hold.timer);
+          hold.timer = setTimeout(() => {
+            if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
+          }, 0);
+        }
+        return { promise: undefined, failed: true, error, key };
+      }
+      // A failed or not-yet-started fetch: start it now rather than after the activation's refetch hop.
+      this.queryInstances.get(key)?.refetch();
+    }
+
+    if (hold.settled === undefined) {
+      const current = hold;
+      current.settled = new Promise<void>(resolve => {
+        const settle = (): void => {
+          current.done = true;
+          this.expireSuspenseHold(key, current);
+          resolve();
+        };
+        relay.then(settle, settle);
+      });
+    }
+
+    return { promise: hold.settled, key };
+  }
+
+  /** Releases a `useSuspenseQuery` hold once its reader has committed. @internal */
+  releaseSuspenseHold(key: number): void {
+    const hold = this.suspenseHolds.get(key);
+    if (hold === undefined) return;
+    this.suspenseHolds.delete(key);
+    clearTimeout(hold.timer);
+    hold.release();
+  }
+
+  private expireSuspenseHold(key: number, hold: SuspenseHold): void {
+    if (hold.timer !== undefined || this.suspenseHolds.get(key) !== hold) return;
+    hold.timer = setTimeout(() => {
+      if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
+    }, SUSPENSE_HOLD_TTL);
   }
 
   /**
@@ -606,6 +838,8 @@ export class QueryClient {
   }
 
   destroy(): void {
+    for (const key of [...this.suspenseHolds.keys()]) this.releaseSuspenseHold(key);
+    for (const release of [...this.leases]) release();
     clearTimeout(this.staggerTimer);
     this.staggerTimer = undefined;
     this.staggerQueue.clear();
@@ -626,6 +860,25 @@ export class QueryClient {
 }
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
+
+const noop = (): void => {};
+
+/**
+ * Reads the query promises `retain`'s callback returned, so the lease's
+ * watcher depends on them and keeps them active. `isReady` changes once per
+ * query, so the watcher reruns at most once for each.
+ */
+function holdReturned(returned: unknown): void {
+  if (Array.isArray(returned)) {
+    for (const item of returned) holdOne(item);
+  } else {
+    holdOne(returned);
+  }
+}
+
+function holdOne(value: unknown): void {
+  if (value instanceof ReactivePromise) void value.isReady;
+}
 
 function nonNegative(value: unknown): number {
   return typeof value === 'number' && value > 0 ? value : 0;
