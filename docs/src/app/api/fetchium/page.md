@@ -513,14 +513,14 @@ The `t` object provides a declarative type definition DSL for describing query p
 
 ### Primitive types
 
-| Property      | Type                        | Description                                                                                 |
-| ------------- | --------------------------- | ------------------------------------------------------------------------------------------- |
-| `t.string`    | `TypeDef<string>`           | String type.                                                                                |
-| `t.number`    | `TypeDef<number>`           | Number type.                                                                                |
-| `t.boolean`   | `TypeDef<boolean>`          | Boolean type.                                                                               |
-| `t.null`      | `TypeDef<null>`             | Null literal type.                                                                          |
-| `t.undefined` | `TypeDef<undefined>`        | Undefined literal type.                                                                     |
-| `t.id(type)`  | `TypeDef<T>`                | Identity marker that preserves the supplied string or number type.                         |
+| Property      | Type                 | Description                                                        |
+| ------------- | -------------------- | ------------------------------------------------------------------ |
+| `t.string`    | `TypeDef<string>`    | String type.                                                       |
+| `t.number`    | `TypeDef<number>`    | Number type.                                                       |
+| `t.boolean`   | `TypeDef<boolean>`   | Boolean type.                                                      |
+| `t.null`      | `TypeDef<null>`      | Null literal type.                                                 |
+| `t.undefined` | `TypeDef<undefined>` | Undefined literal type.                                            |
+| `t.id(type)`  | `TypeDef<T>`         | Identity marker that preserves the supplied string or number type. |
 
 ### Composite types
 
