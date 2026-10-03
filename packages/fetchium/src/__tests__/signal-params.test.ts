@@ -22,7 +22,7 @@ describe('Signal Parameters', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -74,7 +74,7 @@ describe('Signal Parameters', () => {
       mockFetch.get('/users/[id]/posts', { posts: [] });
 
       class GetUserPosts extends RESTQuery {
-        params = { id: t.id, status: t.string };
+        params = { id: t.id(), status: t.string };
         path = `/users/${this.params.id}/posts`;
         searchParams = { status: this.params.status };
         result = {
@@ -103,7 +103,7 @@ describe('Signal Parameters', () => {
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -185,7 +185,7 @@ describe('Signal Parameters', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Test User' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -212,7 +212,7 @@ describe('Signal Parameters', () => {
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,

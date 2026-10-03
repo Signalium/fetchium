@@ -43,12 +43,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -107,12 +107,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -185,12 +185,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -255,12 +255,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -315,12 +315,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -372,12 +372,12 @@ describe('React Entity Stream Integration', () => {
           };
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -432,12 +432,12 @@ describe('React Entity Stream Integration', () => {
           };
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -506,19 +506,19 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('Address');
-        id = t.id;
+        id = t.id();
         street = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.entity(Address);
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -584,7 +584,7 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         fullName(this: any) {
@@ -593,7 +593,7 @@ describe('React Entity Stream Integration', () => {
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -658,12 +658,12 @@ describe('React Entity Stream Integration', () => {
           };
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -741,12 +741,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         count = t.number;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -793,12 +793,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -859,12 +859,12 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -925,14 +925,14 @@ describe('React Entity Stream Integration', () => {
           return () => {};
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         firstName = t.string;
         lastName = t.string;
         email = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1010,12 +1010,12 @@ describe('React Entity Stream Integration', () => {
           };
         }
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = { user: t.entity(User) };
       }

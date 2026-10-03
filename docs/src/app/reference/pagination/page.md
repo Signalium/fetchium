@@ -39,7 +39,7 @@ import { RESTQuery } from 'fetchium/rest';
 
 class Item extends Entity {
   __typename = t.typename('Item');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
 }
@@ -441,7 +441,7 @@ import { useQuery } from 'fetchium/react';
 // Entity definition
 class Post extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
 
   title = t.string;
   body = t.string;

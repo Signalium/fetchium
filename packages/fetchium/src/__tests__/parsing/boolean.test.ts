@@ -242,7 +242,7 @@ describe('t.boolean', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           active = t.boolean;
         }
 
@@ -269,7 +269,7 @@ describe('t.boolean', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           settings = t.object({
             notifications: t.boolean,
             marketing: t.boolean,
@@ -304,7 +304,7 @@ describe('t.boolean', () => {
 
         class Survey extends Entity {
           __typename = t.typename('Survey');
-          id = t.id;
+          id = t.id();
           answers = t.array(t.boolean);
         }
 
@@ -335,7 +335,7 @@ describe('t.boolean', () => {
 
         class Role extends Entity {
           __typename = t.typename('Role');
-          id = t.id;
+          id = t.id();
           permissions = t.record(t.boolean);
         }
 
@@ -366,7 +366,7 @@ describe('t.boolean', () => {
 
         class Flag extends Entity {
           __typename = t.typename('Flag');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.boolean);
         }
 

@@ -31,19 +31,19 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -81,7 +81,7 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         email = t.string;
@@ -89,12 +89,12 @@ describe('LiveCollection Event Parsing', () => {
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -128,7 +128,7 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         bio = t.optional(t.string);
@@ -136,12 +136,12 @@ describe('LiveCollection Event Parsing', () => {
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -180,14 +180,14 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class ItemSummary extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class ItemDetail extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         email = t.string;
@@ -195,24 +195,24 @@ describe('LiveCollection Event Parsing', () => {
 
       class SummaryList extends Entity {
         __typename = t.typename('SummaryList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { listId: (this as any).id } });
       }
 
       class DetailList extends Entity {
         __typename = t.typename('DetailList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { listId: (this as any).id } });
       }
 
       class GetSummaryList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/summary-list/${this.params.id}`;
         result = { list: t.entity(SummaryList) };
       }
 
       class GetDetailList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/detail-list/${this.params.id}`;
         result = { list: t.entity(DetailList) };
       }
@@ -259,14 +259,14 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class ItemSummary extends Entity {
         __typename = t.typename('NarrowItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class ItemDetail extends Entity {
         __typename = t.typename('NarrowItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         email = t.string;
@@ -274,24 +274,24 @@ describe('LiveCollection Event Parsing', () => {
 
       class SummaryList extends Entity {
         __typename = t.typename('SummaryList2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { listId: (this as any).id } });
       }
 
       class DetailList extends Entity {
         __typename = t.typename('DetailList2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { listId: (this as any).id } });
       }
 
       class GetSummaryList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/summary-list2/${this.params.id}`;
         result = { list: t.entity(SummaryList) };
       }
 
       class GetDetailList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/detail-list2/${this.params.id}`;
         result = { list: t.entity(DetailList) };
       }
@@ -340,7 +340,7 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('UpdItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
         email = t.string;
@@ -348,12 +348,12 @@ describe('LiveCollection Event Parsing', () => {
 
       class List extends Entity {
         __typename = t.typename('UpdList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/upd-list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -388,19 +388,19 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('RouteItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('RouteList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/route-list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -451,19 +451,19 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('DelItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('DelList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/del-list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -496,19 +496,19 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('DelItem2');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('DelList2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/del-list2/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -547,7 +547,7 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Event extends Entity {
         __typename = t.typename('FmtEvent');
-        id = t.id;
+        id = t.id();
         channelId = t.string;
         title = t.string;
         startDate = t.format('date');
@@ -555,12 +555,12 @@ describe('LiveCollection Event Parsing', () => {
 
       class Channel extends Entity {
         __typename = t.typename('FmtChannel');
-        id = t.id;
+        id = t.id();
         events = t.liveArray(Event, { constraints: { channelId: (this as any).id } });
       }
 
       class GetChannel extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/fmt-channel/${this.params.id}`;
         result = { channel: t.entity(Channel) };
       }
@@ -596,7 +596,7 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Task extends Entity {
         __typename = t.typename('FmtTask');
-        id = t.id;
+        id = t.id();
         projectId = t.string;
         title = t.string;
         dueDate = t.format('date');
@@ -604,12 +604,12 @@ describe('LiveCollection Event Parsing', () => {
 
       class Project extends Entity {
         __typename = t.typename('FmtProject');
-        id = t.id;
+        id = t.id();
         tasks = t.liveArray(Task, { constraints: { projectId: (this as any).id } });
       }
 
       class GetProject extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/fmt-project/${this.params.id}`;
         result = { project: t.entity(Project) };
       }
@@ -651,19 +651,19 @@ describe('LiveCollection Event Parsing', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('OrphanItem');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('OrphanList');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/orphan-list/${this.params.id}`;
         result = { list: t.entity(List) };
       }

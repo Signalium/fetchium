@@ -40,7 +40,7 @@ describe('useQuery Hook', () => {
     it('should return a cloned result, not the same reference', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -98,14 +98,14 @@ describe('useQuery Hook', () => {
     it('should trigger re-render when entity data changes', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       mockFetch.get('/user/[id]', { __typename: 'User', id: '1', name: 'Alice' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = t.entity(User);
       }
@@ -146,13 +146,13 @@ describe('useQuery Hook', () => {
     it('should handle nested entity updates', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(User);
       }
@@ -165,7 +165,7 @@ describe('useQuery Hook', () => {
       });
 
       class GetPost extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/post/${this.params.id}`;
         result = t.entity(Post);
       }
@@ -261,7 +261,7 @@ describe('useQuery Hook', () => {
     it('should update React.memo components when entity changes', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -326,7 +326,7 @@ describe('useQuery Hook', () => {
     it('should not re-render React.memo when data unchanged', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -437,7 +437,7 @@ describe('useQuery Hook', () => {
     it('should handle deep property access through memoized components', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         profile = t.object({
           name: t.string,
           settings: t.object({
@@ -509,14 +509,14 @@ describe('useQuery Hook', () => {
     it('should pass nested shared entities to React.memo components correctly', async () => {
       class Author extends Entity {
         __typename = t.typename('Author');
-        id = t.id;
+        id = t.id();
         name = t.string;
         bio = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         content = t.string;
         author = t.entity(Author);
@@ -536,7 +536,7 @@ describe('useQuery Hook', () => {
       });
 
       class GetPost extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/posts/${this.params.id}`;
         result = t.entity(Post);
       }
@@ -650,14 +650,14 @@ describe('useQuery Hook', () => {
     it('should provide cloned snapshot at render time', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(User);
       }
@@ -671,7 +671,7 @@ describe('useQuery Hook', () => {
       });
 
       class GetPost extends RESTQuery {
-        params = { postId: t.id };
+        params = { postId: t.id() };
         path = `/posts/${this.params.postId}`;
         result = t.entity(Post);
       }
@@ -722,14 +722,14 @@ describe('useQuery Hook', () => {
     it('should handle multiple components using useQuery with shared entities', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       mockFetch.get('/user/[id]', { __typename: 'User', id: '1', name: 'Alice' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = t.entity(User);
       }
@@ -777,20 +777,20 @@ describe('useQuery Hook', () => {
     it('should handle deeply nested cloned structures on refetch', async () => {
       class Author extends Entity {
         __typename = t.typename('Author');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Comment extends Entity {
         __typename = t.typename('Comment');
-        id = t.id;
+        id = t.id();
         text = t.string;
         author = t.entity(Author);
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         comments = t.array(t.entity(Comment));
       }
@@ -810,7 +810,7 @@ describe('useQuery Hook', () => {
       });
 
       class GetPost extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/post/${this.params.id}`;
         result = t.entity(Post);
       }
@@ -1007,7 +1007,7 @@ describe('useQuery Hook', () => {
     it('should handle arrays of entities', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 

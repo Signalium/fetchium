@@ -479,15 +479,18 @@ function defineObjectOrEntity(baseMask: Mask, shape: InternalObjectShape): Valid
   let variantValue: string | undefined = undefined;
 
   for (const [key, value] of entries(shape)) {
+    const fieldMask = typeof value === 'number' ? value : value instanceof ValidatorDef ? value.mask : 0;
+    if ((fieldMask & Mask.ID) !== 0) {
+      if (idField !== undefined) {
+        throw new Error(`Duplicate id field: ${key}`);
+      }
+
+      idField = key;
+      continue;
+    }
+
     switch (typeof value) {
       case 'number':
-        if ((value & Mask.ID) !== 0) {
-          if (idField !== undefined) {
-            throw new Error(`Duplicate id field: ${key}`);
-          }
-
-          idField = key;
-        }
         break;
       case 'string':
         if (typenameField !== undefined && typenameField !== key) {
@@ -748,9 +751,15 @@ function defineWithMask(type: TypeDef, mask: Mask, cache: WeakMap<ValidatorDef<a
   return cached as unknown as TypeDef;
 }
 
+const idCache = new WeakMap<ValidatorDef<any>, ValidatorDef<any>>();
 const optionalCache = new WeakMap<ValidatorDef<any>, ValidatorDef<any>>();
 const nullableCache = new WeakMap<ValidatorDef<any>, ValidatorDef<any>>();
 const nullishCache = new WeakMap<ValidatorDef<any>, ValidatorDef<any>>();
+
+function defineId<T extends string | number>(type?: TypeDef<T>): TypeDef<T> {
+  if (type === undefined) return (Mask.ID | Mask.STRING | Mask.NUMBER) as unknown as TypeDef<T>;
+  return defineWithMask(type, Mask.ID, idCache) as TypeDef<T>;
+}
 
 function defineNullish<T extends TypeDef>(type: T): TypeDef<ExtractType<T> | undefined | null> {
   return defineWithMask(type, Mask.UNDEFINED | Mask.NULL, nullishCache) as TypeDef<ExtractType<T> | undefined | null>;
@@ -1127,7 +1136,7 @@ export const t: APITypes = {
   variant: defineVariant,
   const: defineConst,
   enum: defineEnum,
-  id: (Mask.ID | Mask.STRING | Mask.NUMBER) as unknown as TypeDef<string | number>,
+  id: defineId,
   string: Mask.STRING as unknown as TypeDef<string>,
   number: Mask.NUMBER as unknown as TypeDef<number>,
   boolean: Mask.BOOLEAN as unknown as TypeDef<boolean>,

@@ -213,7 +213,7 @@ import { Entity, t } from 'fetchium';
 
 export class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   email = t.string;

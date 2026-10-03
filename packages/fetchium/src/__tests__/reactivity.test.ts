@@ -377,7 +377,7 @@ describe('Signalium Reactivity', () => {
 
       await testWithClient(client, async () => {
         class GetItem extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/items/${this.params.id}`;
           result = { url: t.string, timestamp: t.number };
         }

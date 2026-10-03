@@ -144,12 +144,12 @@ describe('AsyncQueryStore', () => {
   describe('Message Queue Processing', () => {
     it('should process saveQuery messages serially', async () => {
       class User extends Entity {
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = t.entity(User);
       }

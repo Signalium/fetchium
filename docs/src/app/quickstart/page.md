@@ -95,7 +95,7 @@ import { RESTQuery } from 'fetchium/rest';
 
 class User extends Entity {
   __typename = t.typename('User');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   email = t.string;
@@ -110,7 +110,7 @@ class GetUser extends RESTQuery {
 }
 ```
 
-`t.typename` and `t.id` identify the entity for normalization and deduplication. `path` uses template literal interpolation with `this.params` to embed parameter values. `t.entity(User)` tells Fetchium to parse and normalize the response as a `User` entity.
+`t.typename` and `t.id(t.string)` identify the entity for normalization and deduplication. `path` uses template literal interpolation with `this.params` to embed parameter values. `t.entity(User)` tells Fetchium to parse and normalize the response as a `User` entity.
 
 ### 5. Use the query in a component
 

@@ -294,7 +294,7 @@ describe('t.array', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           tags = t.array(t.string);
         }
 
@@ -321,7 +321,7 @@ describe('t.array', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -354,13 +354,13 @@ describe('t.array', () => {
 
         class Child extends Entity {
           __typename = t.typename('Child');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
         class Parent extends Entity {
           __typename = t.typename('Parent');
-          id = t.id;
+          id = t.id();
           name = t.string;
           child = t.entity(Child);
         }
@@ -410,7 +410,7 @@ describe('t.array', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           profile = t.object({
             skills: t.array(t.string),
           });
@@ -443,7 +443,7 @@ describe('t.array', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           groups = t.record(t.array(t.string));
         }
 
@@ -474,7 +474,7 @@ describe('t.array', () => {
 
         class Container extends Entity {
           __typename = t.typename('Container');
-          id = t.id;
+          id = t.id();
           value = t.union(t.array(t.string), t.string);
         }
 
@@ -608,7 +608,7 @@ describe('t.array', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -640,13 +640,13 @@ describe('t.array', () => {
 
         class TextPost extends Entity {
           __typename = t.typename('TextPost');
-          id = t.id;
+          id = t.id();
           content = t.string;
         }
 
         class ImagePost extends Entity {
           __typename = t.typename('ImagePost');
-          id = t.id;
+          id = t.id();
           url = t.string;
         }
 

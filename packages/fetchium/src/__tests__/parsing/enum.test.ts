@@ -215,7 +215,7 @@ describe('t.enum', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           status = t.enum('active', 'inactive', 'pending');
         }
 
@@ -242,7 +242,7 @@ describe('t.enum', () => {
 
         class Task extends Entity {
           __typename = t.typename('Task');
-          id = t.id;
+          id = t.id();
           priorities = t.array(t.enum('low', 'medium', 'high'));
         }
 
@@ -633,7 +633,7 @@ describe('t.enum.caseInsensitive', () => {
         await testWithClient(client, async () => {
           class User extends Entity {
             __typename = t.typename('User');
-            id = t.id;
+            id = t.id();
             role = t.enum.caseInsensitive('Admin', 'User', 'Guest');
           }
 
@@ -665,7 +665,7 @@ describe('t.enum.caseInsensitive', () => {
         await testWithClient(client, async () => {
           class Task extends Entity {
             __typename = t.typename('Task');
-            id = t.id;
+            id = t.id();
             tags = t.array(t.enum.caseInsensitive('High', 'Medium', 'Low'));
           }
 

@@ -189,7 +189,7 @@ describe('__fetchNext', () => {
   describe('Live array accumulation', () => {
     class Item extends Entity {
       __typename = t.typename('Item');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 

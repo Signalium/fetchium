@@ -261,7 +261,7 @@ describe('t.string', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
@@ -288,7 +288,7 @@ describe('t.string', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           profile = t.object({
             bio: t.string,
           });
@@ -321,7 +321,7 @@ describe('t.string', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           tags = t.array(t.string);
         }
 
@@ -352,7 +352,7 @@ describe('t.string', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.string);
         }
 
@@ -383,7 +383,7 @@ describe('t.string', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.number);
         }
 

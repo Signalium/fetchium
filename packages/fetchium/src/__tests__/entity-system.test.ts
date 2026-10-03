@@ -29,7 +29,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
@@ -45,7 +45,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -71,7 +71,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -81,7 +81,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -114,7 +114,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -124,7 +124,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -166,7 +166,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -187,7 +187,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(ExtendedUser) };
         }
@@ -212,7 +212,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class MinimalUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
       }
 
       mockFetch.get('/users/[id]', {
@@ -221,7 +221,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(MinimalUser) };
         }
@@ -239,7 +239,7 @@ describe('Entity System', () => {
     it('should preserve the original entity unchanged when subclass adds fields', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -257,7 +257,7 @@ describe('Entity System', () => {
     it('should throw when subclass redefines an existing field', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -273,7 +273,7 @@ describe('Entity System', () => {
     it('should throw when subclass redefines the id field', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -289,7 +289,7 @@ describe('Entity System', () => {
     it('should throw when subclass redefines the __typename field', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -305,7 +305,7 @@ describe('Entity System', () => {
     it('should support chained extensions (subclass of subclass)', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -332,14 +332,14 @@ describe('Entity System', () => {
     it('should work with nested entities in subclass', () => {
       class Address extends Entity {
         __typename = t.typename('Address');
-        id = t.id;
+        id = t.id();
         street = t.string;
         city = t.string;
       }
 
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -357,7 +357,7 @@ describe('Entity System', () => {
     it('should work with optional and nullable fields in subclass', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -376,13 +376,13 @@ describe('Entity System', () => {
     it('should work with array fields in subclass', () => {
       class Tag extends Entity {
         __typename = t.typename('Tag');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class BasePost extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
@@ -399,7 +399,7 @@ describe('Entity System', () => {
     it('should produce different defs for base and extended entity', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -415,7 +415,7 @@ describe('Entity System', () => {
     it('should work with enum and const fields in subclass', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -434,7 +434,7 @@ describe('Entity System', () => {
     it('should handle subclass with no new fields (same shape as base)', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -449,7 +449,7 @@ describe('Entity System', () => {
     it('should correctly infer types from extended entity', () => {
       class BaseUser extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -478,7 +478,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -515,7 +515,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -536,7 +536,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -572,21 +572,21 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
-        id = t.id;
+        id = t.id();
         city = t.string;
         country = t.string;
       }
 
       class Company extends Entity {
         __typename = t.typename('Company');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.entity(Address);
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         company = t.entity(Company);
       }
@@ -612,7 +612,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -632,13 +632,13 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         posts = t.array(t.entity(Post));
       }
@@ -665,7 +665,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -689,7 +689,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -715,7 +715,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -736,7 +736,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -764,7 +764,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -797,13 +797,13 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class TextPost extends Entity {
         __typename = t.typename('TextPost');
-        id = t.id;
+        id = t.id();
         content = t.string;
       }
 
       class ImagePost extends Entity {
         __typename = t.typename('ImagePost');
-        id = t.id;
+        id = t.id();
         url = t.string;
       }
 
@@ -849,7 +849,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -893,7 +893,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         profile = t.object({
           bio: t.string,
@@ -924,7 +924,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -978,7 +978,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         tags = t.array(t.string);
       }
@@ -995,7 +995,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1030,7 +1030,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.object({
           street: t.string,
@@ -1061,7 +1061,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1108,7 +1108,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         metadata = t.object({
           createdAt: t.string,
@@ -1133,7 +1133,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1176,7 +1176,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
         bio = t.string;
@@ -1206,13 +1206,13 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUserBasic extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}/basic`;
           result = { user: t.entity(User) };
         }
 
         class GetUserProfile extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}/profile`;
           result = { user: t.entity(User) };
         }
@@ -1247,7 +1247,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1258,7 +1258,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1277,13 +1277,13 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class Address extends Entity {
         __typename = t.typename('Address');
-        id = t.id;
+        id = t.id();
         city = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         address = t.entity(Address);
       }
@@ -1302,7 +1302,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1321,7 +1321,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1332,7 +1332,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1349,13 +1349,13 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class TextPost extends Entity {
         __typename = t.typename('TextPost');
-        id = t.id;
+        id = t.id();
         content = t.string;
       }
 
       class ImagePost extends Entity {
         __typename = t.typename('ImagePost');
-        id = t.id;
+        id = t.id();
         url = t.string;
       }
 
@@ -1386,7 +1386,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1421,7 +1421,7 @@ describe('Entity System', () => {
       const { client, mockFetch } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1435,7 +1435,7 @@ describe('Entity System', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }

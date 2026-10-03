@@ -397,7 +397,7 @@ describe('t.result', () => {
 
         class UserEntity extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           email = t.string;
         }
@@ -425,7 +425,7 @@ describe('t.result', () => {
 
         class UserEntity extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           email = t.string;
         }
@@ -452,7 +452,7 @@ describe('t.result', () => {
 
         class UserEntity extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           email = t.string;
         }
@@ -488,13 +488,13 @@ describe('t.result', () => {
 
         class DogEntity extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class CatEntity extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -523,13 +523,13 @@ describe('t.result', () => {
 
         class DogEntity extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class CatEntity extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -560,7 +560,7 @@ describe('t.result', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           values = t.record(t.result(t.number));
         }
 

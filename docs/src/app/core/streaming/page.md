@@ -274,7 +274,7 @@ import { Entity, t } from 'fetchium';
 
 class Message extends Entity {
   __typename = t.typename('Message');
-  id = t.id;
+  id = t.id(t.string);
 
   text = t.string;
   channelId = t.number;
@@ -305,7 +305,7 @@ The real power of streaming comes from combining entity subscriptions with live 
 ```tsx
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
-  id = t.id;
+  id = t.id(t.string);
 
   text = t.string;
   channelId = t.string;
@@ -369,7 +369,7 @@ Live values also respond to streaming events. For example, tracking an unread co
 ```tsx
 class Channel extends Entity {
   __typename = t.typename('Channel');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
   unreadCount = t.liveValue(t.number, ChatMessage, {
@@ -390,7 +390,7 @@ In many applications, you want to subscribe to events for an entire collection r
 ```tsx
 class Channel extends Entity {
   __typename = t.typename('Channel');
-  id = t.id;
+  id = t.id(t.string);
 
   name = t.string;
 
@@ -521,7 +521,7 @@ class GetPrices extends TopicQuery {
 // Entity-level subscription for individual message updates
 class ChatMessage extends Entity {
   __typename = t.typename('ChatMessage');
-  id = t.id;
+  id = t.id(t.string);
 
   text = t.string;
   channelId = t.string;

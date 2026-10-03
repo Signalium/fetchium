@@ -67,7 +67,7 @@ Path interpolation works the same as queries --- use template literal syntax wit
 
 ```tsx
 class UpdateUser extends RESTMutation {
-  params = { id: t.id, name: t.string };
+  params = { id: t.id(t.string), name: t.string };
 
   path = `/users/${this.params.id}`;
   method = 'PUT';
@@ -154,7 +154,7 @@ Define effects directly on the mutation class using the `effects` property. Each
 
 ```tsx
 class UpdateUserName extends RESTMutation {
-  params = { id: t.id, name: t.string };
+  params = { id: t.id(t.string), name: t.string };
 
   path = `/users/${this.params.id}`;
   method = 'PUT';
@@ -227,7 +227,7 @@ That's what `invalidates` does. It marks matching query instances as _stale_, so
 
 ```tsx
 class ReorderItems extends RESTMutation {
-  params = { listId: t.id, order: t.array(t.id) };
+  params = { listId: t.id(t.string), order: t.array(t.id(t.string)) };
 
   path = `/lists/${this.params.listId}/reorder`;
   method = 'PUT';
@@ -247,7 +247,7 @@ You can also target specific instances by providing a _param subset_ --- a parti
 
 ```tsx
 class BulkUpdateUserPosts extends RESTMutation {
-  params = { userId: t.id, status: t.string };
+  params = { userId: t.id(t.string), status: t.string };
 
   path = `/users/${this.params.userId}/posts/bulk-update`;
   method = 'POST';
@@ -288,7 +288,7 @@ Set `optimisticUpdates = true` on the mutation class:
 
 ```tsx
 class ToggleLike extends RESTMutation {
-  params = { postId: t.id, liked: t.boolean };
+  params = { postId: t.id(t.string), liked: t.boolean };
 
   path = `/posts/${this.params.postId}/like`;
   method = 'PUT';
@@ -364,7 +364,7 @@ import { Mutation, t } from 'fetchium';
 class UploadAvatar extends Mutation {
   static override adapter = MyAdapter;
 
-  params = { userId: t.id };
+  params = { userId: t.id(t.string) };
   result = { url: t.string };
 
   getIdentityKey() {
@@ -391,7 +391,7 @@ If you have an idempotent mutation where retries are safe, you can configure ret
 
 ```tsx
 class UpdateUserName extends RESTMutation {
-  params = { id: t.id, name: t.string };
+  params = { id: t.id(t.string), name: t.string };
 
   path = `/users/${this.params.id}`;
   method = 'PUT';

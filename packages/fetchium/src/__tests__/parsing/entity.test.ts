@@ -23,7 +23,7 @@ describe('Entity parsing', () => {
 
     class User extends Entity {
       __typename = t.typename('User');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 
@@ -52,20 +52,20 @@ describe('Entity parsing', () => {
 
       class EntityC extends Entity {
         __typename = t.typename('EntityC');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EntityB extends Entity {
         __typename = t.typename('EntityB');
-        id = t.id;
+        id = t.id();
         name = t.string;
         c = t.entity(EntityC);
       }
 
       class EntityA extends Entity {
         __typename = t.typename('EntityA');
-        id = t.id;
+        id = t.id();
         name = t.string;
         b = t.entity(EntityB);
       }
@@ -130,19 +130,19 @@ describe('Entity parsing', () => {
 
       class EntityB extends Entity {
         __typename = t.typename('EntityB');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EntityC extends Entity {
         __typename = t.typename('EntityC');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EntityA extends Entity {
         __typename = t.typename('EntityA');
-        id = t.id;
+        id = t.id();
         name = t.string;
         b = t.entity(EntityB);
         c = t.entity(EntityC);
@@ -198,7 +198,7 @@ describe('Entity parsing', () => {
 
       class EntityItem extends Entity {
         __typename = t.typename('EntityItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -245,7 +245,7 @@ describe('Entity parsing', () => {
 
       class EntityValue extends Entity {
         __typename = t.typename('EntityValue');
-        id = t.id;
+        id = t.id();
         value = t.string;
       }
 
@@ -286,13 +286,13 @@ describe('Entity parsing', () => {
 
       class EntityChild extends Entity {
         __typename = t.typename('EntityChild');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EntityParent extends Entity {
         __typename = t.typename('EntityParent');
-        id = t.id;
+        id = t.id();
         name = t.string;
         child = t.entity(EntityChild);
       }
@@ -350,13 +350,13 @@ describe('Entity parsing', () => {
 
       class EntityShared extends Entity {
         __typename = t.typename('EntityShared');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class EntityContainer extends Entity {
         __typename = t.typename('EntityContainer');
-        id = t.id;
+        id = t.id();
         first = t.entity(EntityShared);
         second = t.entity(EntityShared);
       }
@@ -412,13 +412,13 @@ describe('Entity parsing', () => {
 
       class EntityTag extends Entity {
         __typename = t.typename('EntityTag');
-        id = t.id;
+        id = t.id();
         label = t.string;
       }
 
       class EntityPost extends Entity {
         __typename = t.typename('EntityPost');
-        id = t.id;
+        id = t.id();
         title = t.string;
         tags = t.array(t.entity(EntityTag));
       }

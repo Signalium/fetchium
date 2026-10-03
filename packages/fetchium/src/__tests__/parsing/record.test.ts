@@ -348,7 +348,7 @@ describe('t.record', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.string);
         }
 
@@ -379,7 +379,7 @@ describe('t.record', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           name = t.string;
           email = t.string;
         }
@@ -410,7 +410,7 @@ describe('t.record', () => {
 
         class EntityValue extends Entity {
           __typename = t.typename('EntityValue');
-          id = t.id;
+          id = t.id();
           value = t.string;
         }
 
@@ -449,7 +449,7 @@ describe('t.record', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           social = t.object({
             links: t.record(t.string),
           });
@@ -482,7 +482,7 @@ describe('t.record', () => {
 
         class Container extends Entity {
           __typename = t.typename('Container');
-          id = t.id;
+          id = t.id();
           items = t.array(t.record(t.number));
         }
 
@@ -519,7 +519,7 @@ describe('t.record', () => {
 
         class Flexible extends Entity {
           __typename = t.typename('Flexible');
-          id = t.id;
+          id = t.id();
           data = t.union(t.record(t.string), t.array(t.string));
         }
 

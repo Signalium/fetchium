@@ -63,7 +63,7 @@ In addition to these basic primitives, there are a number of additional special 
 | `t.enum.caseInsensitive(...values)` | Union of literals       | Case-insensitive set of values. All values get coerced to the casing in the _definition_. While not _recommended_, this is helpful for legacy APIs which may have inconsistent casing             |
 | `t.typename(value)`                 | Literal string          | Type identifier for object and [Entity](/core/entities) types                                                                                                                                     |
 | `t.variant(value)`                  | Literal string          | Variant tag for object and [Entity](/core/entities) types that share a typename in a union. Validates like `t.const(value)`; see [Unions with Shared Typenames](#unions-with-shared-typenames)    |
-| `t.id`                              | `string \| number`      | Identifier for [Entity](/core/entities) types                                                                                                                                                     |
+| `t.id(type)`                        | `T`                     | Identifier for [Entity](/core/entities) types. Pass `t.string` or `t.number`; use `t.id()` when either is allowed.                                                                                |
 | `t.result(type)`                    | `ParseResult<T>`        | Parse result for explicit handling of parse errors                                                                                                                                                |
 | `t.format(name)`                    | Registered format type  | Formatted string or number value, such as `date` or `date-time`. Formatted values are serialized and deserialized via a registered format function, and types are registered in a global registry |
 | `t.entity(EntityClass)`             | Entity class instance   | An instance of the given [Entity](/core/entities) class                                                                                                                                           |
@@ -282,14 +282,14 @@ Sometimes one entity type has multiple _shapes_: the API returns a single concep
 // ✅ Valid, shared typename discriminated by variant
 class ImagePost extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
   kind = t.variant('image');
   url = t.string;
 }
 
 class GalleryPost extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id(t.string);
   kind = t.variant('gallery');
   images = t.array(t.entity(ImagePost));
 }

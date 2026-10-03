@@ -222,7 +222,7 @@ describe('t.undefined', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.union(t.string, t.undefined);
         }
 
@@ -248,7 +248,7 @@ describe('t.undefined', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           metadata = t.object({
             avatar: t.union(t.string, t.undefined),
           });
@@ -280,7 +280,7 @@ describe('t.undefined', () => {
 
         class Container extends Entity {
           __typename = t.typename('Container');
-          id = t.id;
+          id = t.id();
           items = t.array(t.union(t.string, t.undefined));
         }
 
@@ -310,7 +310,7 @@ describe('t.undefined', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.record(t.union(t.string, t.undefined));
         }
 
@@ -340,7 +340,7 @@ describe('t.undefined', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.number, t.undefined);
         }
 

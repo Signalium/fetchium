@@ -158,7 +158,7 @@ describe('React Query Integration', () => {
       mockFetch.get('/users/[id]', { id: 123, name: 'Bob' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -187,7 +187,7 @@ describe('React Query Integration', () => {
     it('should update component when entity data changes', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -195,7 +195,7 @@ describe('React Query Integration', () => {
       mockFetch.get('/user/[id]', { __typename: 'User', id: '1', name: 'Alice Updated' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = t.entity(User);
       }
@@ -234,14 +234,14 @@ describe('React Query Integration', () => {
     it('should keep multiple components in sync when sharing entity data', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       mockFetch.get('/user/[id]', { __typename: 'User', id: '1', name: 'Alice' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = t.entity(User);
       }
@@ -302,14 +302,14 @@ describe('React Query Integration', () => {
     it('should sync entity updates across different queries that reference the same entity', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         content = t.string;
         author = t.entity(User);
@@ -333,13 +333,13 @@ describe('React Query Integration', () => {
 
       // Two separate query definitions
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/${this.params.id}`;
         result = t.entity(User);
       }
 
       class GetPost extends RESTQuery {
-        params = { postId: t.id };
+        params = { postId: t.id() };
         path = `/posts/${this.params.postId}`;
         result = t.entity(Post);
       }
@@ -434,13 +434,13 @@ describe('React Query Integration', () => {
     it('should handle nested entities correctly', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(User);
       }
@@ -453,7 +453,7 @@ describe('React Query Integration', () => {
       });
 
       class GetPost extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/post/${this.params.id}`;
         result = t.entity(Post);
       }
@@ -488,7 +488,7 @@ describe('React Query Integration', () => {
     it('should conditionally render based on entity data', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         isAdmin = t.boolean;
       }
@@ -940,7 +940,7 @@ describe('React Query Integration', () => {
     it('should not re-render when toggled to suspended during polling', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1019,7 +1019,7 @@ describe('React Query Integration', () => {
     it('should show latest value when re-enabled after suspension during polling', async () => {
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 

@@ -228,7 +228,7 @@ describe('poll() factory', () => {
       let callCount = 0;
       class Item extends Entity {
         __typename = t.typename('PollStopItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 

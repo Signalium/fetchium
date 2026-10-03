@@ -29,19 +29,19 @@ describe('LiveArray React', () => {
     it('should render list items from entity-level liveArray', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -89,19 +89,19 @@ describe('LiveArray React', () => {
     it('applyEntityData create adds item to entity-level liveArray', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -148,19 +148,19 @@ describe('LiveArray React', () => {
     it('deleteEntity removes item from entity-level liveArray', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -214,19 +214,19 @@ describe('LiveArray React', () => {
     it('applyEntityData update keeps count stable in entity-level liveArray', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }

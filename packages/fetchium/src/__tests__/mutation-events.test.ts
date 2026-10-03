@@ -36,13 +36,13 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutUser extends Entity {
         __typename = t.typename('MutUser');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string;
       }
 
       class GetMutUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-user/${this.params.id}`;
         result = { user: t.entity(MutUser) };
       }
@@ -82,12 +82,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutUserNoExist extends Entity {
         __typename = t.typename('MutUserNoExist');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutUserNoExist extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-user-noexist/${this.params.id}`;
         result = { user: t.entity(MutUserNoExist) };
       }
@@ -116,25 +116,25 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutItemBase extends Entity {
         __typename = t.typename('MutItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class MutItemDetail extends Entity {
         __typename = t.typename('MutItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
         description = t.string;
       }
 
       class GetMutItemBase extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-item-base/${this.params.id}`;
         result = { item: t.entity(MutItemBase) };
       }
 
       class GetMutItemDetail extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-item-detail/${this.params.id}`;
         result = { item: t.entity(MutItemDetail) };
       }
@@ -176,12 +176,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutSeqItem extends Entity {
         __typename = t.typename('MutSeqItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutSeqItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-seq-item/${this.params.id}`;
         result = { item: t.entity(MutSeqItem) };
       }
@@ -230,12 +230,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutCreateItem extends Entity {
         __typename = t.typename('MutCreateItem');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class GetMutCreateItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-create-item/${this.params.id}`;
         result = { item: t.entity(MutCreateItem) };
       }
@@ -264,13 +264,13 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutCreateStrict extends Entity {
         __typename = t.typename('MutCreateStrict');
-        id = t.id;
+        id = t.id();
         name = t.string;
         requiredField = t.number;
       }
 
       class GetMutCreateStrict extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-create-strict/${this.params.id}`;
         result = { item: t.entity(MutCreateStrict) };
       }
@@ -299,12 +299,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutCreateExisting extends Entity {
         __typename = t.typename('MutCreateExisting');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutCreateExisting extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-create-existing/${this.params.id}`;
         result = { item: t.entity(MutCreateExisting) };
       }
@@ -335,25 +335,25 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutCreatePartialBase extends Entity {
         __typename = t.typename('MutCreatePartial');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class MutCreatePartialDetail extends Entity {
         __typename = t.typename('MutCreatePartial');
-        id = t.id;
+        id = t.id();
         name = t.string;
         bio = t.string;
       }
 
       class GetMutCreatePartialBase extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-create-partial-base/${this.params.id}`;
         result = { item: t.entity(MutCreatePartialBase) };
       }
 
       class GetMutCreatePartialDetail extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-create-partial-detail/${this.params.id}`;
         result = { item: t.entity(MutCreatePartialDetail) };
       }
@@ -392,12 +392,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutDeleteItem extends Entity {
         __typename = t.typename('MutDeleteItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutDeleteItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-delete-item/${this.params.id}`;
         result = { item: t.entity(MutDeleteItem) };
       }
@@ -427,12 +427,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutDeleteStrId extends Entity {
         __typename = t.typename('MutDeleteStrId');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutDeleteStrId extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-delete-strid/${this.params.id}`;
         result = { item: t.entity(MutDeleteStrId) };
       }
@@ -461,12 +461,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutDeleteNone extends Entity {
         __typename = t.typename('MutDeleteNone');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutDeleteNone extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-delete-none/${this.params.id}`;
         result = { item: t.entity(MutDeleteNone) };
       }
@@ -514,12 +514,12 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class MutNoId extends Entity {
         __typename = t.typename('MutNoId');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetMutNoId extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/mut-noid/${this.params.id}`;
         result = { item: t.entity(MutNoId) };
       }
@@ -567,7 +567,7 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {
         __typename = t.typename('IdItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -600,7 +600,7 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class ObjIdEntity extends Entity {
         __typename = t.typename('ObjId');
-        id = t.id;
+        id = t.id();
         value = t.string;
       }
 
@@ -633,7 +633,7 @@ describe('Mutation Events', () => {
       const { client, mockFetch } = getClient();
       class SkipEntity extends Entity {
         __typename = t.typename('SkipId');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 

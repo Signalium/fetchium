@@ -170,7 +170,7 @@ describe('t.format', () => {
 
         class Event extends Entity {
           __typename = t.typename('Event');
-          id = t.id;
+          id = t.id();
           timestamp = t.format('date-time');
         }
 
@@ -293,7 +293,7 @@ describe('t.format', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           birthDate = t.format('date');
         }
 
@@ -382,7 +382,7 @@ describe('t.format', () => {
 
         class Task extends Entity {
           __typename = t.typename('Task');
-          id = t.id;
+          id = t.id();
           completedAt = t.nullable(t.format('date-time'));
         }
 
@@ -679,7 +679,7 @@ describe('t.format', () => {
 
         class Product extends Entity {
           __typename = t.typename('Product');
-          id = t.id;
+          id = t.id();
           price = t.format('price');
         }
 
@@ -704,7 +704,7 @@ describe('t.format', () => {
 
         class Sale extends Entity {
           __typename = t.typename('Sale');
-          id = t.id;
+          id = t.id();
           price = t.format('price');
           discount = t.format('percentage');
           slug = t.format('slug');
@@ -736,7 +736,7 @@ describe('t.format', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           price = t.format('price');
         }
 

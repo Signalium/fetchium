@@ -60,7 +60,7 @@ describe('Debounce', () => {
       mockFetch.get('/users/[id]', { id: 456, name: 'User 456' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,
@@ -104,7 +104,7 @@ describe('Debounce', () => {
       mockFetch.get('/users/[id]', { id: 789, name: 'User 789' });
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = {
           id: t.number,

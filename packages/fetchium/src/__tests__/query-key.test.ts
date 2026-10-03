@@ -32,7 +32,7 @@ describe('queryKeyForClass', () => {
 
   it('should return a stable key for the same class and params', () => {
     class GetUser extends RESTQuery {
-      readonly params = { id: t.id };
+      readonly params = { id: t.id() };
       readonly path = `/users/${this.params.id}`;
       readonly result = { name: t.string };
     }
@@ -46,7 +46,7 @@ describe('queryKeyForClass', () => {
 
   it('should return different keys for different params', () => {
     class GetUser extends RESTQuery {
-      readonly params = { id: t.id };
+      readonly params = { id: t.id() };
       readonly path = `/users/${this.params.id}`;
       readonly result = { name: t.string };
     }
@@ -59,13 +59,13 @@ describe('queryKeyForClass', () => {
 
   it('should return different keys for different query classes', () => {
     class GetUser extends RESTQuery {
-      readonly params = { id: t.id };
+      readonly params = { id: t.id() };
       readonly path = `/users/${this.params.id}`;
       readonly result = { name: t.string };
     }
 
     class GetPost extends RESTQuery {
-      readonly params = { id: t.id };
+      readonly params = { id: t.id() };
       readonly path = `/posts/${this.params.id}`;
       readonly result = { title: t.string };
     }
@@ -152,7 +152,7 @@ describe('mutationKeyForClass', () => {
     }
 
     class DeleteUser extends RESTMutation {
-      readonly params = { id: t.id };
+      readonly params = { id: t.id() };
       readonly path = `/users/${this.params.id}`;
       readonly method = 'DELETE' as const;
       readonly body = {};

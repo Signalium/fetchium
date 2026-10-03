@@ -16,7 +16,7 @@ import type { MutationEvent } from '../types.js';
 
 class TextPost extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id();
   kind = t.variant('text');
   body = t.string;
   likes = t.number;
@@ -24,7 +24,7 @@ class TextPost extends Entity {
 
 class ThreadPost extends Entity {
   __typename = t.typename('Post');
-  id = t.id;
+  id = t.id();
   kind = t.variant('thread');
   title = t.string;
   likes = t.number;
@@ -114,12 +114,12 @@ describe('variant unions', () => {
     it('throws on duplicate typenames when liveArray entity classes lack variants', () => {
       class A extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         body = t.string;
       }
       class B extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         url = t.string;
       }
 
@@ -201,7 +201,7 @@ describe('variant unions', () => {
     it('auto-generates data for variant-union fields', () => {
       class Widget extends Entity {
         __typename = t.typename('Widget');
-        id = t.id;
+        id = t.id();
         media = t.union(Text, Link);
       }
 
@@ -373,21 +373,21 @@ describe('variant unions', () => {
     // cannot tell them apart; only the tag's value can.
     class InMessage extends Entity {
       __typename = t.typename('Message');
-      id = t.id;
+      id = t.id();
       dir = t.variant('in');
       text = t.string;
     }
 
     class OutMessage extends Entity {
       __typename = t.typename('Message');
-      id = t.id;
+      id = t.id();
       dir = t.variant('out');
       text = t.string;
     }
 
     class SysMessage extends Entity {
       __typename = t.typename('Message');
-      id = t.id;
+      id = t.id();
       dir = t.variant('sys');
       text = t.string;
     }
@@ -493,14 +493,14 @@ describe('variant unions', () => {
       // own distinct VariantGroups and can only compare structurally.
       class PhotoNote extends Entity {
         __typename = t.typename('Note');
-        id = t.id;
+        id = t.id();
         kind = t.variant('photo');
         media = t.union(ImgMedia, VidMedia);
       }
 
       class TextNote extends Entity {
         __typename = t.typename('Note');
-        id = t.id;
+        id = t.id();
         kind = t.variant('text');
         media = t.union(ImgMedia, VidMedia);
       }
@@ -539,13 +539,13 @@ describe('variant unions', () => {
     // current data satisfies.
     class ReadingMetric extends Entity {
       __typename = t.typename('Metric');
-      id = t.id;
+      id = t.id();
       reading = t.number;
     }
 
     class StatusMetric extends Entity {
       __typename = t.typename('Metric');
-      id = t.id;
+      id = t.id();
       status = t.string;
     }
 

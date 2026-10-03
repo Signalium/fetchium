@@ -142,13 +142,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -170,13 +170,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -196,13 +196,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -210,7 +210,7 @@ describe('t.union', () => {
 
         class Owner extends Entity {
           __typename = t.typename('Owner');
-          id = t.id;
+          id = t.id();
           pet = PetUnion;
         }
 
@@ -291,13 +291,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -337,7 +337,7 @@ describe('t.union', () => {
       it('should allow null/undefined with entities', () => {
         class TestEntity extends Entity {
           __typename = t.typename('TestEntity');
-          id = t.id;
+          id = t.id();
           value = t.string;
         }
 
@@ -353,13 +353,13 @@ describe('t.union', () => {
 
         class Child extends Entity {
           __typename = t.typename('Child');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
         class Parent extends Entity {
           __typename = t.typename('Parent');
-          id = t.id;
+          id = t.id();
           child = t.nullable(t.entity(Child));
         }
 
@@ -444,13 +444,13 @@ describe('t.union', () => {
         await testWithClient(client, async () => {
           class Dog extends Entity {
             __typename = t.typename('Dog');
-            id = t.id;
+            id = t.id();
             breed = t.string;
           }
 
           class Cat extends Entity {
             __typename = t.typename('Cat');
-            id = t.id;
+            id = t.id();
             color = t.string;
           }
 
@@ -547,7 +547,7 @@ describe('t.union', () => {
 
         class Item extends Entity {
           __typename = t.typename('Item');
-          id = t.id;
+          id = t.id();
           value = t.union(t.string, t.number);
         }
 
@@ -574,13 +574,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -607,13 +607,13 @@ describe('t.union', () => {
 
         class Dog extends Entity {
           __typename = t.typename('Dog');
-          id = t.id;
+          id = t.id();
           breed = t.string;
         }
 
         class Cat extends Entity {
           __typename = t.typename('Cat');
-          id = t.id;
+          id = t.id();
           color = t.string;
         }
 
@@ -648,7 +648,7 @@ describe('t.union', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           settings = t.object({
             value: t.union(t.string, t.number, t.boolean),
           });
@@ -681,7 +681,7 @@ describe('t.union', () => {
 
         class Container extends Entity {
           __typename = t.typename('Container');
-          id = t.id;
+          id = t.id();
           values = t.array(t.union(t.string, t.number));
         }
 
@@ -712,7 +712,7 @@ describe('t.union', () => {
 
         class Settings extends Entity {
           __typename = t.typename('Settings');
-          id = t.id;
+          id = t.id();
           data = t.record(t.union(t.string, t.number));
         }
 
@@ -743,19 +743,19 @@ describe('t.union', () => {
 
         class Child extends Entity {
           __typename = t.typename('Child');
-          id = t.id;
+          id = t.id();
           name = t.string;
         }
 
         class ParentA extends Entity {
           __typename = t.typename('ParentA');
-          id = t.id;
+          id = t.id();
           child = t.entity(Child);
         }
 
         class ParentB extends Entity {
           __typename = t.typename('ParentB');
-          id = t.id;
+          id = t.id();
           child = t.entity(Child);
         }
 

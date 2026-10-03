@@ -29,14 +29,14 @@ describe('LiveValue React', () => {
     it('onCreate via applyEntityData increments count', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -47,7 +47,7 @@ describe('LiveValue React', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -97,14 +97,14 @@ describe('LiveValue React', () => {
     it('onDelete via deleteEntity decrements count', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -115,7 +115,7 @@ describe('LiveValue React', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }
@@ -177,14 +177,14 @@ describe('LiveValue React', () => {
     it('onUpdate via applyEntityData keeps count unchanged', async () => {
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         listId = t.string;
         name = t.string;
       }
 
       class List extends Entity {
         __typename = t.typename('List');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
         itemCount = t.liveValue(t.number, Item, {
           constraints: { listId: (this as any).id },
@@ -195,7 +195,7 @@ describe('LiveValue React', () => {
       }
 
       class GetList extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/list/${this.params.id}`;
         result = { list: t.entity(List) };
       }

@@ -182,7 +182,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         class GetItem extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/items/${this.params.id}`;
           result = { id: t.number, name: t.string };
         }
@@ -208,7 +208,7 @@ describe('Caching and Persistence', () => {
     it('should load query results from cache', async () => {
       const { client, mockFetch, kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -304,7 +304,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -314,7 +314,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -339,7 +339,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -407,12 +407,12 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -469,19 +469,19 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Category extends Entity {
         __typename = t.typename('Category');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Article extends Entity {
         __typename = t.typename('Article');
-        id = t.id;
+        id = t.id();
         title = t.string;
         category = t.entity(Category);
       }
 
       class GetArticle extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/articles/${this.params.id}`;
         result = { article: t.entity(Article) };
       }
@@ -563,26 +563,26 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
-        id = t.id;
+        id = t.id();
         label = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         content = t.string;
         tag = t.entity(Tag);
       }
 
       class Author extends Entity {
         __typename = t.typename('Author');
-        id = t.id;
+        id = t.id();
         username = t.string;
         latestPost = t.entity(Post);
       }
 
       class GetAuthor extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/authors/${this.params.id}`;
         result = { author: t.entity(Author) };
       }
@@ -681,18 +681,18 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Item extends Entity {
         __typename = t.typename('Item');
-        id = t.id;
+        id = t.id();
         value = t.string;
       }
 
       class Container extends Entity {
         __typename = t.typename('Container');
-        id = t.id;
+        id = t.id();
         items = t.array(t.entity(Item));
       }
 
       class GetContainer extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/containers/${this.params.id}`;
         result = { container: t.entity(Container) };
       }
@@ -753,25 +753,25 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Author extends Entity {
         __typename = t.typename('Author');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         author = t.entity(Author);
       }
 
       class Blog extends Entity {
         __typename = t.typename('Blog');
-        id = t.id;
+        id = t.id();
         posts = t.array(t.entity(Post));
       }
 
       class GetBlog extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/blogs/${this.params.id}`;
         result = { blog: t.entity(Blog) };
       }
@@ -842,32 +842,32 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
-        id = t.id;
+        id = t.id();
         label = t.string;
       }
 
       class Comment extends Entity {
         __typename = t.typename('Comment');
-        id = t.id;
+        id = t.id();
         text = t.string;
         tag = t.entity(Tag);
       }
 
       class Thread extends Entity {
         __typename = t.typename('Thread');
-        id = t.id;
+        id = t.id();
         title = t.string;
         comments = t.array(t.entity(Comment));
       }
 
       class Forum extends Entity {
         __typename = t.typename('Forum');
-        id = t.id;
+        id = t.id();
         threads = t.array(t.entity(Thread));
       }
 
       class GetForum extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/forums/${this.params.id}`;
         result = { forum: t.entity(Forum) };
       }
@@ -986,19 +986,19 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         favoritePost = t.entity(Post);
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1032,7 +1032,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1076,7 +1076,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -1086,7 +1086,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         class GetUser extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/users/${this.params.id}`;
           result = { user: t.entity(User) };
         }
@@ -1119,19 +1119,19 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         favoritePost = t.entity(Post);
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1172,14 +1172,14 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       // Set up a query cache with maxCount of 2
       class GetUser extends RESTQuery {
         static cache = { maxCount: 2 };
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1232,19 +1232,19 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class GetProfile extends RESTQuery {
         static cache = { maxCount: 1 };
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/profile/${this.params.id}`;
         result = { user: t.entity(User) };
       }
 
       class GetDetails extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/user/details/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1289,20 +1289,20 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Tag extends Entity {
         __typename = t.typename('Tag');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
         tag = t.entity(Tag);
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         post = t.entity(Post);
       }
@@ -1327,7 +1327,7 @@ describe('Caching and Persistence', () => {
 
       class GetUser extends RESTQuery {
         static cache = { maxCount: 1 };
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1380,19 +1380,19 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         favoritePost = t.entity(Post);
       }
 
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1466,7 +1466,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
@@ -1509,13 +1509,13 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         post = t.entity(Post);
       }
@@ -1531,7 +1531,7 @@ describe('Caching and Persistence', () => {
 
       class GetUser extends RESTQuery {
         static cache = { maxCount: 1 };
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1572,13 +1572,13 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class Post extends Entity {
         __typename = t.typename('Post');
-        id = t.id;
+        id = t.id();
         title = t.string;
       }
 
       class User extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         post = t.entity(Post);
       }
@@ -1594,7 +1594,7 @@ describe('Caching and Persistence', () => {
 
       class GetUser extends RESTQuery {
         static cache = { maxCount: 1 };
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/users/${this.params.id}`;
         result = { user: t.entity(User) };
       }
@@ -1642,7 +1642,7 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class PositionV1 extends Entity {
         __typename = t.typename('Position');
-        id = t.id;
+        id = t.id();
         size = t.number;
       }
 
@@ -1652,7 +1652,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         class GetPositionV1 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/positions/${this.params.id}`;
           result = { position: t.entity(PositionV1) };
         }
@@ -1667,13 +1667,13 @@ describe('Caching and Persistence', () => {
       // Second schema version - Position WITH predictionOutcome (new required field)
       class Outcome extends Entity {
         __typename = t.typename('Outcome');
-        id = t.id;
+        id = t.id();
         value = t.string;
       }
 
       class PositionV2 extends Entity {
         __typename = t.typename('Position');
-        id = t.id;
+        id = t.id();
         size = t.number;
         predictionOutcome = t.entity(Outcome);
       }
@@ -1696,7 +1696,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client2, async () => {
         class GetPositionV2 extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/positions/${this.params.id}`;
           result = { position: t.entity(PositionV2) };
         }
@@ -1717,13 +1717,13 @@ describe('Caching and Persistence', () => {
       const { client, mockFetch, kv, store } = getClient();
       class UserV1 extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
       class UserV2 extends Entity {
         __typename = t.typename('User');
-        id = t.id;
+        id = t.id();
         name = t.string;
         email = t.string; // New field in V2
       }
@@ -1776,7 +1776,7 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         class GetItem extends RESTQuery {
-          params = { id: t.id };
+          params = { id: t.id() };
           path = `/items/${this.params.id}`;
           result = { id: t.number, name: t.string };
         }
@@ -1797,7 +1797,7 @@ describe('Caching and Persistence', () => {
     it('should purge expired queries on purgeStaleQueries', () => {
       const { kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/purge-items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -1829,7 +1829,7 @@ describe('Caching and Persistence', () => {
     it('should not purge fresh queries', () => {
       const { kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/fresh-items/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -1857,7 +1857,7 @@ describe('Caching and Persistence', () => {
     it('should cascade-delete orphaned entities when purging stale queries', () => {
       const { kv, store } = getClient();
       class GetUser extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/purge-users/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }
@@ -1894,7 +1894,7 @@ describe('Caching and Persistence', () => {
       const { kv, store } = getClient();
       class GetLongLived extends RESTQuery {
         static cache = { cacheTime: 60 * 24 * 30 }; // 30 days
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/long-lived/${this.params.id}`;
         result = { id: t.number };
       }
@@ -1921,7 +1921,7 @@ describe('Caching and Persistence', () => {
     it('should purge multiple entries from the same queue', () => {
       const { kv, store } = getClient();
       class GetItem extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/multi-purge/${this.params.id}`;
         result = { id: t.number, name: t.string };
       }

@@ -25,7 +25,7 @@ describe('cacheTime (disk expiration)', () => {
     const { client, mockFetch } = getClient();
     class GetItem extends RESTQuery {
       static cache = { cacheTime: 100 / 60_000 };
-      params = { id: t.id };
+      params = { id: t.id() };
       path = `/item/${this.params.id}`;
       result = { id: t.number, name: t.string };
       config = { staleTime: 50, gcTime: 1 };
@@ -236,13 +236,13 @@ describe('GC with Entities', () => {
     const { client, mockFetch } = getClient();
     class Post extends Entity {
       __typename = t.typename('Post');
-      id = t.id;
+      id = t.id();
       title = t.string;
     }
 
     class User extends Entity {
       __typename = t.typename('User');
-      id = t.id;
+      id = t.id();
       name = t.string;
       post = t.entity(Post);
     }
@@ -288,7 +288,7 @@ describe('GC with Entities', () => {
     const { client, mockFetch } = getClient();
     class User extends Entity {
       __typename = t.typename('SharedUser');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 
@@ -329,7 +329,7 @@ describe('GC with Entities', () => {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
       __typename = t.typename('Delayed');
-      id = t.id;
+      id = t.id();
       value = t.string;
     }
 
@@ -366,7 +366,7 @@ describe('GC with Entities', () => {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
       __typename = t.typename('CancelEnt');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 
@@ -420,7 +420,7 @@ describe('GC with Entities', () => {
       static cache = { gcTime: 2 }; // 2 minutes → ~120ms at 0.001
 
       __typename = t.typename('Wrapped');
-      id = t.id;
+      id = t.id();
       value = t.string;
     }
 
@@ -455,13 +455,13 @@ describe('GC with Entities', () => {
     const { client, mockFetch } = getClient();
     class Tag extends Entity {
       __typename = t.typename('GcTag');
-      id = t.id;
+      id = t.id();
       label = t.string;
     }
 
     class Post extends Entity {
       __typename = t.typename('GcPost');
-      id = t.id;
+      id = t.id();
       title = t.string;
       tags = t.array(t.entity(Tag));
     }
@@ -523,13 +523,13 @@ describe('GC with Entities', () => {
     const { client, mockFetch, kv } = getClient();
     class User extends Entity {
       __typename = t.typename('LruUser');
-      id = t.id;
+      id = t.id();
       name = t.string;
     }
 
     class GetUser extends RESTQuery {
       static cache = { maxCount: 2, cacheTime: 5000 / 60_000 };
-      params = { id: t.id };
+      params = { id: t.id() };
       path = `/users/${this.params.id}`;
       result = { user: t.entity(User) };
     }

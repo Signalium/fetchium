@@ -225,7 +225,7 @@ describe('t.optional', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.optional(t.string);
         }
 
@@ -250,7 +250,7 @@ describe('t.optional', () => {
 
         class User extends Entity {
           __typename = t.typename('User');
-          id = t.id;
+          id = t.id();
           nickname = t.optional(t.string);
         }
 
@@ -277,7 +277,7 @@ describe('t.optional', () => {
 
         class Profile extends Entity {
           __typename = t.typename('Profile');
-          id = t.id;
+          id = t.id();
           details = t.object({
             bio: t.optional(t.string),
             website: t.optional(t.string),
@@ -311,7 +311,7 @@ describe('t.optional', () => {
 
         class Post extends Entity {
           __typename = t.typename('Post');
-          id = t.id;
+          id = t.id();
           tags = t.optional(t.array(t.string));
         }
 
@@ -342,7 +342,7 @@ describe('t.optional', () => {
 
         class Config extends Entity {
           __typename = t.typename('Config');
-          id = t.id;
+          id = t.id();
           metadata = t.optional(t.record(t.string));
         }
 

@@ -10,13 +10,13 @@ import { QueryClient } from '../QueryClient.js';
 
 class ItemSummary extends Entity {
   __typename = t.typename('ShapeItem');
-  id = t.id;
+  id = t.id();
   name = t.string;
 }
 
 class ItemDetail extends Entity {
   __typename = t.typename('ShapeItem');
-  id = t.id;
+  id = t.id();
   name = t.string;
   description = t.string;
 }
@@ -100,7 +100,7 @@ describe('Entity Shape Filtering', () => {
       const { client, mockFetch } = getClient();
       class SimpleItem extends Entity {
         __typename = t.typename('SimpleItem');
-        id = t.id;
+        id = t.id();
         name = t.string;
       }
 
@@ -136,24 +136,24 @@ describe('Entity Shape Filtering', () => {
       const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { name: (this as any).id } });
       }
 
       class DetailParent extends Entity {
         __typename = t.typename('ShapeParentDetail');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { name: (this as any).id } });
       }
 
       class GetSummaryParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent-summary/${this.params.id}`;
         result = { parent: t.entity(SummaryParent) };
       }
 
       class GetDetailParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent-detail/${this.params.id}`;
         result = { parent: t.entity(DetailParent) };
       }
@@ -192,24 +192,24 @@ describe('Entity Shape Filtering', () => {
       const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { name: (this as any).id } });
       }
 
       class DetailParent extends Entity {
         __typename = t.typename('ShapeParentDetail2');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { name: (this as any).id } });
       }
 
       class GetSummaryParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent2-summary/${this.params.id}`;
         result = { parent: t.entity(SummaryParent) };
       }
 
       class GetDetailParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent2-detail/${this.params.id}`;
         result = { parent: t.entity(DetailParent) };
       }
@@ -248,24 +248,24 @@ describe('Entity Shape Filtering', () => {
       const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent3');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { name: (this as any).id } });
       }
 
       class DetailParent extends Entity {
         __typename = t.typename('ShapeParentDetail3');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { name: (this as any).id } });
       }
 
       class GetSummaryParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent3-summary/${this.params.id}`;
         result = { parent: t.entity(SummaryParent) };
       }
 
       class GetDetailParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent3-detail/${this.params.id}`;
         result = { parent: t.entity(DetailParent) };
       }
@@ -359,24 +359,24 @@ describe('Entity Shape Filtering', () => {
       const { client, mockFetch } = getClient();
       class SummaryParent extends Entity {
         __typename = t.typename('ShapeParent4');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemSummary, { constraints: { name: (this as any).id } });
       }
 
       class DetailParent extends Entity {
         __typename = t.typename('ShapeParentDetail4');
-        id = t.id;
+        id = t.id();
         items = t.liveArray(ItemDetail, { constraints: { name: (this as any).id } });
       }
 
       class GetSummaryParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent4-summary/${this.params.id}`;
         result = { parent: t.entity(SummaryParent) };
       }
 
       class GetDetailParent extends RESTQuery {
-        params = { id: t.id };
+        params = { id: t.id() };
         path = `/shape-parent4-detail/${this.params.id}`;
         result = { parent: t.entity(DetailParent) };
       }
