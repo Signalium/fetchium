@@ -31,6 +31,7 @@ import {
   type QueryStore,
   type QueryParams,
   type PreloadedEntityMap,
+  type ActivitySource,
   queryKeyFor,
 } from './query-types.js';
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
@@ -47,10 +48,44 @@ export interface QueryClientConfig {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
+  /**
+   * Milliseconds. A query that reactivates (a watcher returns, or a paused
+   * scope resumes) with data younger than this is not refetched, even when the
+   * data is past its `staleTime`. A query whose subscription (`subscribe`: a
+   * stream, `poll()`) was running when it deactivated counts as fresh up to
+   * that moment, since the subscription kept it current. Queries can override
+   * the window with `reactivationGraceMs` in their config. Network reconnects,
+   * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
+   * still refetch. Default: 0 (every stale query refetches on reactivation).
+   */
+  reactivationGraceMs?: number;
+  /**
+   * Milliseconds. Reactivation refetches that start in the same task (for
+   * example every query on a screen that just resumed) are spread evenly
+   * across this window, in activation order, instead of all starting at once.
+   * Queries of an adapter that `coalescesRequests` are not spread. Default: 0
+   * (all start together).
+   */
+  reactivationStaggerMs?: number;
+  /**
+   * Foreground/background source. When set, `poll()` stops its timers while
+   * the app is inactive and resumes them when it becomes active again.
+   * Default: undefined (polls run regardless of app state).
+   */
+  activity?: ActivitySource;
+  /**
+   * Milliseconds. A `poll()` tick that is overdue when the app becomes active
+   * again (or whose timer fires more than a second late, as happens when the
+   * JS thread was suspended in the background) is rescheduled at a random
+   * point within this window rather than firing immediately alongside every
+   * other overdue poll. Default: 0 (overdue ticks fire immediately).
+   */
+  pollResumeJitterMs?: number;
 }
 
 export {
   type QueryContext,
+  type ActivitySource,
   type QueryCacheOptions,
   type QueryConfigOptions,
   type FetchNextConfig,
@@ -77,6 +112,15 @@ export class QueryClient {
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
 
+  /** See `QueryClientConfig.reactivationGraceMs`. */
+  readonly reactivationGraceMs: number;
+  /** See `QueryClientConfig.reactivationStaggerMs`. */
+  readonly reactivationStaggerMs: number;
+
+  /** Queries whose reactivation refetch waits for the current task's stagger flush. */
+  private staggerQueue = new Set<QueryInstance<any>>();
+  private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
   private constraintRegistry = new Map<string, ConstraintMatcher>();
@@ -90,6 +134,8 @@ export class QueryClient {
       store = new SyncQueryStore(new MemoryPersistentStore()),
       log,
       evictionMultiplier,
+      reactivationGraceMs,
+      reactivationStaggerMs,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -97,6 +143,9 @@ export class QueryClient {
     } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
+    this.reactivationGraceMs = nonNegative(reactivationGraceMs);
+    this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
+    // `activity` and `pollResumeJitterMs` ride along in `rest`: poll() reads them from the context.
     this.context = { ...rest, log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -437,6 +486,38 @@ export class QueryClient {
   }
 
   // ======================================================
+  // Reactivation stagger
+  // ======================================================
+
+  /**
+   * Queues a reactivation refetch. Everything queued in the same task is
+   * started from one flush, spread evenly across `reactivationStaggerMs` in
+   * the order the queries reactivated, so the first one starts right away.
+   * Queries whose adapter `coalescesRequests` all start right away instead.
+   */
+  scheduleReactivationRefetch(instance: QueryInstance<any>): void {
+    this.staggerQueue.add(instance);
+    this.staggerTimer ??= setTimeout(this.flushStaggerQueue, 0);
+  }
+
+  private flushStaggerQueue = (): void => {
+    this.staggerTimer = undefined;
+    const spread: QueryInstance<any>[] = [];
+    for (const instance of this.staggerQueue) {
+      if (this.getAdapter(instance.def.statics.adapterClass).coalescesRequests === true) {
+        instance.runReactivationRefetch(0);
+      } else {
+        spread.push(instance);
+      }
+    }
+    this.staggerQueue.clear();
+    const step = spread.length > 1 ? this.reactivationStaggerMs / spread.length : 0;
+    for (let i = 0; i < spread.length; i++) {
+      spread[i].runReactivationRefetch(Math.round(i * step));
+    }
+  };
+
+  // ======================================================
   // Query Invalidation
   // ======================================================
 
@@ -524,6 +605,9 @@ export class QueryClient {
   }
 
   destroy(): void {
+    clearTimeout(this.staggerTimer);
+    this.staggerTimer = undefined;
+    this.staggerQueue.clear();
     this.networkUnsubscribe?.();
     this.gcManager.destroy();
     this.networkManager.destroy();
@@ -541,6 +625,10 @@ export class QueryClient {
 }
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
+
+function nonNegative(value: unknown): number {
+  return typeof value === 'number' && value > 0 ? value : 0;
+}
 
 function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset: Record<string, unknown>): boolean {
   if (instanceParams === undefined) return false;

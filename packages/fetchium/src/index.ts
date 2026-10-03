@@ -1,7 +1,7 @@
 export * from './types.js';
 
 export { QueryClient, QueryClientContext } from './QueryClient.js';
-export type { QueryContext, QueryClientConfig } from './QueryClient.js';
+export type { QueryContext, QueryClientConfig, ActivitySource } from './QueryClient.js';
 export { QueryAdapter } from './QueryAdapter.js';
 export type { IQueryClientForAdapter } from './QueryAdapter.js';
 export { t, registerFormat } from './typeDefs.js';

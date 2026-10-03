@@ -52,6 +52,14 @@ export class QueryInstance<T extends Query> {
   private wasPaused: boolean = false;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
+  private lastFetchFailed: boolean = false;
+  /**
+   * When the query last deactivated with its subscription running. The
+   * subscription (a stream, poll()) kept the data current until then, so the
+   * reactivation grace measures from here when it is later than `updatedAt`.
+   */
+  private subscribedUntil: number | undefined = undefined;
 
   // Invalidates on any signal consumed by getConfig() (such as
   // responseNotifier, fired by the adapter after each fetch). Param
@@ -140,6 +148,7 @@ export class QueryInstance<T extends Query> {
           this._fetchNextAbort = undefined;
           this._fetchNextPromise = undefined;
 
+          this.subscribedUntil = this.unsubscribe !== undefined ? Date.now() : undefined;
           this.stopSubscription();
 
           if (isPausing) return;
@@ -191,8 +200,15 @@ export class QueryInstance<T extends Query> {
               this.runQueryImmediately();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
-              if (refreshStaleOnReconnect && this.isStale) {
-                this.runDebounced();
+              // The grace covers a relay resuming, not a network reconnect: data
+              // may have been missed while offline.
+              const withinGrace = activating && !wasPaused && this.isWithinReactivationGrace;
+              if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
+                if (this.queryClient.reactivationStaggerMs > 0) {
+                  this.queryClient.scheduleReactivationRefetch(this);
+                } else {
+                  this.runDebounced();
+                }
               }
             }
           } else if (paramsDidChange) {
@@ -408,25 +424,32 @@ export class QueryInstance<T extends Query> {
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
 
-    return withRetry(
-      async () => {
-        try {
-          const freshData = await adapter.send(ctx, signal);
-          this.updatedAt = Date.now();
+    try {
+      const result = await withRetry(
+        async () => {
+          try {
+            const freshData = await adapter.send(ctx, signal);
+            this.updatedAt = Date.now();
 
-          const result = this.applyData(freshData, true);
-          this.saveQueryMetadata();
+            const result = this.applyData(freshData, true);
+            this.saveQueryMetadata();
 
-          return result;
-        } finally {
-          // In finally so reactive getConfig() reacts to error responses
-          // (e.g. 404 → subscribe: undefined) even when applyData throws.
-          this.reconcileSubscription();
-        }
-      },
-      this.retryConfig,
-      signal,
-    );
+            return result;
+          } finally {
+            // In finally so reactive getConfig() reacts to error responses
+            // (e.g. 404 → subscribe: undefined) even when applyData throws.
+            this.reconcileSubscription();
+          }
+        },
+        this.retryConfig,
+        signal,
+      );
+      this.lastFetchFailed = false;
+      return result;
+    } catch (error) {
+      if (!signal.aborted) this.lastFetchFailed = true;
+      throw error;
+    }
   }
 
   private runQueryImmediately(): void {
@@ -438,7 +461,7 @@ export class QueryInstance<T extends Query> {
     this.relayState.setPromise(this.runQuery());
   }
 
-  private runDebounced(): void {
+  private runDebounced(extraDelay: number = 0): void {
     if (this.relayState.isPending) return;
 
     const debounce = this.config?.debounce ?? 0;
@@ -448,7 +471,17 @@ export class QueryInstance<T extends Query> {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       this.runQueryImmediately();
-    }, debounce);
+    }, debounce + extraDelay);
+  }
+
+  /**
+   * Starts a reactivation refetch after `delay` (plus the query's debounce).
+   * Called by the QueryClient's stagger flush, a task after the query was
+   * queued, so it rechecks that the query is still active.
+   */
+  runReactivationRefetch(delay: number): void {
+    if (!this._isActive || this.isPaused) return;
+    this.runDebounced(delay);
   }
 
   // ======================================================
@@ -550,6 +583,20 @@ export class QueryInstance<T extends Query> {
 
     const staleTime = this.config?.staleTime ?? 0;
     return Date.now() - this.updatedAt >= staleTime;
+  }
+
+  /**
+   * Data is younger than the reactivation grace, and the last fetch didn't
+   * fail. Data a running subscription kept current counts as fresh up to the
+   * deactivation. Invalidation (`updatedAt = 0`) always falls outside.
+   */
+  private get isWithinReactivationGrace(): boolean {
+    const { updatedAt } = this;
+    if (updatedAt === undefined || updatedAt === 0 || this.lastFetchFailed) return false;
+    const grace = this.config?.reactivationGraceMs ?? this.queryClient.reactivationGraceMs;
+    if (!(grace > 0)) return false;
+    const freshAt = Math.max(updatedAt, this.subscribedUntil ?? 0);
+    return Date.now() - freshAt < grace;
   }
 
   private get isPaused(): boolean {

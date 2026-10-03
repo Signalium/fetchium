@@ -1,9 +1,23 @@
 import type { MutationEvent } from '../types.js';
+import type { QueryContext } from '../query-types.js';
 
 const MIN_INTERVAL = 100;
 
+/**
+ * A tick firing this much later than scheduled means its timer was frozen
+ * (React Native suspends JS timers in the background), so every other poll is
+ * overdue too. With a resume jitter configured, such a tick is spread instead
+ * of fired. A busy JS thread delays timers by far less.
+ */
+const LATE_TICK_THRESHOLD = 1000;
+
 export interface PollConfig {
   interval: number;
+  /**
+   * Overrides `QueryClientConfig.pollResumeJitterMs` for this poll: the window
+   * an overdue tick is spread across when the app becomes active again.
+   */
+  resumeJitterMs?: number;
 }
 
 function clampInterval(interval: number): number {
@@ -22,29 +36,83 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
   return function subscribe(this: any, _onEvent: (event: MutationEvent) => void): () => void {
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
+    /** When the next tick is due. Kept while the timer is stopped, so resuming knows what is overdue. */
+    let dueAt = Date.now() + interval;
 
     const refetch = this.refetch as () => Promise<unknown>;
+    const queryContext = this.context as QueryContext | undefined;
+    const activity = queryContext?.activity;
+    const jitterWindow = config.resumeJitterMs ?? queryContext?.pollResumeJitterMs ?? 0;
 
-    const tick = async () => {
+    const isAppActive = (): boolean => activity === undefined || activity.isActive();
+
+    const schedule = (delay: number): void => {
+      clearTimeout(timer);
+      dueAt = Date.now() + delay;
+      timer = setTimeout(tick, delay);
+    };
+
+    /** Reschedules an overdue tick at a random point within the jitter window. */
+    const scheduleOverdue = (): void => {
+      schedule(jitterWindow > 0 ? Math.floor(Math.random() * jitterWindow) : 0);
+    };
+
+    const stopTimer = (): void => {
+      clearTimeout(timer);
+      timer = undefined;
+    };
+
+    const tick = async (): Promise<void> => {
+      timer = undefined;
       if (!active) return;
+      // Inactive: leave the tick overdue; the activity listener reschedules it.
+      if (!isAppActive()) return;
+      if (jitterWindow > 0 && Date.now() - dueAt > LATE_TICK_THRESHOLD) {
+        scheduleOverdue();
+        return;
+      }
+
+      inFlight = true;
       try {
         await refetch();
       } catch {
         // Keep polling after errors
       }
-      if (active) {
-        timer = setTimeout(tick, interval);
+      inFlight = false;
+
+      if (!active) return;
+      if (isAppActive()) {
+        schedule(interval);
+      } else {
+        dueAt = Date.now() + interval;
       }
     };
 
-    timer = setTimeout(tick, interval);
+    const unsubscribeActivity = activity?.subscribe(() => {
+      if (!active) return;
+      if (!activity.isActive()) {
+        stopTimer();
+        return;
+      }
+      // A refetch in flight schedules the next tick itself when it settles.
+      if (timer !== undefined || inFlight) return;
+      const remaining = dueAt - Date.now();
+      if (remaining > 0) {
+        schedule(remaining);
+      } else {
+        scheduleOverdue();
+      }
+    });
+
+    if (isAppActive()) {
+      schedule(interval);
+    }
 
     return () => {
       active = false;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        timer = undefined;
-      }
+      stopTimer();
+      unsubscribeActivity?.();
     };
   };
 }

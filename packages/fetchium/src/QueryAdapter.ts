@@ -36,6 +36,14 @@ export abstract class QueryAdapter {
   protected queryClient: IQueryClientForAdapter | undefined;
 
   /**
+   * Set when the adapter merges requests sent close together into one (for
+   * example a multi-topic snapshot request). `reactivationStaggerMs` then
+   * starts this adapter's reactivation refetches together, so they can still
+   * share a request, instead of spreading them apart.
+   */
+  declare readonly coalescesRequests?: boolean;
+
+  /**
    * Called once by QueryClient when this adapter is registered.
    * Subclasses can override to do setup (e.g. open a WebSocket connection).
    */
