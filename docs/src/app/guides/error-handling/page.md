@@ -147,6 +147,17 @@ class GetUser extends RESTQuery {
 
 The default retry delay uses exponential backoff --- each successive attempt waits longer than the last (roughly 1s, 2s, 4s, ...). This avoids hammering a struggling server with rapid retries.
 
+Client errors are not retried: a `4xx` response fails on the first attempt, because repeating the same request gets the same answer. `408 Request Timeout` and `429 Too Many Requests` are the exceptions, and network errors and `5xx` responses are retried. The status comes from the response the adapter received (a REST error response whose body doesn't match `result`), or from `status`, `statusCode` or `response.status` on the thrown error. To decide yourself, pass `shouldRetry`, either per query in `retry` or for every query on the `QueryClient`:
+
+```ts
+const client = new QueryClient({
+  adapters: [new RESTQueryAdapter({ baseUrl })],
+  // attempt starts at 0; status is undefined for network errors
+  shouldRetry: (error, attempt, status) =>
+    status === undefined || status >= 500,
+});
+```
+
 To disable retries entirely:
 
 ```ts

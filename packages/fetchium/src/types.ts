@@ -58,14 +58,22 @@ export enum NetworkMode {
 
 export interface RetryConfig {
   /**
-   * Number of retry attempts
+   * Number of retry attempts. Default: 3 for queries on the client, 0 on the
+   * server and for mutations.
    */
-  retries: number;
+  retries?: number;
   /**
    * Optional custom delay function (receives attempt index starting at 0)
    * Default: exponential backoff (1000ms * 2^attempt)
    */
   retryDelay?: (attemptIndex: number) => number;
+  /**
+   * Decides whether a failed attempt is retried, from the error, the attempt
+   * index (starting at 0) and the attempt's HTTP status when known. Overrides
+   * `QueryClientConfig.shouldRetry`. Default: `defaultShouldRetry`, which does
+   * not retry 4xx responses other than 408 and 429.
+   */
+  shouldRetry?: (error: unknown, attempt: number, status: number | undefined) => boolean;
 }
 
 export const enum Mask {

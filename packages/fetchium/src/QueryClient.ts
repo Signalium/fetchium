@@ -26,6 +26,7 @@ import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
 import { LiveCollectionBinding } from './LiveCollection.js';
 import { QueryAdapter, type QueryAdapterClass } from './QueryAdapter.js';
+import { defaultShouldRetry, type ShouldRetry } from './retry.js';
 import {
   type QueryContext,
   type QueryStore,
@@ -62,6 +63,15 @@ export interface QueryClientConfig {
    * still refetch. Default: 0 (every stale query refetches on reactivation).
    */
   reactivationGraceMs?: number;
+  /**
+   * Decides whether a failed query attempt (or a mutation attempt, when the
+   * mutation enables retries) is retried. Receives the error, the attempt index
+   * (starting at 0) and the attempt's HTTP status when known. A query's or
+   * mutation's own `retry.shouldRetry` overrides it. Default:
+   * `defaultShouldRetry`, which retries network errors and 5xx responses but
+   * not 4xx responses other than 408 and 429.
+   */
+  shouldRetry?: ShouldRetry;
   /**
    * Milliseconds. Reactivation refetches that start in the same task (for
    * example every query on a screen that just resumed) are spread evenly
@@ -155,6 +165,8 @@ export class QueryClient {
   readonly reactivationGraceMs: number;
   /** See `QueryClientConfig.reactivationStaggerMs`. */
   readonly reactivationStaggerMs: number;
+  /** See `QueryClientConfig.shouldRetry`. */
+  readonly shouldRetry: ShouldRetry;
 
   /** Queries whose reactivation refetch waits for the current task's stagger flush. */
   private staggerQueue = new Set<QueryInstance<any>>();
@@ -186,6 +198,7 @@ export class QueryClient {
       evictionMultiplier,
       reactivationGraceMs,
       reactivationStaggerMs,
+      shouldRetry,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -195,6 +208,7 @@ export class QueryClient {
     this.store = store;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
     this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
+    this.shouldRetry = shouldRetry ?? defaultShouldRetry;
     // `activity` and `pollResumeJitterMs` ride along in `rest`: poll() reads them from the context.
     this.context = { ...rest, log: log ?? console, evictionMultiplier };
     this.gcManager =

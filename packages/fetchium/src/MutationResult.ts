@@ -112,16 +112,21 @@ export class MutationResultImpl<Request, Result> {
       );
     }
 
-    return withRetry(async () => {
-      const abortController = new AbortController();
-      const ctx = createExecutionContext(
-        this.def.captured,
-        (request ?? {}) as Record<string, unknown>,
-        this.queryClient.getContext(),
-      );
+    return withRetry(
+      async () => {
+        const abortController = new AbortController();
+        const ctx = createExecutionContext(
+          this.def.captured,
+          (request ?? {}) as Record<string, unknown>,
+          this.queryClient.getContext(),
+        );
 
-      return (await adapter.sendMutation!(ctx, abortController.signal)) as Result;
-    }, retryConfig);
+        return (await adapter.sendMutation!(ctx, abortController.signal)) as Result;
+      },
+      retryConfig,
+      undefined,
+      { shouldRetry: this.queryClient.shouldRetry },
+    );
   }
 }
 

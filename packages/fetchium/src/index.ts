@@ -13,3 +13,5 @@ export type { Draft } from './utils.js';
 export { NetworkManager, NoOpNetworkManager, defaultNetworkManager, NetworkManagerContext } from './NetworkManager.js';
 export { GcManager, NoOpGcManager } from './GcManager.js';
 export { Entity } from './proxy.js';
+export { defaultShouldRetry, getErrorStatus } from './retry.js';
+export type { ShouldRetry } from './retry.js';

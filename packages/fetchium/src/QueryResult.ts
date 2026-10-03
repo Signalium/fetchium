@@ -21,7 +21,7 @@ import { GcKeyType } from './GcManager.js';
 import { Query, QueryDefinition, type ResolvedRetryConfig, resolveRetryConfig } from './query.js';
 import { EntityInstance } from './EntityInstance.js';
 import { hashValue } from 'signalium/utils';
-import { withRetry } from './retry.js';
+import { getFailedResponseStatus, withRetry, type WithRetryOptions } from './retry.js';
 
 function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as { then?: unknown } | null | undefined)?.then === 'function';
@@ -469,10 +469,12 @@ export class QueryInstance<T extends Query> {
     const ctx = this.getOrCreateExecutionContext();
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
+    const attempt = this.attemptStatusTracker(ctx);
 
     try {
       const result = await withRetry(
         async () => {
+          attempt.start();
           try {
             const freshData = await adapter.send(ctx, signal);
             this.updatedAt = Date.now();
@@ -489,6 +491,7 @@ export class QueryInstance<T extends Query> {
         },
         this.retryConfig,
         signal,
+        attempt.options,
       );
       this.lastFetchFailed = false;
       return result;
@@ -665,9 +668,11 @@ export class QueryInstance<T extends Query> {
     const ctx = this.getOrCreateExecutionContext();
     ctx.resultData = this.rootEntity!.data;
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
+    const attempt = this.attemptStatusTracker(ctx);
 
     return withRetry(
       async () => {
+        attempt.start();
         const freshData = await adapter.sendNext!(ctx, signal);
         this.updatedAt = Date.now();
 
@@ -678,7 +683,30 @@ export class QueryInstance<T extends Query> {
       },
       this.retryConfig,
       signal,
+      attempt.options,
     );
+  }
+
+  /**
+   * Retry options that report the HTTP status of a failed attempt. Adapters
+   * that expose their response as `ctx.response` (RESTQueryAdapter does) set
+   * it before the body is parsed and validated, so an error response whose
+   * body fails validation surfaces as a schema error, not an HTTP error. A
+   * response assigned during the failed attempt supplies its status.
+   */
+  private attemptStatusTracker(ctx: Query): { start: () => void; options: WithRetryOptions } {
+    const holder = ctx as unknown as { response?: unknown };
+    let responseBefore: unknown;
+    return {
+      start: () => {
+        responseBefore = holder.response;
+      },
+      options: {
+        shouldRetry: this.queryClient.shouldRetry,
+        getAttemptStatus: () =>
+          holder.response !== responseBefore ? getFailedResponseStatus(holder.response) : undefined,
+      },
+    };
   }
 
   // ======================================================
