@@ -162,6 +162,12 @@ export class QueryClient {
 
   /** Release functions of outstanding `retain()` / `prefetch()` leases. */
   private leases = new Set<() => void>();
+  /**
+   * While a lease's callback first runs: the queries it reached that left
+   * their first fetch (or a zero-delay refetch) for a microtask. The lease
+   * starts them before returning. See `retain()`.
+   */
+  private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
 
@@ -368,6 +374,10 @@ export class QueryClient {
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
     }
 
+    // Already active with its start still queued (a reader activated it earlier
+    // in this task): the lease starts it too.
+    this.leaseStarts?.add(queryInstance);
+
     return queryInstance.relay;
   }
 
@@ -397,8 +407,25 @@ export class QueryClient {
    * render. Releasing never interrupts other readers; when the last one goes,
    * the query deactivates and its `gcTime` starts as usual. `release` is
    * idempotent.
+   *
+   * The fetches the first run of `fn` needs start before `retain` returns: a
+   * request goes out inside the call, ahead of anything already queued on the
+   * microtask queue (such as a render React scheduled for the same tap). A
+   * query that depends on another's result (`fn` reads an id, then fetches by
+   * it) starts once that result arrives, as with any reader. Call `retain`
+   * from an event handler or effect, not from inside a reactive computation:
+   * starting a fetch runs adapter code.
    */
   retain(fn: () => unknown, options?: RetainOptions): () => void {
+    return this.lease(fn, options, true);
+  }
+
+  /**
+   * `retain()`, with `startNow` choosing whether the first run's fetches start
+   * before returning or on their usual microtask. `useSuspenseQuery` leases
+   * from inside a render, where adapter code must not run, so it passes false.
+   */
+  private lease(fn: () => unknown, options: RetainOptions | undefined, startNow: boolean): () => void {
     const w = withContexts([[QueryClientContext, this]], () => watcher(() => holdReturned(fn())));
     const unsubscribe = w.addListener(noop);
 
@@ -415,6 +442,9 @@ export class QueryClient {
 
     this.leases.add(release);
 
+    const outerStarts = this.leaseStarts;
+    const starts = startNow ? new Set<QueryInstance<any>>() : undefined;
+    this.leaseStarts = starts;
     try {
       // Run now, so the queries activate (and a synchronous store hydrates
       // them) before this returns, not on Signalium's next flush.
@@ -422,6 +452,13 @@ export class QueryClient {
     } catch (error) {
       release();
       throw error;
+    } finally {
+      this.leaseStarts = outerStarts;
+    }
+
+    // Outside the watcher's computation now, so adapter code may run.
+    if (starts !== undefined) {
+      for (const instance of starts) instance.startPendingNow();
     }
 
     const ttl = options?.ttl;
@@ -498,7 +535,7 @@ export class QueryClient {
 
     let hold = this.suspenseHolds.get(key);
     if (hold === undefined) {
-      const release = this.retain(() => this.getQuery(def, params));
+      const release = this.lease(() => this.getQuery(def, params), undefined, false);
       hold = { release, settled: undefined, done: false, failed: false, timer: undefined };
       this.suspenseHolds.set(key, hold);
     }
@@ -721,6 +758,16 @@ export class QueryClient {
   // ======================================================
   // Reactivation stagger
   // ======================================================
+
+  /**
+   * Called by a query that queued its start (or a zero-delay refetch) on a
+   * microtask. During a lease's first run, the lease starts it before returning.
+   *
+   * @internal
+   */
+  noteDeferredStart(instance: QueryInstance<any>): void {
+    this.leaseStarts?.add(instance);
+  }
 
   /**
    * Queues a reactivation refetch. Everything queued in the same task is

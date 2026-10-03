@@ -57,6 +57,10 @@ export class QueryInstance<T extends Query> {
    * microtask and so can't be cleared like a timer.
    */
   private debounceGeneration: number = 0;
+  /** The zero-delay refetch runDebounced() queued, until it runs or is cancelled. */
+  private pendingDebouncedRun: (() => void) | undefined = undefined;
+  /** initialize() queued startSubscriptionAndFetch() on a microtask that hasn't run yet. */
+  private startPending: boolean = false;
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
@@ -298,6 +302,10 @@ export class QueryInstance<T extends Query> {
    *
    * With an asynchronous store (AsyncQueryStore), the cache resolves on a later
    * tick, outside the activating read, and everything runs from there.
+   *
+   * A lease (`retain()` / `prefetch()`) doesn't wait for the microtask: it
+   * calls startPendingNow() once its activating read has returned, so the
+   * request goes out inside the call, ahead of any render already queued.
    */
   private initialize(): void {
     this.initialized = true;
@@ -324,8 +332,30 @@ export class QueryInstance<T extends Query> {
       );
     } else {
       this.hydrate(loaded);
-      queueMicrotask(() => this.startSubscriptionAndFetch());
+      this.startPending = true;
+      this.queryClient.noteDeferredStart(this);
+      queueMicrotask(this.runPendingStart);
     }
+  }
+
+  private runPendingStart = (): void => {
+    if (!this.startPending) return;
+    this.startPending = false;
+    this.startSubscriptionAndFetch();
+  };
+
+  /**
+   * Runs, now, the start initialize() or a zero-delay runDebounced() left for
+   * a microtask, if it hasn't run yet. The microtask then does nothing. Called
+   * by a lease after its activating read, outside any reactive computation.
+   *
+   * @internal
+   */
+  startPendingNow(): void {
+    this.runPendingStart();
+    const run = this.pendingDebouncedRun;
+    this.pendingDebouncedRun = undefined;
+    run?.();
   }
 
   private discardCorruptCache(error: unknown): void {
@@ -509,18 +539,23 @@ export class QueryInstance<T extends Query> {
     }
 
     const generation = this.debounceGeneration;
-    queueMicrotask(() => {
+    const run = (): void => {
       if (generation !== this.debounceGeneration) return;
       this.debounceGeneration++;
+      this.pendingDebouncedRun = undefined;
       // Another path started a fetch in the meantime (refetch(), activation).
       if (this.relayState.isPending && this._abortController !== undefined) return;
       this.runQueryImmediately();
-    });
+    };
+    this.pendingDebouncedRun = run;
+    this.queryClient.noteDeferredStart(this);
+    queueMicrotask(run);
   }
 
   /** Cancels a refetch scheduled by runDebounced(). */
   private cancelDebounced(): void {
     this.debounceGeneration++;
+    this.pendingDebouncedRun = undefined;
     clearTimeout(this.debounceTimer);
     this.debounceTimer = undefined;
   }

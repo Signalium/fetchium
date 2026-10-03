@@ -69,13 +69,29 @@ afterEach(() => {
   unsubscribed = 0;
 });
 
-function setup(kv: MemoryPersistentStore = new MemoryPersistentStore()) {
+class GetIdentity extends RESTQuery {
+  path = '/identity';
+  result = { id: t.number };
+}
+
+class GetHoldings extends RESTQuery {
+  params = { owner: t.number };
+  path = `/holdings/${this.params.owner}`;
+  result = { n: t.number };
+}
+
+function setup(
+  kv: MemoryPersistentStore = new MemoryPersistentStore(),
+  options: { reactivationStaggerMs?: number } = {},
+) {
   const mockFetch = createMockFetch();
   let n = 0;
-  for (const path of ['/item', '/other', '/users/[id]', '/streamed']) {
+  for (const path of ['/item', '/other', '/users/[id]', '/streamed', '/holdings/[owner]']) {
     mockFetch.get(path, () => ({ n: ++n }));
   }
+  mockFetch.get('/identity', { id: 42 });
   const client = new QueryClient({
+    ...options,
     store: new SyncQueryStore(kv),
     adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
   });
@@ -92,12 +108,88 @@ function mountReader<T>(client: QueryClient, read: () => T): { w: { value: T }; 
 }
 
 describe('client.prefetch()', () => {
-  it('starts the fetch before returning control to a timer', async () => {
+  it('issues the request before returning', async () => {
     const { client, mockFetch } = setup();
     client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+    await flushMicrotasks();
+    expect(mockFetch.calls).toHaveLength(1);
+  });
+
+  it('issues the request ahead of a render already queued on the microtask queue', async () => {
+    const { client, mockFetch } = setup();
+    let callsAtRender = -1;
+    // React queues its sync render for a press as a microtask before the handler's prefetch.
+    queueMicrotask(() => {
+      callsAtRender = mockFetch.calls.length;
+    });
+    client.prefetch(GetItem);
+    await flushMicrotasks();
+    expect(callsAtRender).toBe(1);
+  });
+
+  it('a reader activating a query leaves its fetch for the microtask, as before', async () => {
+    const { client, mockFetch } = setup();
+    const { unsub } = mountReader(client, () => fetchQuery(GetItem).value);
     expect(mockFetch.calls).toHaveLength(0);
     await flushMicrotasks();
     expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+  });
+
+  it('starts a query a reader activated earlier in the same task, once', async () => {
+    const { client, mockFetch } = setup();
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(mockFetch.calls).toHaveLength(0);
+    client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(w.value).toMatchObject({ n: 1 });
+    unsub();
+  });
+
+  it('a reader mounting in the same task joins the request, with no second one', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 5 }, { delay: 20 });
+    client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
+    expect(w.value).toBeUndefined();
+    await sleep(40);
+    expect(w.value).toMatchObject({ n: 5 });
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(false);
+    unsub();
+  });
+
+  it('refetches a stale, inactive query before returning', async () => {
+    const { client, mockFetch } = setup();
+    const release = client.prefetch(GetItem);
+    await sleep(10);
+    release();
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('leaves a stale reactivation to the stagger when reactivationStaggerMs is set', async () => {
+    const { client, mockFetch } = setup(undefined, { reactivationStaggerMs: 100 });
+    const release = client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+    await sleep(10);
+    release();
+    await sleep(10);
+
+    client.prefetch(GetItem);
+    await flushMicrotasks();
+    expect(mockFetch.calls).toHaveLength(1);
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(2);
   });
 
   it('a reader mounting after the data arrives renders it on its first read, with no second request', async () => {
@@ -155,6 +247,7 @@ describe('client.prefetch()', () => {
     client.prefetch(GetFreshUser, { id: 1 });
     // Hydrated by the activation inside prefetch(), before it returned.
     expect(client.getQuery(QueryDefinition.for(GetFreshUser), { id: 1 }).value).toMatchObject({ n: 1 });
+    expect(mockFetch.calls).toHaveLength(0);
     await sleep(10);
     expect(mockFetch.calls).toHaveLength(0);
   });
@@ -226,6 +319,42 @@ describe('client.prefetch()', () => {
 });
 
 describe('client.retain()', () => {
+  it('issues the first request of a chained lease before returning, and the next when its input arrives', async () => {
+    const { client, mockFetch } = setup();
+    const release = client.retain(() => {
+      const identity = fetchQuery(GetIdentity);
+      if (!identity.isReady) return identity;
+      return fetchQuery(GetHoldings, { owner: identity.value.id });
+    });
+    expect(mockFetch.calls.map(c => new URL(c.url).pathname)).toEqual(['/identity']);
+    await sleep(10);
+    expect(mockFetch.calls.map(c => new URL(c.url).pathname)).toEqual(['/identity', '/holdings/42']);
+
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetHoldings, { owner: 42 }).value);
+    expect(w.value).toMatchObject({ n: expect.any(Number) });
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(2);
+    unsub();
+    release();
+  });
+
+  it('issues both requests of a chained lease before returning when the first is cached and fresh', async () => {
+    const kv = new MemoryPersistentStore();
+    const seed = setup(kv);
+    seed.client.retain(() => fetchQuery(GetFreshUser, { id: 1 }));
+    await sleep(10);
+    seed.client.destroy();
+
+    const { client, mockFetch } = setup(kv);
+    const release = client.retain(() => {
+      const user = fetchQuery(GetFreshUser, { id: 1 });
+      if (!user.isReady) return user;
+      return fetchQuery(GetHoldings, { owner: user.value.n });
+    });
+    expect(mockFetch.calls.map(c => new URL(c.url).pathname)).toEqual(['/holdings/1']);
+    release();
+  });
+
   it('holds the query promises the callback returns', async () => {
     const { client, mockFetch } = setup();
     const release = client.retain(() => [fetchQuery(GetItem), fetchQuery(GetOther)]);
