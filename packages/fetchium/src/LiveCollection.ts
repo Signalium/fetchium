@@ -435,6 +435,7 @@ export class LiveValueInstance {
     entityData: Record<string, unknown>,
     eventType: 'create' | 'update' | 'delete',
   ): void {
+    const prev = this._value;
     switch (eventType) {
       case 'create':
         if (this._createdKeys.has(entityKey)) return;
@@ -450,7 +451,10 @@ export class LiveValueInstance {
         this._value = this._onDelete(this._value, entity ?? entityData);
         break;
     }
-    this._notifier.notify();
+    // Update events route here even when they changed nothing (a stream
+    // re-delivering current data). A reducer that returns the current value is
+    // a no-op, as in `reset`.
+    if (this._value !== prev) this._notifier.notify();
   }
 
   getValue(): unknown {
