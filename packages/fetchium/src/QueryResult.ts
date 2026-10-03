@@ -15,12 +15,17 @@ import {
   queryKeyFor,
   CachedQuery,
 } from './QueryClient.js';
+import type { MaybePromise } from './query-types.js';
 import { DEFAULT_GC_TIME } from './stores/shared.js';
 import { GcKeyType } from './GcManager.js';
 import { Query, QueryDefinition, type ResolvedRetryConfig, resolveRetryConfig } from './query.js';
 import { EntityInstance } from './EntityInstance.js';
 import { hashValue } from 'signalium/utils';
-import { sleep, withRetry } from './retry.js';
+import { withRetry } from './retry.js';
+
+function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown } | null | undefined)?.then === 'function';
+}
 
 /**
  * Thin fetch/relay orchestrator. Data management (proxy, notifier, child refs,
@@ -252,27 +257,75 @@ export class QueryInstance<T extends Query> {
     );
   }
 
-  private async initialize(): Promise<void> {
-    const qc = this.queryClient;
-    const state = this.relayState;
-
+  /**
+   * Runs once, from the relay's first activation. That activation happens
+   * inside the read that watched the relay (for React, during render).
+   *
+   * When the store answers synchronously (SyncQueryStore), the cached value is
+   * applied right here, so the activating read, and the first render, already
+   * see it. Subscribing and fetching wait for the next microtask: both call
+   * into adapter and app code that may read or write signals, which must not
+   * run while the relay's computation is the current consumer. A microtask
+   * rather than a timer keeps the first fetch off the macrotask queue.
+   *
+   * With an asynchronous store (AsyncQueryStore), the cache resolves on a later
+   * tick, outside the activating read, and everything runs from there.
+   */
+  private initialize(): void {
     this.initialized = true;
 
-    let cached: CachedQuery | undefined;
+    let loaded: MaybePromise<CachedQuery | undefined>;
 
     try {
-      cached = await qc.loadCachedQuery(this.def, this.storageKey);
-
-      if (cached !== undefined) {
-        this.updatedAt = cached.updatedAt;
-        state.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
-      }
+      loaded = this.queryClient.loadCachedQuery(this.def, this.storageKey);
     } catch (error) {
-      qc.store.deleteQuery(this.storageKey);
-      qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
+      this.discardCorruptCache(error);
+      loaded = undefined;
     }
 
-    if (this.isPaused) {
+    if (isThenable(loaded)) {
+      loaded.then(
+        cached => {
+          this.hydrate(cached);
+          this.startSubscriptionAndFetch();
+        },
+        error => {
+          this.discardCorruptCache(error);
+          this.startSubscriptionAndFetch();
+        },
+      );
+    } else {
+      this.hydrate(loaded);
+      queueMicrotask(() => this.startSubscriptionAndFetch());
+    }
+  }
+
+  private discardCorruptCache(error: unknown): void {
+    const qc = this.queryClient;
+    qc.store.deleteQuery(this.storageKey);
+    qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
+  }
+
+  /** Resolves the relay with a cached value. */
+  private hydrate(cached: CachedQuery | undefined): void {
+    if (cached === undefined) return;
+
+    try {
+      this.updatedAt = cached.updatedAt;
+      this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
+    } catch (error) {
+      // Unusable entry: treat it as a miss so the query still fetches, instead
+      // of trusting a timestamp whose data was never applied.
+      this.updatedAt = undefined;
+      this.discardCorruptCache(error);
+    }
+  }
+
+  /** Starts the subscription, then the first fetch if there is no fresh cached value. */
+  private startSubscriptionAndFetch(): void {
+    // Deactivated in the meantime: update() fetches on reactivation, since the
+    // relay is still pending (or stale) with no fetch in flight.
+    if (!this._isActive || this.isPaused) {
       return;
     }
 
@@ -282,13 +335,13 @@ export class QueryInstance<T extends Query> {
       // `send()` awaits.
       this.reconcileSubscription();
 
-      if (cached === undefined || this.isStale) {
-        await sleep(0);
-        if (this.isPaused) return;
+      // Skip if something already started a fetch since activation (refetch()).
+      const fetchInFlight = this.relayState.isPending && this._abortController !== undefined;
+      if (this.isStale && !fetchInFlight) {
         this.runQueryImmediately();
       }
     } catch (error) {
-      state.setError(error as Error);
+      this.relayState.setError(error as Error);
     }
   }
 
