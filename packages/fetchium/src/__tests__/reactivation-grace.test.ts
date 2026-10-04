@@ -6,6 +6,12 @@ import { t } from '../typeDefs.js';
 import { QueryClient, QueryClientContext, type QueryClientConfig } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { NetworkManager } from '../NetworkManager.js';
+import { poll } from '../subscriptions/polling.js';
+import type { ActivitySource } from '../query-types.js';
+import type { MutationEvent } from '../types.js';
+import type { Query } from '../query.js';
+import { TopicQuery } from '../topic/TopicQuery.js';
+import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { createMockFetch, createTestWatcher } from './utils.js';
 
 /**
@@ -249,13 +255,19 @@ describe('reactivation grace and stagger', () => {
       expect(fetchCount('/a')).toBe(3);
     });
 
-    it('measures from deactivation when a subscription kept the data current', async () => {
-      // A subscription that never fires: stands in for a stream that delivered
-      // entity updates while the query was active.
+    it('measures from the last push when a subscription delivered data', async () => {
+      let push: (() => void) | undefined;
       class GetStreamed extends RESTQuery {
         path = '/a';
         result = { n: t.number };
-        config = { subscribe: () => () => {} };
+        config = {
+          subscribe: (onEvent: (event: MutationEvent) => void) => {
+            push = () => onEvent({ type: 'update', typename: 'Unrelated', data: { id: '1' } });
+            return () => {
+              push = undefined;
+            };
+          },
+        };
       }
 
       const client = makeClient({ reactivationGraceMs: 15_000 });
@@ -263,22 +275,159 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // Data is a minute old, but the subscription ran until a moment ago.
+      // Data is a minute old, but the stream delivered an event a moment ago.
       await vi.advanceTimersByTimeAsync(60_000);
+      push!();
+      await vi.advanceTimersByTimeAsync(1_000);
       unsub();
       await vi.advanceTimersByTimeAsync(5_000);
 
       const unsub2 = watch(client, GetStreamed);
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
+
+      // Still subscribed, but silent: the credit stops at the last push, not
+      // at the deactivation.
+      await vi.advanceTimersByTimeAsync(20_000);
       unsub2();
       await vi.advanceTimersByTimeAsync(10);
-
-      // Deactivated longer than the grace: refetches.
-      await vi.advanceTimersByTimeAsync(20_000);
       watch(client, GetStreamed);
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(2);
+    });
+
+    it('does not count a subscription that never delivered as keeping the data current', async () => {
+      class GetQuiet extends RESTQuery {
+        path = '/a';
+        result = { n: t.number };
+        config = { subscribe: () => () => {} };
+      }
+
+      const client = makeClient({ reactivationGraceMs: 15_000 });
+      const unsub = watch(client, GetQuiet);
+      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(60_000);
+      unsub();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      watch(client, GetQuiet);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(2);
+    });
+
+    it('does not let a poll() that has not ticked chain the grace across short visits', async () => {
+      class GetPolled extends RESTQuery {
+        path = '/a';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 60_000 }) };
+      }
+
+      const client = makeClient({ reactivationGraceMs: 10_000 });
+      let unsub = watch(client, GetPolled);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(1);
+
+      // Visits shorter than the poll interval, gaps shorter than the grace. The
+      // poll restarts its interval each visit, so it never ticks.
+      for (let i = 0; i < 20; i++) {
+        await vi.advanceTimersByTimeAsync(50_000);
+        unsub();
+        await vi.advanceTimersByTimeAsync(5_000);
+        unsub = watch(client, GetPolled);
+        await vi.advanceTimersByTimeAsync(10);
+      }
+
+      // With a 60 s poll and staleTime 0, the data is never older than a visit.
+      const lastFetch = starts.filter(s => s.path === '/a').at(-1)!.at;
+      expect(Date.now() - lastFetch).toBeLessThan(60_000);
+      expect(fetchCount('/a')).toBe(21);
+    });
+
+    it('credits a poll() only through its fetches, not while it was stopped in the background', async () => {
+      let active = true;
+      const listeners = new Set<() => void>();
+      const activity: ActivitySource = {
+        isActive: () => active,
+        subscribe: listener => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      const setActive = (value: boolean): void => {
+        active = value;
+        for (const listener of listeners) listener();
+      };
+      class GetPolled extends RESTQuery {
+        path = '/a';
+        result = { n: t.number };
+        config = { subscribe: poll({ interval: 10_000 }) };
+      }
+
+      const client = makeClient({ reactivationGraceMs: 15_000, activity });
+      const unsub = watch(client, GetPolled);
+      await vi.advanceTimersByTimeAsync(35_000);
+      // The initial fetch and ticks at 10, 20 and 30 s.
+      expect(fetchCount('/a')).toBe(4);
+
+      // Backgrounded: the poll stops. The screen goes away a minute later.
+      setActive(false);
+      await vi.advanceTimersByTimeAsync(60_000);
+      unsub();
+      await vi.advanceTimersByTimeAsync(10);
+      setActive(true);
+
+      // Within the grace of the deactivation, but the last tick was 65 s ago.
+      watch(client, GetPolled);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(5);
+    });
+
+    it('measures from the last event a topic adapter sent with the topic', async () => {
+      class PushingTopicAdapter extends TopicQueryAdapter {
+        sends = 0;
+        subscribe(topic: string): void {
+          setTimeout(() => this.fulfillTopic(topic, { n: 1 }), 10);
+        }
+        unsubscribe(topic: string): void {
+          this.clearTopic(topic);
+        }
+        override send(ctx: Query, signal: AbortSignal): Promise<unknown> {
+          this.sends++;
+          return super.send(ctx, signal);
+        }
+        push(topic: string | undefined): void {
+          this.sendMutationEvent({ type: 'update', typename: 'Unrelated', data: { id: '1' } }, topic);
+        }
+      }
+      class GetTopic extends TopicQuery {
+        static override adapter = PushingTopicAdapter;
+        topic = 'prices';
+        result = { n: t.number };
+      }
+
+      const adapter = new PushingTopicAdapter();
+      const client = makeClient({ reactivationGraceMs: 15_000, adapters: [adapter] });
+      const visit = async (pushTopic: string | undefined): Promise<void> => {
+        const unsub = watch(client, GetTopic as any);
+        await vi.advanceTimersByTimeAsync(60_000);
+        adapter.push(pushTopic);
+        await vi.advanceTimersByTimeAsync(1_000);
+        unsub();
+        await vi.advanceTimersByTimeAsync(5_000);
+      };
+
+      await visit('prices');
+      expect(adapter.sends).toBe(1);
+
+      // Pushed on its topic 6 s ago: inside the grace.
+      await visit(undefined);
+      expect(adapter.sends).toBe(1);
+
+      // The last event didn't name the topic, so the query's last delivery is
+      // the push 67 s ago.
+      watch(client, GetTopic as any);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(adapter.sends).toBe(2);
     });
 
     it('measures from the fetch for a query without a subscription', async () => {

@@ -51,10 +51,11 @@ export interface QueryClientConfig {
   /**
    * Milliseconds. A query that reactivates (a watcher returns, or a paused
    * scope resumes) with data younger than this is not refetched, even when the
-   * data is past its `staleTime`. A query whose subscription (`subscribe`: a
-   * stream, `poll()`) was running when it deactivated counts as fresh up to
-   * that moment, since the subscription kept it current. Queries can override
-   * the window with `reactivationGraceMs` in their config. Network reconnects,
+   * data is past its `staleTime`. Data a subscription pushed to (a `subscribe`
+   * stream event, or a topic event sent with its topic) counts as fresh from
+   * the last push; a `poll()` keeps data current only through the fetches it
+   * makes. Queries can override the window with `reactivationGraceMs` in
+   * their config. Network reconnects,
    * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
    * still refetch. Default: 0 (every stale query refetches on reactivation).
    */

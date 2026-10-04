@@ -55,11 +55,15 @@ export class QueryInstance<T extends Query> {
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
-   * When the query last deactivated with its subscription running. The
-   * subscription (a stream, poll()) kept the data current until then, so the
-   * reactivation grace measures from here when it is later than `updatedAt`.
+   * When the running subscription last delivered data: a stream pushed an
+   * event, or a topic adapter delivered one for this query's topic. The data
+   * was known current at that moment, so the reactivation grace measures from
+   * here when it is later than `updatedAt`. A subscription that delivers by
+   * refetching (poll()) moves `updatedAt` instead. Merely having a
+   * subscription running proves nothing: a poll that hasn't ticked yet, or one
+   * stopped while the app was in the background, kept nothing current.
    */
-  private subscribedUntil: number | undefined = undefined;
+  private lastPushAt: number | undefined = undefined;
 
   // Invalidates on any signal consumed by getConfig() (such as
   // responseNotifier, fired by the adapter after each fetch). Param
@@ -148,7 +152,6 @@ export class QueryInstance<T extends Query> {
           this._fetchNextAbort = undefined;
           this._fetchNextPromise = undefined;
 
-          this.subscribedUntil = this.unsubscribe !== undefined ? Date.now() : undefined;
           this.stopSubscription();
 
           if (isPausing) return;
@@ -384,6 +387,7 @@ export class QueryInstance<T extends Query> {
 
     const ctx = this._executionCtx;
     this.unsubscribe = subscribeFn.call(ctx, (event: import('./types.js').MutationEvent) => {
+      this.notePush();
       // Collections register under their parent entity's key, so the query key
       // matches nothing. Undefined until the first apply: no collection yet.
       event.__eventSource = this.rootEntity?.key;
@@ -399,6 +403,9 @@ export class QueryInstance<T extends Query> {
         this.queryClient.getContext(),
       );
       this._executionCtx.refetch = () => this.refetch();
+      // `TopicQuery.getConfig.subscribe` hands this to its adapter, which calls
+      // it when it delivers an event for the query's topic.
+      (this._executionCtx as unknown as Record<string, unknown>)._notePush = this.notePush;
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
       // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
       // set it eagerly so subscribe/unsubscribe work on the cache-fresh and
@@ -483,6 +490,11 @@ export class QueryInstance<T extends Query> {
     if (!this._isActive || this.isPaused) return;
     this.runDebounced(delay);
   }
+
+  /** Records that the subscription delivered data. See `lastPushAt`. */
+  private notePush = (): void => {
+    if (this._isActive) this.lastPushAt = Date.now();
+  };
 
   // ======================================================
   // Public methods
@@ -587,15 +599,15 @@ export class QueryInstance<T extends Query> {
 
   /**
    * Data is younger than the reactivation grace, and the last fetch didn't
-   * fail. Data a running subscription kept current counts as fresh up to the
-   * deactivation. Invalidation (`updatedAt = 0`) always falls outside.
+   * fail. Data a subscription pushed to counts as fresh from its last push.
+   * Invalidation (`updatedAt = 0`) always falls outside.
    */
   private get isWithinReactivationGrace(): boolean {
     const { updatedAt } = this;
     if (updatedAt === undefined || updatedAt === 0 || this.lastFetchFailed) return false;
     const grace = this.config?.reactivationGraceMs ?? this.queryClient.reactivationGraceMs;
     if (!(grace > 0)) return false;
-    const freshAt = Math.max(updatedAt, this.subscribedUntil ?? 0);
+    const freshAt = Math.max(updatedAt, this.lastPushAt ?? 0);
     return Date.now() - freshAt < grace;
   }
 

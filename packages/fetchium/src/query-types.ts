@@ -65,8 +65,8 @@ export interface QueryConfigOptions {
   /**
    * Milliseconds. When the query reactivates (a watcher returns, or a paused
    * scope resumes) and its data is younger than this, it is not refetched even
-   * if stale. With a running subscription, the data counts as fresh until the
-   * query deactivated. Overrides `QueryClientConfig.reactivationGraceMs`. Does
+   * if stale. Data a subscription pushed to (a stream event, or a topic event
+   * sent with its topic) counts as fresh from the last push. Overrides `QueryClientConfig.reactivationGraceMs`. Does
    * not affect network reconnects, `refetch()`, or invalidation.
    */
   reactivationGraceMs?: number;
