@@ -241,6 +241,57 @@ describe('LiveValue', () => {
   // ============================================================
 
   describe('entity-level liveValue lifecycle', () => {
+    it('notifies when a reducer mutates the value in place and returns it', async () => {
+      const { client, mockFetch } = getClient();
+      class Item extends Entity {
+        __typename = t.typename('Item');
+        id = t.id;
+        listId = t.string;
+      }
+
+      class List extends Entity {
+        __typename = t.typename('List');
+        id = t.id;
+        ids = t.liveValue(t.array(t.string), Item, {
+          constraints: { listId: (this as any).id },
+          onCreate: (v: string[], item: any) => {
+            v.push(item.id);
+            return v;
+          },
+          onUpdate: (v: string[]) => v,
+          onDelete: (v: string[]) => v,
+        });
+      }
+
+      class GetList extends RESTQuery {
+        params = { id: t.id };
+        path = `/list/${this.params.id}`;
+        result = { list: t.entity(List) };
+      }
+
+      mockFetch.get('/list/[id]', { list: { __typename: 'List', id: '1', ids: [] } });
+
+      let length!: () => number;
+      await testWithClient(client, async () => {
+        const relay = fetchQuery(GetList, { id: '1' });
+        await relay;
+        const list = relay.value!.list;
+        length = reactive(() => (list.ids as string[]).length);
+        expect(length()).toBe(0);
+      });
+
+      client.applyMutationEvent({
+        type: 'create',
+        typename: 'Item',
+        data: { __typename: 'Item', id: 'x', listId: '1' },
+      });
+      await sleep(5);
+
+      await testWithClient(client, async () => {
+        expect(length()).toBe(1);
+      });
+    });
+
     it('should increment on create and decrement on delete via applyEntityData', async () => {
       const { client, mockFetch } = getClient();
       class Item extends Entity {

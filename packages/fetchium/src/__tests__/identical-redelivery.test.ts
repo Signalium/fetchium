@@ -212,7 +212,10 @@ describe('Identical re-delivery', () => {
       expect(versions(client, keys)).toEqual(before);
       expect(saveEntity).not.toHaveBeenCalled();
       expect(live.tokens).not.toHaveBeenCalled();
-      expect(live.count).not.toHaveBeenCalled();
+      // The live value's onUpdate reducer runs for the Token event and the
+      // value notifies: a reducer may mutate in place, so a returned identical
+      // reference doesn't prove nothing changed.
+      expect(live.count).toHaveBeenCalledTimes(1);
 
       // A `create` for an entity the store already holds is the same no-op for
       // the entity and the live array. (The live value's `onCreate` reducer
@@ -328,7 +331,8 @@ describe('(c) topic events', () => {
     expect(versions(client, keys)).toEqual(before);
     expect(saveEntity).not.toHaveBeenCalled();
     expect(live.tokens).not.toHaveBeenCalled();
-    expect(live.count).not.toHaveBeenCalled();
+    // Each Token event runs the live value's reducer, which notifies (see (b)).
+    expect(live.count).toHaveBeenCalledTimes(3);
   });
 
   it('notifies exactly once for a topic event that changes a field', async () => {
