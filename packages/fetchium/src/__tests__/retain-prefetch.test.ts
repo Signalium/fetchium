@@ -1,12 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
-import { describe, it, expect, afterEach } from 'vitest';
-import { signal, watcher, withContexts } from 'signalium';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { reactive, signal, watcher, withContexts } from 'signalium';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient, QueryClientContext, DEFAULT_PREFETCH_TTL } from '../QueryClient.js';
 import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { t } from '../typeDefs.js';
 import { fetchQuery, QueryDefinition } from '../query.js';
 import type { MutationEvent } from '../types.js';
+import { GcManager, type GcKeyType } from '../GcManager.js';
+import { NetworkManager } from '../NetworkManager.js';
 import { createMockFetch, sleep } from './utils.js';
 
 /**
@@ -266,21 +268,69 @@ describe('client.prefetch()', () => {
     unsub();
   });
 
-  it('a ttl that runs out mid-fetch waits for the fetch instead of aborting it', async () => {
+  it('a ttl that runs out mid-fetch releases the lease, aborting the fetch with no reader', async () => {
     const { client, mockFetch } = setup();
     mockFetch.reset();
     mockFetch.get('/streamed', { n: 9 }, { delay: 40 });
     client.prefetch(GetStreamed, undefined, { ttl: 10 });
     await sleep(25);
-    // Past the ttl, before the response (40 ms): still held, request not cancelled.
-    expect(unsubscribed).toBe(0);
-    expect(mockFetch.calls[0].options.signal?.aborted).toBe(false);
+    // The ttl is an upper bound: past it, before the response, the lease is gone.
+    expect(unsubscribed).toBe(1);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
+    await sleep(40);
+  });
+
+  it('a ttl that runs out mid-fetch leaves a reader that joined the fetch running', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/streamed', { n: 9 }, { delay: 40 });
+    client.prefetch(GetStreamed, undefined, { ttl: 10 });
+    await sleep(5);
+    const { w, unsub } = mountReader(client, () => fetchQuery(GetStreamed).value);
     await sleep(60);
     expect(mockFetch.calls).toHaveLength(1);
-    // The fetch landed (an aborted one applies nothing), then the lease went.
-    const relay = client.getQuery(QueryDefinition.for(GetStreamed), undefined);
-    expect(relay.value).toMatchObject({ n: 9 });
-    expect(unsubscribed).toBe(1);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(false);
+    expect(w.value).toMatchObject({ n: 9 });
+    unsub();
+  });
+
+  it('a ttl caps a lease whose fetch never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const networkManager = new NetworkManager(false);
+      const client = new QueryClient({
+        store: new SyncQueryStore(new MemoryPersistentStore()),
+        adapters: [new RESTQueryAdapter({ fetch: createMockFetch() as any, baseUrl: 'http://localhost' })],
+        networkManager,
+      });
+      clients.push(client);
+      // Offline: the relay stays pending.
+      client.prefetch(GetStreamed, undefined, { ttl: 1_000 });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(client.getQuery(QueryDefinition.for(GetStreamed), undefined).isPending).toBe(true);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect((client as unknown as { leases: Set<unknown> }).leases.size).toBe(0);
+      client.destroy();
+      clients = [];
+      await vi.advanceTimersByTimeAsync(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('destroy() clears the ttl timer', async () => {
+    vi.useFakeTimers();
+    try {
+      const { client } = setup();
+      client.prefetch(GetItem, undefined, { ttl: 60_000 });
+      await vi.advanceTimersByTimeAsync(20);
+      client.destroy();
+      clients = [];
+      await vi.advanceTimersByTimeAsync(50);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('defaults ttl to DEFAULT_PREFETCH_TTL', () => {
@@ -439,6 +489,84 @@ describe('client.retain()', () => {
     client.destroy();
     await sleep(10);
     expect(unsubscribed).toBe(1);
+  });
+
+  it('destroy() leaves no GC timer behind for the queries it releases', async () => {
+    const created: unknown[] = [];
+    const cleared = new Set<unknown>();
+    const realSetInterval = globalThis.setInterval;
+    const realClearInterval = globalThis.clearInterval;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms?: number) => {
+      const id = realSetInterval(fn, ms);
+      created.push(id);
+      return id;
+    }) as typeof setInterval);
+    vi.spyOn(globalThis, 'clearInterval').mockImplementation(((id: ReturnType<typeof setInterval>) => {
+      cleared.add(id);
+      realClearInterval(id);
+    }) as typeof clearInterval);
+
+    try {
+      const { client } = setup();
+      // A real GcManager: the tests' window-less environment gets the no-op one.
+      (client as unknown as { gcManager: GcManager }).gcManager = new GcManager(
+        (client as unknown as { handleEviction: (key: number, type: GcKeyType) => void }).handleEviction,
+        1,
+      );
+      client.retain(() => fetchQuery(GetItem));
+      await sleep(20);
+      client.destroy();
+      clients = [];
+      // The released query deactivates on Signalium's next flush, after destroy().
+      await sleep(50);
+      const leaked = created.filter(id => !cleared.has(id));
+      for (const id of leaked) realClearInterval(id as ReturnType<typeof setInterval>);
+      expect(leaked).toHaveLength(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('warns, and keeps one lease, when called from a reactive computation that reruns', async () => {
+    const warn = vi.fn();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', () => ({ n: 1 }));
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+      log: { warn },
+    });
+    clients.push(client);
+    const leases = (client as unknown as { leases: Set<unknown> }).leases;
+
+    const tick = signal(0);
+    const computation = reactive(() => {
+      const value = tick.value;
+      client.retain(() => fetchQuery(GetItem));
+      return value;
+    });
+    const { w, unsub } = mountReader(client, () => computation());
+    expect(warn).toHaveBeenCalledTimes(1);
+    for (let i = 1; i <= 5; i++) {
+      tick.value = i;
+      w.value;
+      await sleep(10);
+    }
+    expect(leases.size).toBe(1);
+    expect(mockFetch.calls).toHaveLength(1);
+    unsub();
+  });
+
+  it('does not warn when called outside a reactive computation', () => {
+    const warn = vi.fn();
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: createMockFetch() as any, baseUrl: 'http://localhost' })],
+      log: { warn },
+    });
+    clients.push(client);
+    client.retain(() => fetchQuery(GetItem))();
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('releases and rethrows when the callback throws', () => {

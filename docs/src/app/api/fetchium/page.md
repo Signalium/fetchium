@@ -252,7 +252,7 @@ new QueryClient(config: QueryClientConfig)
 
 #### `prefetch` and `retain`
 
-Both take a lease: the queries stay active (fetched, subscribed, exempt from GC) without a component reading them. A reader that mounts while the lease is held joins the active query, so it starts no request of its own and renders the data on its first render if it has arrived. Both return an idempotent `release` function. Releasing never interrupts other readers; once the last one goes, the query deactivates and its `gcTime` starts as usual. Calling `release` while a fetch is in flight, with no reader, aborts that fetch. A `prefetch` whose `ttl` runs out mid-fetch instead waits for the fetch to settle before letting go.
+Both take a lease: the queries stay active (fetched, subscribed, exempt from GC) without a component reading them. A reader that mounts while the lease is held joins the active query, so it starts no request of its own and renders the data on its first render if it has arrived. Both return an idempotent `release` function. Releasing never interrupts other readers; once the last one goes, the query deactivates and its `gcTime` starts as usual. Calling `release` while a fetch is in flight, with no reader, aborts that fetch. A `ttl` is an upper bound: the lease goes when it runs out even if the fetch is still in flight (offline, or a topic never fulfilled), which aborts the fetch unless a reader has joined it. Call `retain` and `prefetch` from event handlers or effects, not from inside a reactive computation; called from one, they warn in development and keep only the leases from the computation's latest run.
 
 `prefetch` is for the moment a user commits to a navigation, such as a tap. Call it in the handler, before navigating:
 

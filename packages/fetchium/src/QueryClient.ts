@@ -1,4 +1,4 @@
-import { context, watcher, withContexts, ReactivePromise, ReactiveTask, type Context } from 'signalium';
+import { context, signal, watcher, withContexts, ReactivePromise, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
 import {
   EntityDef,
@@ -188,6 +188,12 @@ export class QueryClient {
    * starts them before returning. See `retain()`.
    */
   private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
+  /**
+   * Leases taken by `retain()` calls inside a reactive computation, by the
+   * computation, with the run that took them. See `retain()`.
+   */
+  private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
+  private warnedReactiveRetain = false;
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
 
@@ -436,10 +442,32 @@ export class QueryClient {
    * query that depends on another's result (`fn` reads an id, then fetches by
    * it) starts once that result arrives, as with any reader. Call `retain`
    * from an event handler or effect, not from inside a reactive computation:
-   * starting a fetch runs adapter code.
+   * starting a fetch runs adapter code, and a computation that reruns would
+   * take a new lease on every run. Called from one anyway, it warns in
+   * development, starts its fetches on their usual microtask, and releases the
+   * leases the computation's previous run took.
    */
   retain(fn: () => unknown, options?: RetainOptions): () => void {
-    return this.lease(fn, options, true);
+    const owner = currentReactiveOwner();
+    if (owner === undefined) return this.lease(fn, options, true);
+
+    if (IS_DEV && !this.warnedReactiveRetain) {
+      this.warnedReactiveRetain = true;
+      this.context.log?.warn?.(
+        'QueryClient.retain() (or prefetch()) was called inside a reactive computation. Call it from an event handler or effect instead.',
+      );
+    }
+
+    const release = this.lease(fn, options, false);
+    const previous = this.reactiveLeases.get(owner.ref);
+    if (previous === undefined || previous.run !== owner.run) {
+      this.reactiveLeases.set(owner.ref, { run: owner.run, releases: [release] });
+      // After taking the new lease, so queries both runs read stay active.
+      if (previous !== undefined) for (const prior of previous.releases) prior();
+    } else {
+      previous.releases.push(release);
+    }
+    return release;
   }
 
   /**
@@ -494,8 +522,10 @@ export class QueryClient {
   /**
    * Starts `QueryClass` with `params` now and keeps it active for `ttl`
    * milliseconds (default {@link DEFAULT_PREFETCH_TTL}), or until the returned
-   * `release` is called. A fetch still in flight when `ttl` runs out is let
-   * finish before the lease goes; `release()` lets go at once. Meant for the moment a user commits to a navigation
+   * `release` is called. The `ttl` is an upper bound: the lease goes when it
+   * runs out even if the fetch is still in flight (offline, or a topic that is
+   * never fulfilled), which aborts that fetch unless a reader has joined it.
+   * Meant for the moment a user commits to a navigation
    * (a tap): the destination's reader, mounting within the window, reuses the
    * in-flight or finished fetch instead of starting its own, and renders the
    * data on its first render if it has arrived.
@@ -510,27 +540,9 @@ export class QueryClient {
     options?: PrefetchOptions,
   ): () => void {
     const def = QueryDefinition.for(QueryClass);
-    let relay: QueryPromise<T> | undefined;
-    const release = this.retain(() => (relay = this.getQuery(def, params as QueryParams | undefined)));
-
-    const ttl = options?.ttl ?? DEFAULT_PREFETCH_TTL;
-    if (Number.isFinite(ttl)) {
-      const timer = setTimeout(
-        () => {
-          // Expiring mid-fetch would abort a request that is about to land:
-          // hold until it settles. An explicit release() still lets go at once.
-          if (relay?.isPending) relay.then(release, release);
-          else release();
-        },
-        Math.max(0, ttl),
-      );
-      return () => {
-        clearTimeout(timer);
-        release();
-      };
-    }
-
-    return release;
+    return this.retain(() => this.getQuery(def, params as QueryParams | undefined), {
+      ttl: options?.ttl ?? DEFAULT_PREFETCH_TTL,
+    });
   }
 
   /**
@@ -954,6 +966,25 @@ export class QueryClient {
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
 
 const noop = (): void => {};
+
+/**
+ * The reactive computation (and its run) currently executing, if any. Signalium
+ * has no public API for this: a signal read records its consumer, so read a
+ * throwaway signal and look at what it recorded. Undefined when the shape
+ * isn't the expected one.
+ */
+function currentReactiveOwner(): { ref: object; run: number } | undefined {
+  try {
+    const probe = signal(0);
+    void probe.value;
+    const subs = (probe as unknown as { _subs?: Map<object, number> })._subs;
+    if (!(subs instanceof Map) || subs.size === 0) return undefined;
+    const [ref, run] = subs.entries().next().value!;
+    return typeof ref === 'object' && ref !== null && typeof run === 'number' ? { ref, run } : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Reads the query promises `retain`'s callback returned, so the lease's

@@ -62,6 +62,8 @@ export class GcManager {
   private _nextTickScheduled = false;
   private _onEvict: (key: number, type: GcKeyType) => void;
   private _multiplier: number;
+  /** Set by destroy(). Queries that deactivate afterwards schedule nothing. */
+  private _destroyed = false;
 
   constructor(onEvict: (key: number, type: GcKeyType) => void, multiplier: number = 1) {
     this._onEvict = onEvict;
@@ -69,7 +71,7 @@ export class GcManager {
   }
 
   schedule(key: number, gcTime: number, type: GcKeyType): void {
-    if (gcTime === Infinity) return;
+    if (gcTime === Infinity || this._destroyed) return;
 
     if (gcTime === 0) {
       const { _nextTickEntries } = this;
@@ -111,6 +113,7 @@ export class GcManager {
   };
 
   destroy(): void {
+    this._destroyed = true;
     const { _buckets, _nextTickEntries } = this;
     for (const bucket of _buckets.values()) {
       bucket.destroy();
