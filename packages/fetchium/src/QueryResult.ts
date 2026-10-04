@@ -61,6 +61,8 @@ export class QueryInstance<T extends Query> {
   private pendingDebouncedRun: (() => void) | undefined = undefined;
   /** initialize() queued startSubscriptionAndFetch() on a microtask that hasn't run yet. */
   private startPending: boolean = false;
+  /** The fetch restartAbortedFetch() queued on a microtask, until it runs. */
+  private pendingRestart: (() => void) | undefined = undefined;
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
@@ -206,13 +208,12 @@ export class QueryInstance<T extends Query> {
             }
 
             // If the relay shows pending but the abort controller is gone, the
-            // previous fetch was aborted during deactivation.  runDebounced()
-            // would bail out because isPending is still true from the doomed
-            // promise.  Force an immediate refetch so the new setPromise() call
-            // replaces _promise, causing the stale AbortError rejection to hit
-            // the `promise !== this._promise` guard and be silently ignored.
+            // previous fetch was aborted during deactivation (or never started).
+            // runDebounced() would bail out because isPending is still true from
+            // the doomed promise, which may also never settle (a topic query's
+            // send() waits on a subscription that is gone).
             if (this.relayState.isPending && this._abortController === undefined) {
-              this.runQueryImmediately();
+              this.restartAbortedFetch();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
               // The grace covers a relay resuming, not a network reconnect: data
@@ -356,6 +357,7 @@ export class QueryInstance<T extends Query> {
     const run = this.pendingDebouncedRun;
     this.pendingDebouncedRun = undefined;
     run?.();
+    this.pendingRestart?.();
   }
 
   private discardCorruptCache(error: unknown): void {
@@ -467,6 +469,9 @@ export class QueryInstance<T extends Query> {
     }
 
     const ctx = this.getOrCreateExecutionContext();
+    // Put back a subscription a deactivation or pause tore down before
+    // sending: a topic query's send() waits for data its subscription brings.
+    this.reconcileSubscription();
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
     const attempt = this.attemptStatusTracker(ctx);
@@ -499,6 +504,41 @@ export class QueryInstance<T extends Query> {
       if (!signal.aborted) this.lastFetchFailed = true;
       throw error;
     }
+  }
+
+  /**
+   * Replaces a fetch that a deactivation aborted, from inside the activating
+   * read. The relay takes the new promise now, so the doomed one can no longer
+   * settle it, but the subscription and the request start on a microtask (or
+   * when a lease starts them), outside the read: both run adapter code.
+   */
+  private restartAbortedFetch(): void {
+    this.fetchStarts++;
+    this._fetchNextAbort?.abort();
+    this._fetchNextAbort = undefined;
+    this._fetchNextPromise = undefined;
+    const controller = new AbortController();
+    this._abortController = controller;
+
+    let resolve!: (value: QueryResult<T>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<QueryResult<T>>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const run = (): void => {
+      if (this.pendingRestart !== run) return;
+      this.pendingRestart = undefined;
+      if (controller.signal.aborted) {
+        reject(controller.signal.reason);
+        return;
+      }
+      this.runQuery().then(resolve, reject);
+    };
+    this.pendingRestart = run;
+    this.queryClient.noteDeferredStart(this);
+    queueMicrotask(run);
+    this.relayState.setPromise(promise);
   }
 
   private runQueryImmediately(): void {
