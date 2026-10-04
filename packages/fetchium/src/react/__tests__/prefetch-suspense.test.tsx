@@ -348,6 +348,45 @@ describe('useSuspenseQuery', () => {
     expect(mockFetch.calls).toHaveLength(2);
   });
 
+  it('makes a new attempt when a tree abandoned while suspended is mounted again after the fetch failed', async () => {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { error: 'down' }, { status: 500, delay: 20 });
+    const client = makeClient(mockFetch);
+
+    class GetNoRetry extends RESTQuery {
+      path = '/item';
+      result = { name: t.string };
+      config = { retry: false };
+    }
+
+    function Item(): React.ReactNode {
+      const item = useSuspenseQuery(GetNoRetry);
+      return <div>{item.value.name}</div>;
+    }
+
+    const errors: unknown[] = [];
+    const tree = (show: boolean) => (
+      <ContextProvider contexts={[[QueryClientContext, client]]}>
+        <Boundary onError={e => errors.push(e)}>
+          <Suspense fallback={<div>Suspended</div>}>{show ? <Item /> : <div>Other</div>}</Suspense>
+        </Boundary>
+      </ContextProvider>
+    );
+
+    const screen = render(tree(true));
+    await expect.element(screen.getByText('Suspended')).toBeInTheDocument();
+    // Navigated away while suspended; the fetch fails with no reader.
+    screen.rerender(tree(false));
+    await sleep(150);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    mockFetch.get('/item', { name: 'recovered' });
+    screen.rerender(tree(true));
+    await expect.element(screen.getByText('recovered')).toBeInTheDocument();
+    expect(mockFetch.calls).toHaveLength(2);
+    expect(errors).toEqual([]);
+  });
+
   it('hands the query to the reader on commit, so unmounting deactivates it', async () => {
     const mockFetch = createMockFetch();
     mockFetch.get('/streamed', { name: 'live' }, { delay: 10 });

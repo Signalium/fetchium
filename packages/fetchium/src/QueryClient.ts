@@ -121,6 +121,14 @@ export const DEFAULT_PREFETCH_TTL = 10_000;
  */
 const SUSPENSE_HOLD_TTL = 10_000;
 
+/**
+ * How long a failed cold fetch's error waits for a render to claim it. React
+ * retries a suspended render within a task or two of its promise settling; an
+ * error nobody claimed by then belongs to an abandoned tree, and a later mount
+ * makes a fresh attempt instead of inheriting it.
+ */
+const UNCLAIMED_FAILURE_TTL = 50;
+
 interface SuspenseHold {
   release: () => void;
   /** Resolves (never rejects) once the cold fetch settles. */
@@ -535,7 +543,9 @@ export class QueryClient {
    * The reader's commit releases it (`releaseSuspenseHold`); otherwise it
    * releases itself `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose
    * last fetch failed is refetched once per hold: when that attempt fails too,
-   * `error` is set and the hold is dropped, so the caller can throw it.
+   * `error` is set and the hold is dropped, so the caller can throw it. A
+   * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
+   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
    *
    * @internal
    */
@@ -594,12 +604,22 @@ export class QueryClient {
     if (hold.settled === undefined) {
       const current = hold;
       current.settled = new Promise<void>(resolve => {
-        const settle = (): void => {
-          current.done = true;
-          this.expireSuspenseHold(key, current);
-          resolve();
-        };
-        relay.then(settle, settle);
+        relay.then(
+          () => {
+            current.done = true;
+            this.expireSuspenseHold(key, current);
+            resolve();
+          },
+          () => {
+            current.done = true;
+            // Dropped unless the retried render claims the error first.
+            clearTimeout(current.timer);
+            current.timer = setTimeout(() => {
+              if (this.suspenseHolds.get(key) === current && !current.failed) this.releaseSuspenseHold(key);
+            }, UNCLAIMED_FAILURE_TTL);
+            resolve();
+          },
+        );
       });
     }
 
