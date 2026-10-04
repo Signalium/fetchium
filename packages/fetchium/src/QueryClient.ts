@@ -560,6 +560,17 @@ export class QueryClient {
       return { promise: undefined, key };
     }
 
+    if (relay.isPending && hold.done) {
+      // The fetch this hold waited for settled, and another has started since
+      // (a refetch from elsewhere). Suspend on that one: the settled promise
+      // has already resolved, and throwing it again would re-render at once.
+      clearTimeout(hold.timer);
+      hold.timer = undefined;
+      hold.done = false;
+      hold.failed = false;
+      hold.settled = undefined;
+    }
+
     if (!relay.isPending) {
       if (hold.done) {
         // The fetch this hold waited for failed. Keep the hold until the next

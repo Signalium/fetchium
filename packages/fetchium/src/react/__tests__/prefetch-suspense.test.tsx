@@ -11,6 +11,8 @@ import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import type { MutationEvent } from '../../types.js';
 import { useQuery } from '../use-query.js';
 import { useSuspenseQuery } from '../use-suspense-query.js';
+import { withContexts } from 'signalium';
+import { fetchQuery } from '../../query.js';
 
 class GetItem extends RESTQuery {
   path = '/item';
@@ -298,6 +300,51 @@ describe('useSuspenseQuery', () => {
     mockFetch.get('/item', { name: 'recovered' });
     screen.rerender(tree(1));
     await expect.element(screen.getByText('recovered')).toBeInTheDocument();
+    expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('suspends on a refetch that started after the cold fetch failed, without re-rendering in a loop', async () => {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { error: 'down' }, { status: 500, delay: 20 });
+    mockFetch.get('/item', { name: 'second' }, { delay: 400 });
+    const client = makeClient(mockFetch);
+
+    class GetNoRetry extends RESTQuery {
+      path = '/item';
+      result = { name: t.string };
+      config = { retry: false };
+    }
+
+    client.prefetch(GetNoRetry);
+    const relay = withContexts([[QueryClientContext, client]], () => fetchQuery(GetNoRetry));
+    // Something else (another reader's retry, a reconnect) refetches as soon
+    // as the first attempt fails.
+    relay.then(
+      () => {},
+      () => {
+        client.queryInstances.values().next().value!.refetch();
+      },
+    );
+
+    let renders = 0;
+    function Item(): React.ReactNode {
+      renders++;
+      const item = useSuspenseQuery(GetNoRetry);
+      return <div>{item.value.name}</div>;
+    }
+
+    const screen = render(
+      <ContextProvider contexts={[[QueryClientContext, client]]}>
+        <Boundary onError={() => {}}>
+          <Suspense fallback={<div>Suspended</div>}>
+            <Item />
+          </Suspense>
+        </Boundary>
+      </ContextProvider>,
+    );
+
+    await expect.element(screen.getByText('second'), { timeout: 3000 }).toBeInTheDocument();
+    expect(renders).toBeLessThan(10);
     expect(mockFetch.calls).toHaveLength(2);
   });
 
