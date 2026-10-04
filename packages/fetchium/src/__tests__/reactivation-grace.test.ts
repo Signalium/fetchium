@@ -617,6 +617,59 @@ describe('reactivation grace and stagger', () => {
       expectOffsets([0, 0, 150]);
     });
 
+    it('skips a staggered refetch when refetch() started one during the window', async () => {
+      mockFetch.reset();
+      for (const path of ['/a', '/b', '/c']) {
+        mockFetch.get(path, () => ({ n: ++counter }), { delay: 200 });
+      }
+      const client = makeClient({ reactivationStaggerMs: 3_000 });
+      await loadThenDeactivate(client, GetA, GetB, GetC);
+      await vi.advanceTimersByTimeAsync(300);
+      starts.length = 0;
+
+      watch(client, GetA, GetB, GetC);
+      await vi.advanceTimersByTimeAsync(100);
+      // /c's slot is 2 s out. A pull to refresh starts it now.
+      await withContexts([[QueryClientContext, client]], async () => {
+        void (fetchQuery(GetC).value as any).__refetch();
+      });
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/c')).toBe(1);
+
+      // The slot passes while that fetch is in flight, and after it landed.
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(fetchCount('/c')).toBe(1);
+      expect(fetchCount('/a')).toBe(1);
+      expect(fetchCount('/b')).toBe(1);
+    });
+
+    it('does not abort a fetch still in flight when its stagger slot comes up', async () => {
+      mockFetch.reset();
+      mockFetch.get('/a', () => ({ n: ++counter }));
+      mockFetch.get('/b', () => ({ n: ++counter }));
+      mockFetch.get('/c', () => ({ n: ++counter }));
+      mockFetch.get('/c', () => ({ n: ++counter }), { delay: 5_000 });
+      const client = makeClient({ reactivationStaggerMs: 3_000 });
+      await loadThenDeactivate(client, GetA, GetB, GetC);
+      starts.length = 0;
+
+      watch(client, GetA, GetB, GetC);
+      await vi.advanceTimersByTimeAsync(100);
+      let settled: 'resolved' | 'rejected' | undefined;
+      await withContexts([[QueryClientContext, client]], async () => {
+        (fetchQuery(GetC).value as any).__refetch().then(
+          () => (settled = 'resolved'),
+          () => (settled = 'rejected'),
+        );
+      });
+
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(fetchCount('/c')).toBe(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(settled).toBe('resolved');
+      expect(fetchCount('/c')).toBe(1);
+    });
+
     it('does not delay an initial fetch', async () => {
       const client = makeClient({ reactivationStaggerMs: 300 });
       watch(client, GetA, GetB, GetC);

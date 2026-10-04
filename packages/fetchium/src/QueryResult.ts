@@ -64,6 +64,10 @@ export class QueryInstance<T extends Query> {
    * stopped while the app was in the background, kept nothing current.
    */
   private lastPushAt: number | undefined = undefined;
+  /** Counts fetches started by runQueryImmediately(). */
+  private fetchStarts: number = 0;
+  /** `fetchStarts` when the pending reactivation refetch was queued. */
+  private reactivationQueuedAt: number = -1;
 
   // Invalidates on any signal consumed by getConfig() (such as
   // responseNotifier, fired by the adapter after each fetch). Param
@@ -208,6 +212,7 @@ export class QueryInstance<T extends Query> {
               const withinGrace = activating && !wasPaused && this.isWithinReactivationGrace;
               if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
                 if (this.queryClient.reactivationStaggerMs > 0) {
+                  this.reactivationQueuedAt = this.fetchStarts;
                   this.queryClient.scheduleReactivationRefetch(this);
                 } else {
                   this.runDebounced();
@@ -460,6 +465,7 @@ export class QueryInstance<T extends Query> {
   }
 
   private runQueryImmediately(): void {
+    this.fetchStarts++;
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();
@@ -484,11 +490,25 @@ export class QueryInstance<T extends Query> {
   /**
    * Starts a reactivation refetch after `delay` (plus the query's debounce).
    * Called by the QueryClient's stagger flush, a task after the query was
-   * queued, so it rechecks that the query is still active.
+   * queued, so it rechecks that the query is still active. A fetch started
+   * since the query was queued (a `refetch()`, a poll tick, an invalidation),
+   * whether still in flight or already done, makes it redundant: it is
+   * skipped rather than aborting and repeating that fetch.
    */
   runReactivationRefetch(delay: number): void {
-    if (!this._isActive || this.isPaused) return;
-    this.runDebounced(delay);
+    if (!this._isActive || this.isPaused || this.relayState.isPending) return;
+    const queuedAt = this.reactivationQueuedAt;
+    if (this.fetchStarts !== queuedAt) return;
+
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(
+      () => {
+        this.debounceTimer = undefined;
+        if (this.fetchStarts !== queuedAt) return;
+        this.runQueryImmediately();
+      },
+      (this.config?.debounce ?? 0) + delay,
+    );
   }
 
   /** Records that the subscription delivered data. See `lastPushAt`. */
