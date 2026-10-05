@@ -147,16 +147,21 @@ class GetUser extends RESTQuery {
 
 The default retry delay uses exponential backoff --- each successive attempt waits longer than the last (roughly 1s, 2s, 4s, ...). This avoids hammering a struggling server with rapid retries.
 
-Client errors are not retried: a `4xx` response fails on the first attempt, because repeating the same request gets the same answer. `408 Request Timeout` and `429 Too Many Requests` are the exceptions, and network errors and `5xx` responses are retried. The status comes from the response the adapter received (a REST error response whose body doesn't match `result`), or from `status`, `statusCode` or `response.status` on the thrown error. To decide yourself, pass `shouldRetry`, either per query in `retry` or for every query on the `QueryClient`:
+Every failed attempt is retried, whatever its status, including `4xx` responses. When you know an error is permanent, opt out with `shouldRetry`, either per query in `retry` or for every query on the `QueryClient`. It receives the error, the attempt index and the attempt's HTTP status when known: the response the adapter received (a REST error response whose body doesn't match `result`), or `status`, `statusCode` or `response.status` on the thrown error. A query's `shouldRetry` overrides the client's.
 
 ```ts
-const client = new QueryClient({
-  adapters: [new RESTQueryAdapter({ baseUrl })],
-  // attempt starts at 0; status is undefined for network errors
-  shouldRetry: (error, attempt, status) =>
-    status === undefined || status >= 500,
-});
+class GetUser extends RESTQuery {
+  // ...
+  config = {
+    retry: {
+      // A 404 won't change on retry; status is undefined for network errors
+      shouldRetry: (error, attempt, status) => status !== 404,
+    },
+  };
+}
 ```
+
+`getErrorStatus(error)` reads the status from an error, if you need it elsewhere.
 
 To disable retries entirely:
 

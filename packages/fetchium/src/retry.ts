@@ -2,7 +2,7 @@ import type { ResolvedRetryConfig } from './query.js';
 
 /**
  * Decides whether a failed attempt is retried. Consulted only while retries
- * remain.
+ * remain. Without one, every failed attempt is retried.
  *
  * @param error  What the attempt threw.
  * @param attempt  Index of the failed attempt, starting at 0 (the first request).
@@ -34,16 +34,8 @@ export function getFailedResponseStatus(response: unknown): number | undefined {
   return status !== undefined && status >= 400 ? status : undefined;
 }
 
-/**
- * Retries network errors, unknown errors and server errors (5xx). Does not
- * retry client errors (4xx), which a repeat of the same request would hit
- * again, except 408 Request Timeout and 429 Too Many Requests.
- */
-export const defaultShouldRetry: ShouldRetry = (_error, _attempt, status) =>
-  status === undefined || status < 400 || status >= 500 || status === 408 || status === 429;
-
 export interface WithRetryOptions {
-  /** Used when the retry config has no `shouldRetry`. Default: `defaultShouldRetry`. */
+  /** Used when the retry config has no `shouldRetry`. Without either, every failed attempt is retried. */
   shouldRetry?: ShouldRetry;
   /**
    * Called after an attempt fails. Returns the HTTP status the attempt
@@ -94,7 +86,7 @@ export async function withRetry<T>(
     throw new Error('retries must be non-negative');
   }
   const retries = Math.max(0, config.retries);
-  const shouldRetry = config.shouldRetry ?? options?.shouldRetry ?? defaultShouldRetry;
+  const shouldRetry = config.shouldRetry ?? options?.shouldRetry;
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     if (signal?.aborted) {
@@ -105,8 +97,10 @@ export async function withRetry<T>(
     } catch (error) {
       lastError = error;
       if (attempt >= retries) throw error;
-      const status = getErrorStatus(error) ?? options?.getAttemptStatus?.();
-      if (!shouldRetry(error, attempt, status)) throw error;
+      if (shouldRetry !== undefined) {
+        const status = getErrorStatus(error) ?? options?.getAttemptStatus?.();
+        if (!shouldRetry(error, attempt, status)) throw error;
+      }
       await sleep(config.retryDelay(attempt), signal);
     }
   }

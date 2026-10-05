@@ -6,7 +6,7 @@ import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { fetchQuery } from '../query.js';
 import { getMutation } from '../mutation.js';
 import { NetworkManager } from '../NetworkManager.js';
-import { defaultShouldRetry, getErrorStatus, type ShouldRetry } from '../retry.js';
+import { getErrorStatus, type ShouldRetry } from '../retry.js';
 import { createMockFetch, testWithClient } from './utils.js';
 import { t } from '../typeDefs.js';
 
@@ -36,6 +36,15 @@ describe('shouldRetry', () => {
     config = { retry: { retries: 3, retryDelay: () => 1 } };
   }
 
+  class CreateUser extends RESTMutation {
+    readonly path = '/users';
+    readonly method = 'POST' as const;
+    readonly params = { name: t.string };
+    readonly body = { name: this.params.name };
+    readonly result = { id: t.number };
+    config = { retry: { retries: 2, retryDelay: () => 1 } };
+  }
+
   async function runFailing(query: new () => RESTQuery = GetUser): Promise<unknown> {
     let caught: unknown;
     await testWithClient(client, async () => {
@@ -58,35 +67,25 @@ describe('shouldRetry', () => {
   });
 
   describe('default', () => {
-    for (const status of [400, 401, 403, 404, 422]) {
-      it(`does not retry a ${status} response whose body fails validation`, async () => {
+    for (const status of [400, 401, 403, 404, 408, 422, 429, 500, 503]) {
+      it(`retries a ${status} response whose body fails validation`, async () => {
         mockFetch.get('/users/1', { error: 'nope' }, { status });
 
         const error = await runFailing();
 
         expect(error).toBeDefined();
-        expect(mockFetch.calls).toHaveLength(1);
+        expect(mockFetch.calls).toHaveLength(4);
       });
     }
 
-    it('does not retry an error that carries a 4xx status', async () => {
+    it('retries an error that carries a 4xx status', async () => {
       mockFetch.get('/users/1', null, { error: httpError(401) });
 
       const error = await runFailing();
 
       expect(error).toMatchObject({ response: { status: 401 } });
-      expect(mockFetch.calls).toHaveLength(1);
+      expect(mockFetch.calls).toHaveLength(4);
     });
-
-    for (const status of [408, 429, 500, 503]) {
-      it(`retries a ${status} response`, async () => {
-        mockFetch.get('/users/1', { error: 'busy' }, { status });
-
-        await runFailing();
-
-        expect(mockFetch.calls).toHaveLength(4);
-      });
-    }
 
     it('retries a 503 whose body is not JSON, then succeeds', async () => {
       mockFetch.get('/users/1', null, { status: 503, jsonError: new SyntaxError('Unexpected token <') });
@@ -98,14 +97,6 @@ describe('shouldRetry', () => {
         expect(result.value).toMatchObject(user);
       });
       expect(mockFetch.calls).toHaveLength(2);
-    });
-
-    it('retries an error that carries a 429 status', async () => {
-      mockFetch.get('/users/1', null, { error: httpError(429) });
-
-      await runFailing();
-
-      expect(mockFetch.calls).toHaveLength(4);
     });
 
     it('retries network errors', async () => {
@@ -124,9 +115,179 @@ describe('shouldRetry', () => {
       expect(mockFetch.calls).toHaveLength(4);
     });
 
-    it('does not take the status of an earlier response for a later network error', async () => {
+    it('retries a 4xx page in fetchNext', async () => {
+      class GetItems extends RESTQuery {
+        path = '/items';
+        result = { items: t.array(t.string), nextPage: t.optional(t.number) };
+        fetchNext = { searchParams: { page: this.result.nextPage } };
+        config = { retry: { retries: 3, retryDelay: () => 1 } };
+      }
+      mockFetch.get('/items', { items: ['a'], nextPage: 2 });
+
+      await testWithClient(client, async () => {
+        const result = fetchQuery(GetItems);
+        await result;
+        mockFetch.get('/items', { error: 'bad page' }, { status: 400 });
+        await expect(result.value!.__fetchNext()).rejects.toBeDefined();
+      });
+
+      expect(mockFetch.calls).toHaveLength(5);
+    });
+
+    it('retries a mutation that enables retries, whatever the status', async () => {
+      mockFetch.post('/users', null, { error: httpError(422) });
+
+      await testWithClient(client, async () => {
+        const mut = getMutation(CreateUser);
+        await expect(mut.run({ name: 'Test' })).rejects.toBeDefined();
+      });
+
+      expect(mockFetch.calls).toHaveLength(3);
+    });
+  });
+
+  describe('custom', () => {
+    /** Opts out of retrying client errors other than 408 and 429. */
+    const skipClientErrors: ShouldRetry = (_error, _attempt, status) =>
+      status === undefined || status < 400 || status >= 500 || status === 408 || status === 429;
+
+    function useSkipClientErrors(): void {
+      client.destroy();
+      client = createClient(skipClientErrors);
+    }
+
+    it('client-level shouldRetry receives error, attempt and status', async () => {
+      const seen: Array<[unknown, number, number | undefined]> = [];
+      client.destroy();
+      client = createClient((error, attempt, status) => {
+        seen.push([error, attempt, status]);
+        return attempt < 1;
+      });
+      mockFetch.get('/users/1', { error: 'nope' }, { status: 404 });
+
+      const error = await runFailing();
+
+      expect(mockFetch.calls).toHaveLength(2);
+      expect(seen.map(([, attempt, status]) => [attempt, status])).toEqual([
+        [0, 404],
+        [1, 404],
+      ]);
+      expect(seen[1][0]).toBe(error);
+    });
+
+    it('passes the status carried by the error', async () => {
+      const statuses: Array<number | undefined> = [];
+      client.destroy();
+      client = createClient((_error, _attempt, status) => {
+        statuses.push(status);
+        return true;
+      });
+      mockFetch.get('/users/1', null, { error: httpError(401) });
+
+      await runFailing();
+
+      expect(statuses).toEqual([401, 401, 401]);
+    });
+
+    for (const status of [400, 401, 404, 422]) {
+      it(`client-level shouldRetry returning false for ${status} makes one attempt`, async () => {
+        useSkipClientErrors();
+        mockFetch.get('/users/1', { error: 'nope' }, { status });
+
+        await runFailing();
+
+        expect(mockFetch.calls).toHaveLength(1);
+      });
+    }
+
+    it('client-level shouldRetry returning false for a 4xx error makes one attempt', async () => {
+      useSkipClientErrors();
+      mockFetch.get('/users/1', null, { error: httpError(401) });
+
+      const error = await runFailing();
+
+      expect(error).toMatchObject({ response: { status: 401 } });
+      expect(mockFetch.calls).toHaveLength(1);
+    });
+
+    for (const status of [408, 429, 503]) {
+      it(`client-level shouldRetry still retries what it allows (${status})`, async () => {
+        useSkipClientErrors();
+        mockFetch.get('/users/1', { error: 'busy' }, { status });
+
+        await runFailing();
+
+        expect(mockFetch.calls).toHaveLength(4);
+      });
+    }
+
+    it('query-level shouldRetry returning false for 4xx makes one attempt', async () => {
+      class GetUserSkip4xx extends RESTQuery {
+        path = '/users/1';
+        result = t.object({ id: t.string, name: t.string });
+        config = { retry: { retries: 3, retryDelay: () => 1, shouldRetry: skipClientErrors } };
+      }
+      mockFetch.get('/users/1', { error: 'nope' }, { status: 404 });
+
+      await runFailing(GetUserSkip4xx);
+
+      expect(mockFetch.calls).toHaveLength(1);
+    });
+
+    it('query-level shouldRetry overrides the client-level one', async () => {
+      useSkipClientErrors();
+      class GetUserRetry4xx extends RESTQuery {
+        path = '/users/1';
+        result = t.object({ id: t.string, name: t.string });
+        config = { retry: { retries: 2, retryDelay: () => 1, shouldRetry: () => true } };
+      }
+      mockFetch.get('/users/1', { error: 'nope' }, { status: 400 });
+
+      await runFailing(GetUserRetry4xx);
+
+      expect(mockFetch.calls).toHaveLength(3);
+    });
+
+    it('query-level shouldRetry can stop retries of a network error', async () => {
+      class GetUserNoRetry extends RESTQuery {
+        path = '/users/1';
+        result = t.object({ id: t.string, name: t.string });
+        config = { retry: { retries: 3, retryDelay: () => 1, shouldRetry: () => false } };
+      }
+      mockFetch.get('/users/1', null, { error: new TypeError('Network request failed') });
+
+      await runFailing(GetUserNoRetry);
+
+      expect(mockFetch.calls).toHaveLength(1);
+    });
+
+    it('does not pass an earlier response status for a later network error', async () => {
+      // Attempt 0 gets a 404 response; the later attempts fail with network
+      // errors, which must report no status rather than the earlier 404.
+      const statuses: Array<number | undefined> = [];
+      client.destroy();
+      client = createClient((_error, _attempt, status) => {
+        statuses.push(status);
+        return true;
+      });
+      mockFetch.get('/users/1', { error: 'nope' }, { status: 404 });
+      mockFetch.get('/users/1', null, { error: new TypeError('Network request failed') });
+
+      await runFailing();
+
+      expect(mockFetch.calls).toHaveLength(4);
+      expect(statuses).toEqual([404, undefined, undefined]);
+    });
+
+    it('does not pass the status of an earlier fetch for a refetch network error', async () => {
       // Fetch 1 succeeds; the refetch fails with a network error, which must
       // not inherit a status from the response assigned by fetch 1.
+      const statuses: Array<number | undefined> = [];
+      client.destroy();
+      client = createClient((_error, _attempt, status) => {
+        statuses.push(status);
+        return true;
+      });
       mockFetch.get('/users/1', user);
       mockFetch.get('/users/1', null, { error: new TypeError('Network request failed') });
 
@@ -137,9 +298,11 @@ describe('shouldRetry', () => {
       });
 
       expect(mockFetch.calls).toHaveLength(5);
+      expect(statuses).toEqual([undefined, undefined, undefined]);
     });
 
-    it('does not retry a 4xx page in fetchNext', async () => {
+    it('client-level shouldRetry returning false for a 4xx page in fetchNext makes one attempt', async () => {
+      useSkipClientErrors();
       class GetItems extends RESTQuery {
         path = '/items';
         result = { items: t.array(t.string), nextPage: t.optional(t.number) };
@@ -157,62 +320,9 @@ describe('shouldRetry', () => {
 
       expect(mockFetch.calls).toHaveLength(2);
     });
-  });
-
-  describe('custom', () => {
-    it('client-level shouldRetry receives error, attempt and status', async () => {
-      const seen: Array<[number, number | undefined]> = [];
-      client.destroy();
-      client = createClient((_error, attempt, status) => {
-        seen.push([attempt, status]);
-        return attempt < 1;
-      });
-      mockFetch.get('/users/1', { error: 'nope' }, { status: 404 });
-
-      await runFailing();
-
-      expect(mockFetch.calls).toHaveLength(2);
-      expect(seen).toEqual([
-        [0, 404],
-        [1, 404],
-      ]);
-    });
-
-    it('query-level shouldRetry overrides the client default', async () => {
-      class GetUserRetry4xx extends RESTQuery {
-        path = '/users/1';
-        result = t.object({ id: t.string, name: t.string });
-        config = { retry: { retries: 2, retryDelay: () => 1, shouldRetry: () => true } };
-      }
-      mockFetch.get('/users/1', { error: 'nope' }, { status: 400 });
-
-      await runFailing(GetUserRetry4xx);
-
-      expect(mockFetch.calls).toHaveLength(3);
-    });
-
-    it('query-level shouldRetry can stop retries the default would make', async () => {
-      class GetUserNoRetry extends RESTQuery {
-        path = '/users/1';
-        result = t.object({ id: t.string, name: t.string });
-        config = { retry: { retries: 3, retryDelay: () => 1, shouldRetry: () => false } };
-      }
-      mockFetch.get('/users/1', null, { error: new TypeError('Network request failed') });
-
-      await runFailing(GetUserNoRetry);
-
-      expect(mockFetch.calls).toHaveLength(1);
-    });
 
     it('applies to mutations', async () => {
-      class CreateUser extends RESTMutation {
-        readonly path = '/users';
-        readonly method = 'POST' as const;
-        readonly params = { name: t.string };
-        readonly body = { name: this.params.name };
-        readonly result = { id: t.number };
-        config = { retry: { retries: 2, retryDelay: () => 1 } };
-      }
+      useSkipClientErrors();
       mockFetch.post('/users', null, { error: httpError(422) });
 
       await testWithClient(client, async () => {
@@ -222,18 +332,6 @@ describe('shouldRetry', () => {
 
       expect(mockFetch.calls).toHaveLength(1);
     });
-  });
-});
-
-describe('defaultShouldRetry', () => {
-  it('classifies statuses', () => {
-    const err = new Error('x');
-    expect(defaultShouldRetry(err, 0, undefined)).toBe(true);
-    expect(defaultShouldRetry(err, 0, 400)).toBe(false);
-    expect(defaultShouldRetry(err, 0, 404)).toBe(false);
-    expect(defaultShouldRetry(err, 0, 408)).toBe(true);
-    expect(defaultShouldRetry(err, 0, 429)).toBe(true);
-    expect(defaultShouldRetry(err, 0, 500)).toBe(true);
   });
 });
 

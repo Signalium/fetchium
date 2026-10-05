@@ -70,8 +70,8 @@ export interface RetryConfig {
   /**
    * Decides whether a failed attempt is retried, from the error, the attempt
    * index (starting at 0) and the attempt's HTTP status when known. Overrides
-   * `QueryClientConfig.shouldRetry`. Default: `defaultShouldRetry`, which does
-   * not retry 4xx responses other than 408 and 429.
+   * `QueryClientConfig.shouldRetry`. Without either, every failed attempt is
+   * retried.
    */
   shouldRetry?: (error: unknown, attempt: number, status: number | undefined) => boolean;
 }
