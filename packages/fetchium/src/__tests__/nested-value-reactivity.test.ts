@@ -9,10 +9,13 @@ import { testWithClient, sleep, setupTestClient } from './utils.js';
 
 /**
  * Nested values (`t.object` and `t.record` fields, live collection values) are
- * merged in place and handed out through wrappers that keep their identity. A
- * computation that only holds the wrapper, such as a child component given
- * `entity.price` as a prop, never reads the entity, so reads through the
- * wrapper must depend on whatever notifies when its contents change.
+ * merged in place. A computation that only holds the nested value, such as a
+ * child component given `entity.price` as a prop, never reads the entity:
+ * - an entity's nested value is handed out through a new wrapper once a merge
+ *   changed it, so the parent, which the entity re-runs, passes a new value;
+ *   an unchanged one keeps its wrapper, so the child is left alone;
+ * - a live collection's value changes in place under the collection's
+ *   notifier, which reads through its wrapper consume.
  */
 describe('reads through a held nested value', () => {
   const getClient = setupTestClient();
@@ -30,7 +33,7 @@ describe('reads through a held nested value', () => {
     result = t.entity(Token);
   }
 
-  it('re-run when an in-place merge changes a t.object field, a nested t.object field or a t.record value', async () => {
+  it('hand out a new wrapper once an in-place merge changes a t.object field, a nested t.object field or a t.record value', async () => {
     const { client, mockFetch } = getClient();
     mockFetch.get('/token/[id]', {
       __typename: 'Token',
@@ -52,23 +55,28 @@ describe('reads through a held nested value', () => {
       const price = token.price;
       const change = token.price.change;
       const balances = token.balances;
+      expect([price.usd, change.h24, balances.SOL]).toEqual([100, 1, 1]);
 
-      const usd = reactive(() => price.usd);
-      const h24 = reactive(() => change.h24);
-      const sol = reactive(() => balances.SOL);
+      // Readers through the entity re-run.
+      const usd = reactive(() => token.price.usd);
+      const h24 = reactive(() => token.price.change.h24);
+      const sol = reactive(() => token.balances.SOL);
       expect([usd(), h24(), sol()]).toEqual([100, 1, 1]);
 
       await token.__refetch();
       await sleep(0);
 
-      // Still the same wrappers: the merge happened in place.
-      expect(token.price).toBe(price);
-      expect(token.balances).toBe(balances);
       expect([usd(), h24(), sol()]).toEqual([150, 2, 5]);
+      // Changed in place: new wrappers, so a holder of the old one is handed a new value.
+      expect(token.price).not.toBe(price);
+      expect(token.price.change).not.toBe(change);
+      expect(token.balances).not.toBe(balances);
+      // The old wrappers still read the merged data.
+      expect([price.usd, change.h24, balances.SOL]).toEqual([150, 2, 5]);
     });
   });
 
-  it('do not re-run when only another field of the entity changes', async () => {
+  it('keep the wrapper of a nested value no merge changed', async () => {
     const { client, mockFetch } = getClient();
 
     class Quote extends Entity {
@@ -109,22 +117,19 @@ describe('reads through a held nested value', () => {
       const quote = relay.value!;
       const price = quote.price;
       const change = quote.price.change;
-      const runs = { usd: 0, h24: 0 };
-      const usd = reactive(() => (runs.usd++, price.usd));
-      const h24 = reactive(() => (runs.h24++, change.h24));
-      expect([usd(), h24()]).toEqual([100, 1]);
 
       await quote.__refetch();
       await sleep(0);
       expect(quote.symbol).toBe('B');
-      expect([usd(), h24()]).toEqual([100, 1]);
-      expect(runs).toEqual({ usd: 1, h24: 1 });
+      expect(quote.price).toBe(price);
+      expect(quote.price.change).toBe(change);
 
-      // A change to `price.usd` re-runs readers of `price`, not of `price.change`.
+      // A change to `price.usd` replaces the wrapper of `price`, not of `price.change`.
       await quote.__refetch();
       await sleep(0);
-      expect([usd(), h24()]).toEqual([120, 1]);
-      expect(runs).toEqual({ usd: 2, h24: 1 });
+      expect(quote.price.usd).toBe(120);
+      expect(quote.price).not.toBe(price);
+      expect(quote.price.change).toBe(change);
     });
   });
 

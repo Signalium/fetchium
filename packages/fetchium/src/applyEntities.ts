@@ -14,7 +14,7 @@ import { FormattedValue, ValidatorDef } from './typeDefs.js';
 import { Mask } from './types.js';
 import { createLiveCollection, LiveCollectionBinding } from './LiveCollection.js';
 import { PROXY_ID } from './proxyId.js';
-import { notifyNestedValue } from './nestedNotifiers.js';
+import { dropNestedWrapper } from './nestedNotifiers.js';
 
 const entries = Object.entries;
 const ObjectProto = Object.prototype;
@@ -351,9 +351,10 @@ function mergeFields(
             )
           ) {
             changed = true;
-            // Merged in place, so the value keeps its identity: tell whoever
-            // holds just this value (a child given it as a prop).
-            if (target === oldVal) notifyNestedValue(oldVal);
+            // Merged in place, so the value keeps its identity: hand out a
+            // new wrapper, so whoever holds just this value (a child given it
+            // as a prop) sees a new one. A merged copy is a new value already.
+            if (target === oldVal) dropNestedWrapper(oldVal);
             existingData[fieldKey] = target;
           } else {
             existingData[fieldKey] = oldVal;
@@ -370,7 +371,7 @@ function mergeFields(
           }
           if (merged) {
             changed = true;
-            if (target === oldVal) notifyNestedValue(oldVal);
+            if (target === oldVal) dropNestedWrapper(oldVal);
           }
           existingData[fieldKey] = merged ? target : oldVal;
         } else {

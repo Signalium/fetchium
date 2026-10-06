@@ -753,7 +753,7 @@ describe('React Query Integration with component()', () => {
       expect(getByTestId('author-name').element().textContent).toBe('Alice');
     });
 
-    it('passing a nested plain object to a React.memo child shows stale data after refetch', async () => {
+    it('passing a nested plain object to a React.memo child shows the new data after refetch', async () => {
       class User extends Entity {
         __typename = t.typename('User');
         id = t.id;
@@ -805,12 +805,11 @@ describe('React Query Integration with component()', () => {
       await userQuery!.value!.__refetch();
       await sleep(10);
 
-      // mergeFields mutates the existing nested plain object in place, and
-      // wrapValue caches the wrapping proxy by source object — so the wrapper
-      // ref handed to the memo'd child is identical across refetches. The
-      // child does not re-render, the displayed bio stays stale.
-      expect(memoRenderCount).toBe(1);
-      expect(getByTestId('bio').element().textContent).toBe('old bio');
+      // mergeFields mutates the existing nested plain object in place, but a
+      // merge that changed it drops its cached wrapper, so the parent hands
+      // the memo'd child a new prop and the child re-renders.
+      expect(memoRenderCount).toBe(2);
+      expect(getByTestId('bio').element().textContent).toBe('new bio');
     });
 
     it('wrapping the child in component() instead of React.memo restores correct re-renders', async () => {

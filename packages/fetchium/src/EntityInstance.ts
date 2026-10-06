@@ -6,7 +6,7 @@ import { type EntityDef, Mask } from './types.js';
 import { GcKeyType } from './GcManager.js';
 import { Entity } from './proxy.js';
 import { PROXY_ID } from './proxyId.js';
-import { NESTED_WRAPPERS, type NestedWrapper } from './nestedNotifiers.js';
+import { NESTED_WRAPPERS } from './nestedNotifiers.js';
 import type { QueryClient } from './QueryClient.js';
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 import type { LiveCollectionBinding } from './LiveCollection.js';
@@ -18,6 +18,8 @@ import { entitySatisfiesShape } from './parseEntities.js';
 // ======================================================
 
 const ObjectProto = Object.prototype;
+// A module-local binding: read on every nested read.
+const nestedWrappers = NESTED_WRAPPERS;
 
 /** A `WRAPPED_VALUE` item. A live collection's value changes under its own notifier. */
 interface WrappedValue {
@@ -27,10 +29,13 @@ interface WrappedValue {
 
 /**
  * `owner` is the notifier of a live collection whose value this is (or is
- * inside): a reducer can change such a value in place without telling
- * anything else. Without one, the value is an entity's nested object, record
- * or array, and its wrapper gets a notifier of its own that the in-place
- * merge notifies.
+ * inside): a reducer or an event can change such a value in place, so reads
+ * through its wrapper consume that notifier. Without one, the value is an
+ * entity's nested object, record or array. Its wrapper consumes nothing: a
+ * merge that changes it in place drops the wrapper (`dropNestedWrapper`), so
+ * the next read through the entity, which the entity's notifier re-runs,
+ * hands out a new one. Whoever was given only the nested value (a child
+ * component given `entity.price` as a prop) then sees a new value too.
  */
 function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (typeof value !== 'object' || value === null) return value;
@@ -41,49 +46,86 @@ function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (PROXY_ID.has(value as object)) return value;
 
   if (Array.isArray(value)) {
-    let wrapper = NESTED_WRAPPERS.get(value);
+    let wrapper = nestedWrappers.get(value);
     if (wrapper === undefined) {
-      wrapper = new ArrayWrappingHandler(value, owner);
-      NESTED_WRAPPERS.set(value, wrapper);
+      wrapper = new Proxy(value, owner === undefined ? arrayWrappingHandler : new OwnedArrayHandler(owner));
+      nestedWrappers.set(value, wrapper);
     }
-    return wrapper.proxy;
+    return wrapper;
   }
 
   if (Object.getPrototypeOf(value) === ObjectProto) {
-    let wrapper = NESTED_WRAPPERS.get(value);
+    let wrapper = nestedWrappers.get(value);
     if (wrapper === undefined) {
-      wrapper = new ObjectWrappingHandler(value as Record<string, unknown>, owner);
-      NESTED_WRAPPERS.set(value, wrapper);
+      wrapper = new Proxy(
+        value as Record<string, unknown>,
+        owner === undefined ? objectWrappingHandler : new OwnedObjectHandler(owner),
+      );
+      nestedWrappers.set(value, wrapper);
     }
-    return wrapper.proxy;
+    return wrapper;
   }
 
   return value;
 }
 
-/**
- * Each wrapper is its own proxy handler. The traps consume `changes`, which
- * fires when the wrapped value's contents change in place: something that
- * holds only the wrapper (a child component given `entity.price` as a prop)
- * has no other dependency that would re-run it, and the wrapper keeps its
- * identity across the change. Values read through the wrapper inherit
- * `owner`, a live collection's notifier, or get their own.
- */
-class ArrayWrappingHandler implements ProxyHandler<unknown[]>, NestedWrapper {
-  readonly proxy: unknown[];
-  changes: Notifier | undefined;
-  readonly owner: Notifier | undefined;
+const arrayWrappingHandler: ProxyHandler<unknown[]> = {
+  get(target, prop, receiver) {
+    if (typeof prop === 'string') {
+      const idx = Number(prop);
+      if (Number.isInteger(idx) && idx >= 0 && idx < target.length) {
+        return wrapValue(target[idx], undefined);
+      }
+    }
+    return Reflect.get(target, prop, receiver);
+  },
+  set() {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
+    return false;
+  },
+  deleteProperty() {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
+    return false;
+  },
+};
 
-  constructor(target: unknown[], owner: Notifier | undefined) {
-    this.changes = owner;
-    this.owner = owner;
-    this.proxy = new Proxy(target, this);
-  }
+const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
+  get(target, prop, receiver) {
+    if (typeof prop === 'string') {
+      return wrapValue(target[prop], undefined);
+    }
+    return Reflect.get(target, prop, receiver);
+  },
+  set() {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only object');
+    return false;
+  },
+  deleteProperty() {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only object');
+    return false;
+  },
+  has(target, prop) {
+    return prop in target;
+  },
+  ownKeys(target) {
+    return Reflect.ownKeys(target);
+  },
+  getOwnPropertyDescriptor(target, prop) {
+    return Object.getOwnPropertyDescriptor(target, prop);
+  },
+};
+
+/**
+ * The wrapper of a value inside a live collection: its traps consume the
+ * collection's notifier, and values read through it inherit that owner.
+ */
+class OwnedArrayHandler implements ProxyHandler<unknown[]> {
+  constructor(readonly owner: Notifier) {}
 
   get(target: unknown[], prop: string | symbol, receiver: unknown): unknown {
     // Every read, `length` and the iteration methods included: an in-place
     // push changes what all of them return.
-    (this.changes ??= notifier()).consume();
+    this.owner.consume();
     if (typeof prop === 'string') {
       const idx = Number(prop);
       if (Number.isInteger(idx) && idx >= 0 && idx < target.length) {
@@ -104,20 +146,12 @@ class ArrayWrappingHandler implements ProxyHandler<unknown[]>, NestedWrapper {
   }
 }
 
-class ObjectWrappingHandler implements ProxyHandler<Record<string, unknown>>, NestedWrapper {
-  readonly proxy: Record<string, unknown>;
-  changes: Notifier | undefined;
-  readonly owner: Notifier | undefined;
-
-  constructor(target: Record<string, unknown>, owner: Notifier | undefined) {
-    this.changes = owner;
-    this.owner = owner;
-    this.proxy = new Proxy(target, this);
-  }
+class OwnedObjectHandler implements ProxyHandler<Record<string, unknown>> {
+  constructor(readonly owner: Notifier) {}
 
   get(target: Record<string, unknown>, prop: string | symbol, receiver: unknown): unknown {
     if (typeof prop === 'string') {
-      (this.changes ??= notifier()).consume();
+      this.owner.consume();
       return wrapValue(target[prop], this.owner);
     }
     return Reflect.get(target, prop, receiver);
@@ -135,12 +169,12 @@ class ObjectWrappingHandler implements ProxyHandler<Record<string, unknown>>, Ne
 
   // A live value's reducer can add or remove keys in place.
   has(target: Record<string, unknown>, prop: string | symbol): boolean {
-    (this.changes ??= notifier()).consume();
+    this.owner.consume();
     return prop in target;
   }
 
   ownKeys(target: Record<string, unknown>): ArrayLike<string | symbol> {
-    (this.changes ??= notifier()).consume();
+    this.owner.consume();
     return Reflect.ownKeys(target);
   }
 
