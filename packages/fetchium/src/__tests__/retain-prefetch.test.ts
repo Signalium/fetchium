@@ -366,6 +366,18 @@ describe('client.prefetch()', () => {
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
     await sleep(40);
   });
+
+  it('release() in the same task as prefetch() aborts the fetch it started', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 3 }, { delay: 30 });
+    const release = client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+    release();
+    await sleep(10);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
+    await sleep(40);
+  });
 });
 
 describe('client.retain()', () => {

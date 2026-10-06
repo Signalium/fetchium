@@ -428,6 +428,15 @@ export class QueryInstance<T extends Query> {
   }
 
   private runPendingStart = (): void => {
+    this.runStart(true);
+  };
+
+  /**
+   * `fromMicrotask`: the start raced Signalium's flush, so a deactivation in
+   * that flush lets its fetch finish. A lease's start (`startPendingNow()`)
+   * holds the query itself; releasing the lease aborts the fetch as usual.
+   */
+  private runStart(fromMicrotask: boolean): void {
     if (!this.startPending) return;
     this.startPending = false;
     if (this.hasSignalParams) {
@@ -442,11 +451,11 @@ export class QueryInstance<T extends Query> {
     }
     const fetchesBefore = this.fetchStarts;
     this.startSubscriptionAndFetch();
-    if (this.fetchStarts !== fetchesBefore) {
+    if (fromMicrotask && this.fetchStarts !== fetchesBefore) {
       this.firstFetchController = this._abortController;
       this.firstFetchWindow = openStartWindow();
     }
-  };
+  }
 
   /** Switches to new params. Data shown until the next fetch lands is the old params'. */
   private adoptParams(extractedParams: Record<string, unknown> | undefined, storageKey: number): void {
@@ -464,7 +473,7 @@ export class QueryInstance<T extends Query> {
    * @internal
    */
   startPendingNow(): void {
-    this.runPendingStart();
+    this.runStart(false);
     const run = this.pendingDebouncedRun;
     this.pendingDebouncedRun = undefined;
     run?.();
