@@ -553,8 +553,14 @@ function parseEntityData(
       obj = preloaded;
       // Only a class lacking fields another class of its typename declares
       // can be handed a record holding fields it does not parse; for every
-      // other class this is one WeakMap lookup.
-      if (queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)) {
+      // other class this is one WeakMap lookup. Unless the store knows every
+      // class that wrote its records (an earlier release wrote some, or it
+      // does not remember field names): then any record is checked, as the
+      // other class may not be registered yet.
+      if (
+        !queryClient.storeKnowsTypenameFields ||
+        queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+      ) {
         const shape = entityShape.shape;
         for (const k in preloaded) {
           if (!(k in shape)) {

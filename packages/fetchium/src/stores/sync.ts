@@ -115,7 +115,7 @@ const FIELD_NAME_TTL = 30 * 24 * 60 * 60 * 1000;
 const FIELD_NAME_REFRESH = 24 * 60 * 60 * 1000;
 /**
  * Since when a kv's field names have been remembered for every record it
- * holds (0: since it held no cached data), and whether that is stored yet
+ * holds (0: since `clear()` emptied it), and whether that is stored yet
  * (see `entityFieldNamesComplete`).
  */
 interface FieldNamesSince {
@@ -124,6 +124,18 @@ interface FieldNamesSince {
 }
 /** Per backing kv, like the field names. */
 const fieldNamesSinceByKv = new WeakMap<SyncPersistentStore, FieldNamesSince>();
+
+/**
+ * Whether a record's JSON may hold one of `fields` as a key: a cheap check
+ * before parsing it. A nested object's key can match too; the parse sorts
+ * that out.
+ */
+function holdsAnyField(json: string, fields: readonly string[]): boolean {
+  for (let i = 0; i < fields.length; i++) {
+    if (json.indexOf(`${JSON.stringify(fields[i])}:`) !== -1) return true;
+  }
+  return false;
+}
 
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
@@ -244,9 +256,10 @@ export class SyncQueryStore implements QueryStore {
     this.writeValue(entityKey, json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`, refIds);
   }
 
-  readEntity(entityKey: number): Record<string, unknown> | undefined {
+  readEntity(entityKey: number, fields?: readonly string[]): Record<string, unknown> | undefined {
     const stored = this.kv.getString(valueKeyFor(entityKey));
     if (stored === undefined) return undefined;
+    if (fields !== undefined && !holdsAnyField(stored, fields)) return undefined;
     let record: unknown;
     try {
       record = JSON.parse(stored);
@@ -268,11 +281,12 @@ export class SyncQueryStore implements QueryStore {
    * record this store holds. Not while it holds records a version that did
    * not remember field names wrote: they may hold fields of a class not
    * registered since. When this version first opens a store it notes since
-   * when the names cover its records (`sq:meta:fieldsSince`, after one scan
-   * of the keys, stored with the first field names it writes): from then, or
-   * from the start if it held no cached data. `clear()` resets it to the
-   * start. 30 days on (`FIELD_NAME_TTL`), a class not declared since then
-   * would have been forgotten anyway, and the names count as complete.
+   * when the names cover its records (`sq:meta:fieldsSince`, stored with the
+   * first field names it writes): from then, whether or not the store held
+   * cached data (finding out would take a scan of every key). `clear()`
+   * resets it to the start. 30 days on (`FIELD_NAME_TTL`), a class not
+   * declared since then would have been forgotten anyway, and the names
+   * count as complete.
    */
   entityFieldNamesComplete(): boolean {
     const at = this.fieldNamesSince().at;
@@ -287,13 +301,10 @@ export class SyncQueryStore implements QueryStore {
     if (at !== undefined) {
       since = { at, stored: true };
     } else {
-      since = { at: 0, stored: false };
-      for (const key of kv.getAllKeys()) {
-        if (key.startsWith(DOC_PREFIX)) {
-          since.at = Date.now();
-          break;
-        }
-      }
+      // Not known: count from now. Telling an empty store from one an
+      // earlier release wrote would take a scan of every key, on the thread
+      // that creates the client at startup.
+      since = { at: Date.now(), stored: false };
     }
     fieldNamesSinceByKv.set(kv, since);
     return since;

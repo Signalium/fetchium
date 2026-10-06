@@ -658,17 +658,23 @@ export class EntityInstance {
   /** The stored record's fields this instance does not hold; its writes carry them. */
   _recordRest: RecordRest | undefined = undefined;
   /**
-   * The stored record handed over at hydration, while `_recordRest` has not
-   * been taken from it yet: that happens at the first write, so a cold start
-   * pays nothing for it.
+   * The stored record handed over at hydration by a store that cannot read
+   * it again synchronously, while `_recordRest` has not been taken from it
+   * yet: that happens at the first write, so a cold start pays nothing for it.
    */
   private _storedRecord: Record<string, unknown> | undefined = undefined;
   /**
-   * Built from a fetch, of a class that lacks fields another class sharing
-   * its typename declares: the stored record may hold such fields, so the
-   * first write reads it (synchronous stores) and keeps them.
+   * The stored record may hold fields of another class sharing the typename
+   * (built from a fetch of a class that lacks some, or hydrated from a record
+   * that holds some), so the first write reads it (synchronous stores) and
+   * keeps them.
    */
   _checkStoredRecord: boolean = false;
+  /**
+   * With `_checkStoredRecord`: the other classes' field names, one of which
+   * the record must hold to be worth parsing. `undefined`: parse it.
+   */
+  _recordProbe: readonly string[] | undefined = undefined;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
@@ -900,12 +906,29 @@ export class EntityInstance {
   recordDeleted(): void {
     this._recordRest = undefined;
     this._storedRecord = undefined;
+    this._checkStoredRecord = false;
     this.recordDropped();
   }
 
-  /** Whether this instance keeps fields of its stored record (or has the record to take them from). */
+  /** Whether this instance keeps fields of its stored record (or reads them, or has the record to take them from). */
   keepsRecordFields(): boolean {
-    return this._recordRest !== undefined || this._storedRecord !== undefined;
+    return this._recordRest !== undefined || this._storedRecord !== undefined || this._checkStoredRecord;
+  }
+
+  /**
+   * The stored record holds fields the data does not: keep them. A
+   * synchronous store's record is read again at the first write rather than
+   * held in memory until then.
+   */
+  recordHoldsOtherFields(record: Record<string, unknown>, rereadable: boolean): void {
+    if (rereadable) {
+      this._storedRecord = undefined;
+      this._recordRest = undefined;
+      this._checkStoredRecord = true;
+      this._recordProbe = undefined;
+    } else {
+      this.noteRecord(record);
+    }
   }
 
   /**

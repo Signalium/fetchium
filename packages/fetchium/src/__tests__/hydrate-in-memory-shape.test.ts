@@ -468,9 +468,13 @@ describe('C. negative controls: a fresher in-memory value contradicts the cache'
 /** A SyncQueryStore that counts the record reads made for the kept fields. */
 class CountingStore extends SyncQueryStore {
   reads = 0;
-  readEntity(entityKey: number) {
+  /** Reads that found a record worth parsing. */
+  parsed = 0;
+  readEntity(entityKey: number, fields?: readonly string[]) {
     this.reads++;
-    return super.readEntity(entityKey);
+    const record = super.readEntity(entityKey, fields);
+    if (record !== undefined) this.parsed++;
+    return record;
   }
 }
 
@@ -755,6 +759,169 @@ describe('D. writes keep the fields another class sharing the typename declared'
   });
 });
 
+describe('F. references and records the other class holds', () => {
+  /** The summary in memory from the network, then the detail fetched over the same entity. */
+  async function listThenDetail(kv: MemoryPersistentStore, f: ReturnType<typeof makeFetch>) {
+    const c = makeClient(kv, f);
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    const list: any = start(c, () => fetchQuery(GetItems));
+    await list;
+    f.set('/item', itemDetail('v1'));
+    const item: any = start(c, () => fetchQuery(GetItem));
+    await item;
+    return { c, list, item };
+  }
+
+  it('F1 a summary refetch over an entity the detail holds keeps the detail child referenced, on disk and after a restart', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    const { c, list, item } = await listThenDetail(kv, f);
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
+    await list.value.__refetch();
+
+    expect(item.value.item.vendor.name).toBe('v1');
+    expect(recordOf(kv, 'Item', 'i1')).toEqual({
+      __typename: 'Item',
+      id: 'i1',
+      name: 'I2',
+      details: { rating: 5 },
+      vendor: { __entityRef: vendorKey('v1') },
+    });
+    expect(Array.from(kv.getBuffer(refIdsKeyFor(hashValue(['Item', 'i1']))) ?? [])).toEqual([vendorKey('v1')]);
+    expect(recordOf(kv, 'Vendor', 'v1')).toEqual({ __typename: 'Vendor', id: 'v1', name: 'v1' });
+    c.destroy();
+    clients = clients.filter(x => x !== c);
+
+    f.set('/item', itemDetail('v1', 6, 'net'), 100);
+    const cold = makeClient(kv, f);
+    const served: any = start(cold, () => fetchQuery(GetItem));
+    await sleep(20);
+    expect(served.isReady).toBe(true);
+    expect(served.value.item.vendor.name).toBe('v1');
+  });
+
+  it('F2 after a summary refetch, an update of the detail child still reaches the detail', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    const { c, list, item } = await listThenDetail(kv, f);
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
+    await list.value.__refetch();
+
+    c.applyMutationEvent({ type: 'update', typename: 'Vendor', data: { __typename: 'Vendor', id: 'v1', name: 'w1' } });
+    await sleep(0);
+    expect(item.value.item.vendor.name).toBe('w1');
+    expect(recordOf(kv, 'Vendor', 'v1')).toMatchObject({ name: 'w1' });
+  });
+
+  it('F3 a summary fetched over records without detail fields parses none of them before its first writes', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    // The detail class registered and wrote i1; i2 and i3 hold summary fields only.
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', {
+      items: [
+        { __typename: 'Item', id: 'i2', name: 'J' },
+        { __typename: 'Item', id: 'i3', name: 'K' },
+      ],
+    });
+    await session(kv, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+
+    const store = new CountingStore(kv);
+    const c = makeCountingClient(store, f);
+    await start(c, () => fetchQuery(GetItem));
+    f.set('/other-items', {
+      items: [
+        { __typename: 'Item', id: 'i1', name: 'I2' },
+        { __typename: 'Item', id: 'i2', name: 'J2' },
+        { __typename: 'Item', id: 'i3', name: 'K2' },
+      ],
+    });
+    const before = { reads: store.reads, parsed: store.parsed };
+    // A query with no cache, so i2 and i3 are new in memory; i1 is the detail's.
+    class GetOtherItems extends RESTQuery {
+      path = '/other-items';
+      result = { items: t.array(t.entity(ItemSummary)) };
+    }
+    await start(c, () => fetchQuery(GetOtherItems));
+    expect({ reads: store.reads - before.reads, parsed: store.parsed - before.parsed }).toEqual({
+      reads: 2,
+      parsed: 0,
+    });
+    expect(recordOf(kv, 'Item', 'i2')).toEqual({ __typename: 'Item', id: 'i2', name: 'J2' });
+    expect(recordOf(kv, 'Item', 'i1')).toMatchObject({ name: 'I2', details: { rating: 5 } });
+  });
+
+  it('F4 a summary hydrated from its cache over a detail record reads the record again at its first write, not holding it until then', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    await session(kv, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+
+    const store = new CountingStore(kv);
+    const c = makeCountingClient(store, f);
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] }, 1000);
+    const list: any = start(c, () => fetchQuery(GetItems));
+    await sleep(5);
+    expect(list.isReady).toBe(true);
+    const instance = (c as any).entityMap.getEntity(hashValue(['Item', 'i1']));
+    expect(instance._storedRecord).toBeUndefined();
+    expect(store.reads).toBe(0);
+
+    c.applyMutationEvent({ type: 'update', typename: 'Item', data: { __typename: 'Item', id: 'i1', name: 'U' } });
+    c.applyMutationEvent({ type: 'update', typename: 'Item', data: { __typename: 'Item', id: 'i1', name: 'V' } });
+    expect({ reads: store.reads, parsed: store.parsed }).toEqual({ reads: 1, parsed: 1 });
+    expect(recordOf(kv, 'Item', 'i1')).toEqual({
+      __typename: 'Item',
+      id: 'i1',
+      name: 'V',
+      details: { rating: 5 },
+      vendor: { __entityRef: vendorKey('v1') },
+    });
+  });
+
+  it('F5 in a store an earlier release wrote, a summary hydrated from its cache keeps the detail fields under a streamed update', async () => {
+    let kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    await session(kv, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+    // Reopened without the field names, as a release that did not remember them left it.
+    const copy = new MemoryPersistentStore();
+    for (const k of kv.getAllKeys()) {
+      if (k.startsWith('sq:meta:')) continue;
+      const v = kv.getString(k) ?? kv.getNumber(k) ?? kv.getBuffer(k);
+      if (typeof v === 'string') copy.setString(k, v);
+      else if (typeof v === 'number') copy.setNumber(k, v);
+      else if (v !== undefined) copy.setBuffer(k, v);
+    }
+    kv = copy;
+
+    const c = makeClient(kv, f);
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] }, 1000);
+    const list: any = start(c, () => fetchQuery(GetItems));
+    await sleep(5);
+    expect(list.isReady).toBe(true);
+    c.applyMutationEvent({ type: 'update', typename: 'Item', data: { __typename: 'Item', id: 'i1', name: 'U' } });
+    expect(recordOf(kv, 'Item', 'i1')).toEqual({
+      __typename: 'Item',
+      id: 'i1',
+      name: 'U',
+      details: { rating: 5 },
+      vendor: { __entityRef: vendorKey('v1') },
+    });
+  });
+});
+
 describe('E. what the store remembers about the other class, and for how long', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -826,6 +993,9 @@ describe('E. what the store remembers about the other class, and for how long', 
 
   it('E3 a typename with one class: an event carrying every field writes the record whole, without a merge', async () => {
     const kv = new MemoryPersistentStore();
+    // A store whose field names cover every record it holds: emptied with
+    // clear() (otherwise, 30 days after it started remembering them; see E5).
+    new SyncQueryStore(kv).clear();
     const f = makeFetch();
     f.set('/reading/latest', { reading: readingPayload });
     await session(kv, f, async c => {
@@ -898,10 +1068,18 @@ describe('E. what the store remembers about the other class, and for how long', 
     kv.setNumber('sq:meta:fieldsSince', t0 + 3 * hour - 30 * day);
     expect(await listSession(t0 + 3 * hour, 'U3')).toEqual({ merged: 0, savedWhole: true });
 
-    // A store that held no cached data when it was first opened, or that clear() emptied, writes such events whole.
+    // A store first opened by this version counts from then, empty or not:
+    // telling would take a scan of every key at startup, which it does not do.
     const fresh = new MemoryPersistentStore();
-    expect(new SyncQueryStore(fresh).entityFieldNamesComplete()).toBe(true);
-    expect(fresh.getAllKeys()).toEqual([]);
+    const scans = vi.spyOn(fresh, 'getAllKeys');
+    expect(new SyncQueryStore(fresh).entityFieldNamesComplete()).toBe(false);
+    expect(scans).not.toHaveBeenCalled();
+    const upgraded = new MemoryPersistentStore();
+    upgraded.setString('sq:doc:value:1', '{}');
+    const upgradedScans = vi.spyOn(upgraded, 'getAllKeys');
+    expect(new SyncQueryStore(upgraded).entityFieldNamesComplete()).toBe(false);
+    expect(upgradedScans).not.toHaveBeenCalled();
+    // One that clear() emptied writes such events whole.
     reopen(true);
     const store = new SyncQueryStore(kv);
     expect(store.entityFieldNamesComplete()).toBe(false);

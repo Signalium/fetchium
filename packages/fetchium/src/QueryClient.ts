@@ -267,7 +267,7 @@ export class QueryClient {
     this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
     if (typeof this.store.readEntity === 'function') {
       const store = this.store;
-      this.entityMap.readEntity = key => store.readEntity!(key);
+      this.entityMap.readEntity = (key, fields) => store.readEntity!(key, fields);
     }
     // A record the store drops must be written again by the next apply.
     this.storeReportsDeletes = typeof this.store.onDelete === 'function';
@@ -411,6 +411,8 @@ export class QueryClient {
   private foreignFieldDefs = new WeakMap<ValidatorDef<any>, boolean>();
   /** Per typename: every top-level field its classes have declared (see `foreignFieldDefs`). */
   private typenameFields = new Map<string, Set<string>>();
+  /** Per entity def: the fields of its typename it does not declare (see `foreignFieldNames`). */
+  private foreignFieldNamesByDef = new WeakMap<ValidatorDef<any>, readonly string[]>();
   /** Whether any registered def lacks a field of its typename; false for an app whose typenames each have one class. */
   hasForeignFieldDefs: boolean = false;
   /**
@@ -448,6 +450,28 @@ export class QueryClient {
   }
 
   /**
+   * The top-level fields other classes sharing this def's typename declare
+   * and it does not: a stored record holding none of them has nothing for
+   * the def's writes to keep. Computed once per def while the typename's
+   * fields are unchanged.
+   *
+   * @internal
+   */
+  foreignFieldNames(def: ValidatorDef<any>): readonly string[] {
+    let names = this.foreignFieldNamesByDef.get(def);
+    if (names === undefined) {
+      const missing: string[] = [];
+      const fields = def.typenameValue !== undefined ? this.typenameFields.get(def.typenameValue) : undefined;
+      const shape = def.shape as Record<string, unknown> | undefined;
+      if (fields !== undefined && shape !== undefined) {
+        for (const f of fields) if (!(f in shape)) missing.push(f);
+      }
+      this.foreignFieldNamesByDef.set(def, (names = missing));
+    }
+    return names;
+  }
+
+  /**
    * Folds a newly registered def's fields into its typename's field set (and
    * the store's, which outlives the session), then re-derives which of the
    * typename's defs lack a field of it. Runs once per def and client.
@@ -472,6 +496,7 @@ export class QueryClient {
     // Every registered def's fields are in the set, so a def lacks one of
     // them exactly when the set is larger than its shape.
     for (const d of this.typenameRegistry.get(typename)!) {
+      if (added) this.foreignFieldNamesByDef.delete(d);
       if (!added && d !== def) continue;
       const misses = fields.size > Object.keys(d.shape as Record<string, unknown>).length;
       this.foreignFieldDefs.set(d, misses);
@@ -1286,6 +1311,7 @@ export class QueryClient {
     this.typenameRegistry.clear();
     this.typenameFields.clear();
     this.foreignFieldDefs = new WeakMap();
+    this.foreignFieldNamesByDef = new WeakMap();
     this.mergedDefCache.clear();
   }
 }
