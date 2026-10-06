@@ -1632,6 +1632,124 @@ describe('store work per streamed event', () => {
   });
 });
 
+describe('streamed full payloads for a typename two classes share, entity not in memory', () => {
+  class Tag extends Entity {
+    __typename = t.typename('Tag');
+    id = t.id;
+    label = t.string;
+  }
+  // A list's class and a detail class of one typename: a list-shaped payload
+  // carries every field of its class, but not the detail's.
+  class CoinRow extends Entity {
+    __typename = t.typename('Coin');
+    id = t.id;
+    symbol = t.string;
+    price = t.number;
+  }
+  class CoinDetail extends Entity {
+    __typename = t.typename('Coin');
+    id = t.id;
+    symbol = t.string;
+    price = t.number;
+    about = t.string;
+    tag = t.entity(Tag);
+  }
+  class GetCoinDetail extends RESTQuery {
+    params = { id: t.id };
+    path = `/coin/${this.params.id}`;
+    result = { coin: t.entity(CoinDetail) };
+  }
+  class GetCoinRows extends RESTQuery {
+    path = '/coins';
+    result = { coins: t.array(t.entity(CoinRow)) };
+  }
+
+  const getClient = setupTestClient();
+
+  const detail = (about: string) => ({
+    coin: {
+      __typename: 'Coin',
+      id: 'c1',
+      symbol: 'C',
+      price: 1,
+      about,
+      tag: { __typename: 'Tag', id: 'g1', label: 'gold' },
+    },
+  });
+  const row = (price: number) => ({ __typename: 'Coin', id: 'c1', symbol: 'C', price });
+
+  /** Writes the detail's record, registers the list class, and drops both from memory. */
+  async function setup(tc: ReturnType<typeof getClient>): Promise<void> {
+    tc.mockFetch.get('/coin/c1', detail('first'));
+    tc.mockFetch.get('/coins', { coins: [{ __typename: 'Coin', id: 'c2', symbol: 'D', price: 2 }] });
+    const detailQ = withContexts([[QueryClientContext, tc.client]], () => fetchQuery(GetCoinDetail, { id: 'c1' }));
+    const w = watcher(() => (detailQ as any).value);
+    const off = w.addListener(() => {});
+    await detailQ;
+    await holdQuery(tc.client, () => fetchQuery(GetCoinRows));
+    off();
+    tc.client.entityMap.getEntity(K('Coin', 'c1'))!.evict();
+    tc.client.entityMap.getEntity(K('Tag', 'g1'))?.evict();
+  }
+
+  it('reads the stored record for the first event only, and keeps the fields the payloads do not carry', async () => {
+    const tc = getClient();
+    await setup(tc);
+    const reads = vi.spyOn(tc.kv, 'getString');
+
+    for (let i = 2; i <= 6; i++) {
+      tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(i) });
+    }
+
+    expect(reads.mock.calls.filter(([key]) => key === valueKeyFor(K('Coin', 'c1')))).toHaveLength(1);
+    expect(getDoc(tc.kv, K('Coin', 'c1'))).toEqual({
+      __typename: 'Coin',
+      id: 'c1',
+      symbol: 'C',
+      price: 6,
+      about: 'first',
+      tag: { __entityRef: K('Tag', 'g1') },
+    });
+    expect(refIds(tc.kv, K('Coin', 'c1'))).toEqual([K('Tag', 'g1')]);
+    expect(audit(tc.kv)).toEqual({ orphans: [], dangling: [] });
+  });
+
+  it('merges over what another write stored meanwhile, not over what an earlier merge saw', async () => {
+    const tc = getClient();
+    await setup(tc);
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(2) });
+
+    // A detail-shaped payload rewrites the whole record, changing a field the list payloads do not carry.
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: detail('second').coin });
+    expect(tc.client.entityMap.getEntity(K('Coin', 'c1'))).toBeUndefined();
+
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(3) });
+    expect(getDoc(tc.kv, K('Coin', 'c1'))).toMatchObject({ price: 3, about: 'second' });
+
+    // So does a write through another store over the same kv.
+    const other = new SyncQueryStore(tc.kv);
+    other.saveEntity(K('Coin', 'c1'), { __typename: 'Coin', id: 'c1', symbol: 'C', price: 3, about: 'third' });
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(4) });
+    expect(getDoc(tc.kv, K('Coin', 'c1'))).toEqual({
+      __typename: 'Coin',
+      id: 'c1',
+      symbol: 'C',
+      price: 4,
+      about: 'third',
+    });
+  });
+
+  it('writes nothing once the store has deleted the record', async () => {
+    const tc = getClient();
+    await setup(tc);
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(2) });
+    tc.store.deleteQuery(K('Coin', 'c1'));
+
+    tc.client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row(3) });
+    expect(getDoc(tc.kv, K('Coin', 'c1'))).toBeUndefined();
+  });
+});
+
 describe('AsyncQueryStore writer: write skipping while writes are queued', () => {
   const clients: QueryClient[] = [];
   afterEach(() => {
