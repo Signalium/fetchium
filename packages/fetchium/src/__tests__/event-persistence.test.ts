@@ -1541,6 +1541,65 @@ describe('AsyncQueryStore writer', () => {
     expect(first._pendingWrites).toBe(0);
     expect(first._persisted).toBe(true);
   });
+
+  it('does not write a parent referencing a created child before the child is written', async () => {
+    class Item extends Entity {
+      __typename = t.typename('Item');
+      id = t.id;
+      listId = t.string;
+      title = t.string;
+    }
+    class List extends Entity {
+      __typename = t.typename('List');
+      id = t.id;
+      items = t.liveArray(Item, { constraints: { listId: (this as any).id } });
+    }
+    class GetList extends RESTQuery {
+      path = '/list';
+      result = { list: t.entity(List) };
+    }
+
+    // Holds the write of one record until released.
+    class GatedDelegate extends AsyncDelegate {
+      gatedKey: string | undefined;
+      gate: Promise<void> | undefined;
+      override async setString(key: string, value: string) {
+        if (key === this.gatedKey) await this.gate;
+        return super.setString(key, value);
+      }
+    }
+
+    const delegate = new GatedDelegate();
+    const store = writerStore(delegate);
+    const mockFetch = createMockFetch();
+    mockFetch.get('/list', { list: { __typename: 'List', id: 'l1', items: [] } });
+    const client = makeClient(store, mockFetch);
+    await holdQuery(client, () => fetchQuery(GetList));
+    await drain(store);
+
+    const listKey = K('List', 'l1');
+    const itemKey = K('Item', 'i1');
+    let release = () => {};
+    delegate.gate = new Promise<void>(resolve => (release = resolve));
+    delegate.gatedKey = valueKeyFor(itemKey);
+
+    client.applyMutationEvent({
+      type: 'create',
+      typename: 'Item',
+      data: { __typename: 'Item', id: 'i1', listId: 'l1', title: 'new' },
+    });
+    await sleep(50);
+
+    // The child's write is held, so a cache read now must not find the parent pointing at it.
+    expect(asyncDoc(delegate, itemKey)).toBeUndefined();
+    expect(asyncDoc(delegate, listKey)).toMatchObject({ items: [] });
+    expect(Array.from((delegate.kv[refIdsKeyFor(listKey)] as Uint32Array | undefined) ?? [])).toEqual([]);
+
+    release();
+    await drain(store);
+    expect(asyncDoc(delegate, itemKey)).toMatchObject({ title: 'new' });
+    expect(asyncDoc(delegate, listKey)).toMatchObject({ items: [{ __entityRef: itemKey }] });
+  });
 });
 
 // ======================================================
