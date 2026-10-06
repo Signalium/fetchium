@@ -1093,12 +1093,17 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Evicts the root entity a query's earlier params applied to (a non-entity
-   * result's), unless another query instance still shows it.
+   * Evicts the root entity of a non-entity result that `owner` no longer
+   * shows (its params changed, or it was collected), unless another query
+   * instance still shows it. Since a root's key follows the current params,
+   * two instances whose params agree share one. A root already gone from the
+   * map is left alone: evicting it would remove whatever the map now holds
+   * at its key, which is the root a query showing those params applies to.
    *
    * @internal
    */
   releaseQueryRoot(root: EntityInstance, owner: QueryInstance<any>): void {
+    if (this.entityMap.getEntity(root.key) !== root) return;
     for (const instance of this.queryInstances.values()) {
       if (instance !== owner && instance.rootEntity === root) return;
     }
@@ -1112,7 +1117,11 @@ export class QueryClient {
       instance.stopSubscription();
       // Nothing may settle its relay or reach the store after this.
       instance.abortForDestroy();
-      instance.rootEntity?.evict();
+      const root = instance.rootEntity;
+      if (root !== undefined) {
+        if (instance.def.statics.isEntityResult) root.evict();
+        else this.releaseQueryRoot(root, instance);
+      }
       this.queryInstances.delete(key);
       return;
     }

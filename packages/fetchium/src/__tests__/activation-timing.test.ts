@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { signal, watcher, withContexts } from 'signalium';
+import { reactive, signal, watcher, withContexts } from 'signalium';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
@@ -262,6 +262,92 @@ describe('Signal params changing around a fetch', () => {
     offMoving();
     offFixed();
     client.destroy();
+  });
+
+  describe('with collection (a browser or React Native client)', () => {
+    const hadWindow = 'window' in globalThis;
+    afterEach(() => {
+      if (!hadWindow) delete (globalThis as any).window;
+    });
+
+    class Thing extends Entity {
+      __typename = t.typename('Thing');
+      id = t.id;
+      name = t.string;
+    }
+
+    function thingFetch() {
+      let count = 0;
+      return async (url: string): Promise<Response> => {
+        await sleep(2);
+        const id = new URL(url).pathname.split('/').pop();
+        const body = { thing: { __typename: 'Thing', id: `t${id}`, name: `name${id}` }, n: ++count };
+        return { ok: true, status: 200, headers: new Headers(), json: async () => body } as unknown as Response;
+      };
+    }
+
+    it('collecting a query whose Signal param moved onto another query’s params leaves that query’s data live', async () => {
+      if (!hadWindow) (globalThis as any).window = globalThis;
+      class GetThingById extends RESTQuery {
+        params = { id: t.string };
+        path = `/things/${this.params.id}`;
+        result = { thing: t.entity(Thing), n: t.number };
+        config = { gcTime: 0, staleTime: 60_000 };
+      }
+      const client = makeClient(new MemoryPersistentStore(), thingFetch());
+      const id = signal('1');
+
+      let fixed: any;
+      const offMoving = activate(client, () => fetchQuery(GetThingById, { id }).isPending);
+      const offFixed = activate(client, () => (fixed = fetchQuery(GetThingById, { id: '2' })).isPending);
+      await sleep(20);
+      id.value = '2';
+      await sleep(20);
+      offMoving();
+      await sleep(50);
+      expect((client as any).queryInstances.size).toBe(1);
+
+      client.applyMutationEvent({
+        type: 'update',
+        typename: 'Thing',
+        data: { __typename: 'Thing', id: 't2', name: 'renamed' },
+      });
+      expect(fixed.value.thing.name).toBe('renamed');
+      offFixed();
+      client.destroy();
+    });
+
+    it('a collected query’s relay that a reactive function kept leaves the root of a new query for the same params alone', async () => {
+      if (!hadWindow) (globalThis as any).window = globalThis;
+      class GetThing extends RESTQuery {
+        path = '/thing/1';
+        result = { thing: t.entity(Thing), n: t.number };
+        config = { gcTime: 0, staleTime: 0 };
+      }
+      const client = makeClient(new MemoryPersistentStore(), thingFetch());
+      const getThing = reactive(() => fetchQuery(GetThing));
+
+      let kept: any;
+      const first = activate(client, () => (kept = getThing()).isPending);
+      await sleep(20);
+      first();
+      await sleep(50);
+      expect((client as any).queryInstances.size).toBe(0);
+
+      const keptAgain = activate(client, () => getThing().isPending);
+      let fresh: any;
+      const second = activate(client, () => (fresh = fetchQuery(GetThing)).isPending);
+      await sleep(20);
+      const shown = fresh.value;
+      await kept.value.__refetch();
+      await fresh.value.__refetch();
+      expect(fresh.value).toBe(shown);
+      const instance = [...(client as any).queryInstances.values()][0];
+      expect((client as any).entityMap.getEntity(instance.rootEntity.key)).toBe(instance.rootEntity);
+      keptAgain();
+      second();
+      client.destroy();
+    });
   });
 
   it('sends the current params when a Signal param changes in the task the query activates', async () => {
