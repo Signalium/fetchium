@@ -96,6 +96,18 @@ export class QueryInstance<T extends Query> {
   private startPending: boolean = false;
   /** The fetch restartAbortedFetch() queued on a microtask, until it runs. */
   private pendingRestart: (() => void) | undefined = undefined;
+  /**
+   * The rejection of a restart that found the query offline (or inactive)
+   * when it ran. The relay stays pending on its promise until coming back
+   * online restarts it, or a full deactivation rejects it.
+   */
+  private parkedRestart: ((error: unknown) => void) | undefined = undefined;
+  /**
+   * The signal of a first fetch a same-task unmount let finish. Its query is
+   * scheduled for collection once that fetch settles, not before: collecting
+   * it earlier would leave the fetch applying to an instance nothing owns.
+   */
+  private keptFetchSignal: AbortSignal | undefined = undefined;
   /** Some param is a Signal, so its value can change before the first start runs. */
   private hasSignalParams: boolean = false;
   /** The first fetch's controller and its start window. See `openStartWindow()`. */
@@ -227,6 +239,7 @@ export class QueryInstance<T extends Query> {
             if (keepFirstFetch) {
               // Mounted and unmounted in one task: let the first fetch finish.
               this.firstFetchController = undefined;
+              if (this.relayState.isPending) this.keptFetchSignal = controller.signal;
             } else {
               if (this.relayState.isPending) this.abortedByDeactivation = true;
               controller.abort();
@@ -244,8 +257,19 @@ export class QueryInstance<T extends Query> {
 
           if (isPausing) return;
 
-          const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
-          this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
+          // A restart parked while offline has no fetch for an abort to
+          // reject: settle it as the abort would have, and restart on the next
+          // activation.
+          const parked = this.parkedRestart;
+          if (parked !== undefined) {
+            this.parkedRestart = undefined;
+            this.abortedByDeactivation = true;
+            parked(abortError());
+          }
+
+          // A kept first fetch schedules collection when it settles.
+          if (this.keptFetchSignal !== undefined) return;
+          this.scheduleGc();
         };
 
         const update = (activating: boolean = false) => {
@@ -258,6 +282,7 @@ export class QueryInstance<T extends Query> {
           }
 
           this._isActive = true;
+          this.keptFetchSignal = undefined;
 
           const newExtractedParams = extractParamsForKey(this.params);
           const newStorageKey = queryKeyFor(this.def, newExtractedParams);
@@ -670,7 +695,17 @@ export class QueryInstance<T extends Query> {
     } catch (error) {
       if (!signal.aborted) this.lastFetchFailed = true;
       throw error;
+    } finally {
+      if (signal === this.keptFetchSignal) {
+        this.keptFetchSignal = undefined;
+        if (!this._isActive) this.scheduleGc();
+      }
     }
+  }
+
+  private scheduleGc(): void {
+    const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
+    this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
   }
 
   /**
@@ -681,6 +716,7 @@ export class QueryInstance<T extends Query> {
    */
   private restartAbortedFetch(afterFlush: boolean = false): void {
     this.fetchStarts++;
+    this.parkedRestart = undefined;
     if (this.abortedByDeactivation) {
       this.abortedByDeactivation = false;
       // The abort rejected the relay (it is no longer pending). Signalium
@@ -714,8 +750,10 @@ export class QueryInstance<T extends Query> {
       }
       if (!this._isActive || this.isPaused) {
         // Went offline before it ran. Leave the relay pending with no
-        // controller: coming back online restarts it.
+        // controller: coming back online restarts it, and a full
+        // deactivation before that rejects it.
         if (this._abortController === controller) this._abortController = undefined;
+        this.parkedRestart = reject;
         return;
       }
       this.runQuery().then(resolve, reject);
@@ -757,6 +795,7 @@ export class QueryInstance<T extends Query> {
   private runQueryImmediately(): void {
     this.fetchStarts++;
     this.abortedByDeactivation = false;
+    this.parkedRestart = undefined;
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();
@@ -850,21 +889,38 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Called by `QueryClient.destroy()`: aborts the fetches in flight, including
-   * a first fetch a same-task unmount left running, and cancels deferred
-   * ones, so nothing reaches the store after the client is gone.
+   * Called by `QueryClient.destroy()`, and when the client collects the
+   * query: aborts the fetches in flight, including a first fetch a same-task
+   * unmount left running, cancels deferred ones and settles the relay, so
+   * nothing reaches the store after the client is gone and no awaiter waits
+   * forever.
    *
    * @internal
    */
   abortForDestroy(): void {
     this.cancelDebounced();
     this.startPending = false;
-    this.pendingRestart = undefined;
     this.firstFetchController = undefined;
-    this._abortController?.abort();
+    this.keptFetchSignal = undefined;
+    const controller = this._abortController;
+    const inFlight = controller !== undefined && !controller.signal.aborted;
+    controller?.abort();
     this._abortController = undefined;
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
+    // Whoever awaits the relay must still get an answer. A queued restart
+    // sees its aborted controller and rejects; a parked one is rejected here;
+    // a fetch in flight rejects with its abort. A relay left pending with no
+    // fetch at all (its first start never ran) is rejected directly.
+    const restart = this.pendingRestart;
+    restart?.();
+    this.pendingRestart = undefined;
+    const parked = this.parkedRestart;
+    this.parkedRestart = undefined;
+    parked?.(abortError());
+    if (!inFlight && restart === undefined && parked === undefined && this._relayState?.isPending) {
+      this._relayState.setError(abortError());
+    }
   }
 
   /** Records that the subscription delivered data. See `lastPushAt`. */

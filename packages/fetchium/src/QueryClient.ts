@@ -1097,6 +1097,8 @@ export class QueryClient {
       const instance = this.queryInstances.get(key);
       if (instance === undefined) return;
       instance.stopSubscription();
+      // Nothing may settle its relay or reach the store after this.
+      instance.abortForDestroy();
       instance.rootEntity?.evict();
       this.queryInstances.delete(key);
       return;

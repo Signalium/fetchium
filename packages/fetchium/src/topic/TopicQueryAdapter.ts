@@ -21,6 +21,30 @@ interface TopicState {
   error?: unknown;
 }
 
+/**
+ * `promise`, or a rejection once `signal` aborts. A topic's data comes from
+ * its subscription, which the query's deactivation tears down: a fetch that
+ * deactivation aborted would otherwise wait for data that never comes, and
+ * so would whoever awaits the query.
+ */
+function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      value => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      error => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export abstract class TopicQueryAdapter extends QueryAdapter {
   private _topics = new Map<string, TopicState>();
   /** Per topic, the subscribed queries' callbacks for a delivered event. */
@@ -92,7 +116,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
     this._topics.clear();
   }
 
-  override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {
+  override async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicCtx;
     const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
 
@@ -109,7 +133,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
         case 'rejected':
           throw existing.error;
         case 'pending':
-          return existing.promise;
+          return untilAborted(existing.promise!, signal);
       }
     }
 
@@ -124,7 +148,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
     this._topics.set(topic, { status: 'pending', promise, resolve, reject });
 
-    return promise;
+    return untilAborted(promise, signal);
   }
 
   /**

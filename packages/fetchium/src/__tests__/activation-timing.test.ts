@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { signal, watcher, withContexts } from 'signalium';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
@@ -9,7 +9,8 @@ import { fetchQuery, queryKeyForClass } from '../query.js';
 import { updatedAtKeyFor } from '../stores/shared.js';
 import { TopicQuery } from '../topic/TopicQuery.js';
 import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
-import { sleep } from './utils.js';
+import { Entity } from '../proxy.js';
+import { getEntityMapSize, sleep } from './utils.js';
 
 /**
  * The first fetch and zero-delay refetches start on a microtask, ahead of
@@ -80,6 +81,17 @@ function activate(client: QueryClient, read: () => unknown): () => void {
   const dispose = w.addListener(() => {});
   void w.value;
   return dispose;
+}
+
+/** How `relay` settles: 'resolved', 'rejected:<name>', or 'pending' if it has not within `ms`. */
+async function outcome(relay: PromiseLike<unknown>, ms: number = 200): Promise<string> {
+  return Promise.race([
+    Promise.resolve(relay).then(
+      () => 'resolved',
+      (error: any) => `rejected:${error?.name ?? error}`,
+    ),
+    sleep(ms).then(() => 'pending'),
+  ]);
 }
 
 function state(relay: any) {
@@ -383,6 +395,152 @@ describe('A topic query mounted and unmounted in one task', () => {
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
     second();
     client.destroy();
+  });
+
+  it('settles an awaiter of the first mount without another mount', async () => {
+    const client = makeTopicClient(new MemoryPersistentStore());
+
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    first();
+    expect(await outcome(relay)).toBe('rejected:AbortError');
+    client.destroy();
+  });
+});
+
+describe('Every awaiter settles', () => {
+  it('when destroy() runs in the task the query mounts, before its first start', async () => {
+    const { fetch, calls } = createFetch(20);
+    const client = makeClient(new MemoryPersistentStore(), fetch);
+
+    let relay: any;
+    const dispose = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    client.destroy();
+    expect(await outcome(relay)).toBe('rejected:AbortError');
+    expect(calls).toEqual([]);
+    dispose();
+  });
+
+  it('when destroy() runs while a restart after a deactivation abort is queued', async () => {
+    const { fetch } = createFetch(20);
+    const client = makeClient(new MemoryPersistentStore(), fetch);
+
+    const first = activate(client, () => fetchQuery(GetItem).isPending);
+    await sleep(5);
+    first(); // aborts the fetch in flight
+    await sleep(5);
+    let relay: any;
+    const second = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    client.destroy();
+    expect(await outcome(relay)).toBe('rejected:AbortError');
+    second();
+  });
+
+  it('when a restart found the network offline and the query is then unmounted', async () => {
+    const { fetch, paths } = createFetch(30);
+    const networkManager = new NetworkManager(true);
+    const client = makeClient(new MemoryPersistentStore(), fetch, networkManager);
+
+    const first = activate(client, () => fetchQuery(GetItem).isPending);
+    await sleep(5);
+    first(); // aborts the fetch in flight
+    await sleep(5);
+    let relay: any;
+    const second = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    networkManager.setNetworkStatus(false); // the restart finds the query offline
+    await sleep(5);
+    second();
+    expect(await outcome(relay)).toBe('rejected:AbortError');
+
+    // Mounted again online, it fetches.
+    networkManager.setNetworkStatus(true);
+    const third = activate(client, () => fetchQuery(GetItem).isPending);
+    await sleep(50);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/item' });
+    expect(paths()).toEqual(['/item(aborted)', '/item']);
+    third();
+    client.destroy();
+  });
+});
+
+describe('A gcTime: 0 query whose kept first fetch outlives the unmount', () => {
+  // Node clients use a no-op GC manager; a browser or React Native client gets the real one.
+  const hadWindow = 'window' in globalThis;
+  afterEach(() => {
+    if (!hadWindow) delete (globalThis as any).window;
+  });
+
+  class Thing extends Entity {
+    __typename = t.typename('Thing');
+    id = t.id;
+    name = t.string;
+  }
+  class GetThing extends RESTQuery {
+    path = '/thing';
+    result = { thing: t.entity(Thing) };
+    config = { gcTime: 0 };
+  }
+
+  function createThingFetch(delay: number) {
+    let calls = 0;
+    const fetch = (_url: string, options: RequestInit = {}): Promise<Response> => {
+      calls++;
+      const body = { thing: { __typename: 'Thing', id: '1', name: 'a' } };
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            resolve({ ok: true, status: 200, headers: new Headers(), json: async () => body } as unknown as Response),
+          delay,
+        );
+        (options.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          const error = new Error('The operation was aborted');
+          error.name = 'AbortError';
+          reject(error);
+        });
+      });
+    };
+    return { fetch, calls: () => calls };
+  }
+
+  it('is collected once the fetch lands, leaving nothing resident; a remount before that reuses the fetch', async () => {
+    if (!hadWindow) (globalThis as any).window = globalThis;
+    const { fetch, calls } = createThingFetch(20);
+    const client = makeClient(new MemoryPersistentStore(), fetch);
+    expect((client as any).isServer).toBe(false);
+
+    const first = activate(client, () => fetchQuery(GetThing).isPending);
+    first();
+    await sleep(5);
+    expect((client as any).queryInstances.size).toBe(1);
+    const second = activate(client, () => fetchQuery(GetThing).isPending);
+    await sleep(40);
+    second();
+    await sleep(20);
+    expect(calls()).toBe(1);
+    expect((client as any).queryInstances.size).toBe(0);
+    expect(getEntityMapSize(client)).toBe(0);
+
+    const third = activate(client, () => fetchQuery(GetThing).isPending);
+    third();
+    await sleep(60);
+    expect((client as any).queryInstances.size).toBe(0);
+    expect(getEntityMapSize(client)).toBe(0);
+    client.destroy();
+  });
+
+  it('writes nothing after destroy()', async () => {
+    if (!hadWindow) (globalThis as any).window = globalThis;
+    const { fetch } = createThingFetch(20);
+    const kv = new MemoryPersistentStore();
+    const client = makeClient(kv, fetch);
+
+    const first = activate(client, () => fetchQuery(GetThing).isPending);
+    first();
+    await sleep(5);
+    client.destroy();
+    await sleep(40);
+    expect(kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetThing, undefined)))).toBeUndefined();
   });
 });
 
