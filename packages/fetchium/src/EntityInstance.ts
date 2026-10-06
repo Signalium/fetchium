@@ -6,6 +6,7 @@ import { type EntityDef, Mask } from './types.js';
 import { GcKeyType } from './GcManager.js';
 import { Entity } from './proxy.js';
 import { PROXY_ID } from './proxyId.js';
+import { NESTED_WRAPPERS, type NestedWrapper } from './nestedNotifiers.js';
 import type { QueryClient } from './QueryClient.js';
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 import type { LiveCollectionBinding } from './LiveCollection.js';
@@ -17,79 +18,136 @@ import { entitySatisfiesShape } from './parseEntities.js';
 // ======================================================
 
 const ObjectProto = Object.prototype;
-const wrappingCache = new WeakMap<object, object>();
 
-function wrapValue(value: unknown): unknown {
+/** A `WRAPPED_VALUE` item. A live collection's value changes under its own notifier. */
+interface WrappedValue {
+  getValue(): unknown;
+  readonly _valueOwner?: Notifier;
+}
+
+/**
+ * `owner` is the notifier of a live collection whose value this is (or is
+ * inside): a reducer can change such a value in place without telling
+ * anything else. Without one, the value is an entity's nested object, record
+ * or array, and its wrapper gets a notifier of its own that the in-place
+ * merge notifies.
+ */
+function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (typeof value !== 'object' || value === null) return value;
-  if (WRAPPED_VALUE.has(value)) return wrapValue((value as { getValue(): unknown }).getValue());
+  if (WRAPPED_VALUE.has(value)) {
+    const wrapped = value as WrappedValue;
+    return wrapValue(wrapped.getValue(), wrapped._valueOwner ?? owner);
+  }
   if (PROXY_ID.has(value as object)) return value;
 
   if (Array.isArray(value)) {
-    let cached = wrappingCache.get(value);
-    if (cached === undefined) {
-      cached = new Proxy(value, arrayWrappingHandler);
-      wrappingCache.set(value, cached);
+    let wrapper = NESTED_WRAPPERS.get(value);
+    if (wrapper === undefined) {
+      wrapper = new ArrayWrappingHandler(value, owner);
+      NESTED_WRAPPERS.set(value, wrapper);
     }
-    return cached;
+    return wrapper.proxy;
   }
 
   if (Object.getPrototypeOf(value) === ObjectProto) {
-    let cached = wrappingCache.get(value);
-    if (cached === undefined) {
-      cached = new Proxy(value as Record<string, unknown>, objectWrappingHandler);
-      wrappingCache.set(value, cached);
+    let wrapper = NESTED_WRAPPERS.get(value);
+    if (wrapper === undefined) {
+      wrapper = new ObjectWrappingHandler(value as Record<string, unknown>, owner);
+      NESTED_WRAPPERS.set(value, wrapper);
     }
-    return cached;
+    return wrapper.proxy;
   }
 
   return value;
 }
 
-const arrayWrappingHandler: ProxyHandler<unknown[]> = {
-  get(target, prop, receiver) {
+/**
+ * Each wrapper is its own proxy handler. The traps consume `changes`, which
+ * fires when the wrapped value's contents change in place: something that
+ * holds only the wrapper (a child component given `entity.price` as a prop)
+ * has no other dependency that would re-run it, and the wrapper keeps its
+ * identity across the change. Values read through the wrapper inherit
+ * `owner`, a live collection's notifier, or get their own.
+ */
+class ArrayWrappingHandler implements ProxyHandler<unknown[]>, NestedWrapper {
+  readonly proxy: unknown[];
+  changes: Notifier | undefined;
+  readonly owner: Notifier | undefined;
+
+  constructor(target: unknown[], owner: Notifier | undefined) {
+    this.changes = owner;
+    this.owner = owner;
+    this.proxy = new Proxy(target, this);
+  }
+
+  get(target: unknown[], prop: string | symbol, receiver: unknown): unknown {
+    // Every read, `length` and the iteration methods included: an in-place
+    // push changes what all of them return.
+    (this.changes ??= notifier()).consume();
     if (typeof prop === 'string') {
       const idx = Number(prop);
       if (Number.isInteger(idx) && idx >= 0 && idx < target.length) {
-        return wrapValue(target[idx]);
+        return wrapValue(target[idx], this.owner);
       }
     }
     return Reflect.get(target, prop, receiver);
-  },
-  set() {
-    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
-    return false;
-  },
-  deleteProperty() {
-    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
-    return false;
-  },
-};
+  }
 
-const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
-  get(target, prop, receiver) {
+  set(): boolean {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
+    return false;
+  }
+
+  deleteProperty(): boolean {
+    if (IS_DEV) throw new Error('Cannot mutate a read-only array');
+    return false;
+  }
+}
+
+class ObjectWrappingHandler implements ProxyHandler<Record<string, unknown>>, NestedWrapper {
+  readonly proxy: Record<string, unknown>;
+  changes: Notifier | undefined;
+  readonly owner: Notifier | undefined;
+
+  constructor(target: Record<string, unknown>, owner: Notifier | undefined) {
+    this.changes = owner;
+    this.owner = owner;
+    this.proxy = new Proxy(target, this);
+  }
+
+  get(target: Record<string, unknown>, prop: string | symbol, receiver: unknown): unknown {
     if (typeof prop === 'string') {
-      return wrapValue(target[prop]);
+      (this.changes ??= notifier()).consume();
+      return wrapValue(target[prop], this.owner);
     }
     return Reflect.get(target, prop, receiver);
-  },
-  set() {
+  }
+
+  set(): boolean {
     if (IS_DEV) throw new Error('Cannot mutate a read-only object');
     return false;
-  },
-  deleteProperty() {
+  }
+
+  deleteProperty(): boolean {
     if (IS_DEV) throw new Error('Cannot mutate a read-only object');
     return false;
-  },
-  has(target, prop) {
+  }
+
+  // A live value's reducer can add or remove keys in place.
+  has(target: Record<string, unknown>, prop: string | symbol): boolean {
+    (this.changes ??= notifier()).consume();
     return prop in target;
-  },
-  ownKeys(target) {
+  }
+
+  ownKeys(target: Record<string, unknown>): ArrayLike<string | symbol> {
+    (this.changes ??= notifier()).consume();
     return Reflect.ownKeys(target);
-  },
-  getOwnPropertyDescriptor(target, prop) {
+  }
+
+  getOwnPropertyDescriptor(target: Record<string, unknown>, prop: string | symbol): PropertyDescriptor | undefined {
     return Object.getOwnPropertyDescriptor(target, prop);
-  },
-};
+  }
+}
 
 // ======================================================
 // Custom snapshot for entity proxies — bridges Signalium v3's `useReactive`
@@ -1179,7 +1237,7 @@ function createProxy(
 
       entityNotifier.consume();
 
-      return wrapValue(readField(prop));
+      return wrapValue(readField(prop), undefined);
     },
 
     set() {

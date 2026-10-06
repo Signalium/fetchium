@@ -14,6 +14,7 @@ import { FormattedValue, ValidatorDef } from './typeDefs.js';
 import { Mask } from './types.js';
 import { createLiveCollection, LiveCollectionBinding } from './LiveCollection.js';
 import { PROXY_ID } from './proxyId.js';
+import { notifyNestedValue } from './nestedNotifiers.js';
 
 const entries = Object.entries;
 const ObjectProto = Object.prototype;
@@ -350,6 +351,9 @@ function mergeFields(
             )
           ) {
             changed = true;
+            // Merged in place, so the value keeps its identity: tell whoever
+            // holds just this value (a child given it as a prop).
+            if (target === oldVal) notifyNestedValue(oldVal);
             existingData[fieldKey] = target;
           } else {
             existingData[fieldKey] = oldVal;
@@ -364,7 +368,10 @@ function mergeFields(
               merged = true;
             }
           }
-          if (merged) changed = true;
+          if (merged) {
+            changed = true;
+            if (target === oldVal) notifyNestedValue(oldVal);
+          }
           existingData[fieldKey] = merged ? target : oldVal;
         } else {
           // A key was added or removed. Copying field by field would never
