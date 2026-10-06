@@ -42,8 +42,11 @@ describe('sameValue', () => {
     expect(sameValue(proxy, proxy)).toBe(true);
   });
 
-  it('reports NaN as changed, since it is not equal to itself', () => {
-    expect(sameValue(Number.NaN, Number.NaN)).toBe(false);
+  it('treats NaN as unchanged and -0 as a change (Object.is semantics)', () => {
+    // Re-applying a NaN field must not notify on every refetch, and the sign
+    // of zero is observable through `Object.is` on a proxy read.
+    expect(sameValue(Number.NaN, Number.NaN)).toBe(true);
+    expect(sameValue(0, -0)).toBe(false);
   });
 
   const different: [string, unknown, unknown][] = [

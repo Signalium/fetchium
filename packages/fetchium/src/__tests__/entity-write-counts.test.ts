@@ -40,8 +40,19 @@ class GetList extends RESTQuery {
   result = { list: t.entity(List) };
 }
 
-function itemSaves(spy: ReturnType<typeof vi.spyOn>, typename = 'Item') {
-  return spy.mock.calls.filter(([, value]) => (value as Record<string, unknown>)?.__typename === typename);
+/** Every entity write, whether it replaced the record or merged into it. */
+function spyEntityWrites(store: { saveEntity: (...args: any[]) => void; mergeEntity: (...args: any[]) => void }) {
+  const save = vi.spyOn(store, 'saveEntity');
+  const merge = vi.spyOn(store, 'mergeEntity');
+  return {
+    get calls() {
+      return [...save.mock.calls, ...merge.mock.calls];
+    },
+  };
+}
+
+function itemSaves(spy: { calls: unknown[][] }, typename = 'Item') {
+  return spy.calls.filter(([, value]) => (value as Record<string, unknown>)?.__typename === typename);
 }
 
 describe('Entity Write Counts', () => {
@@ -56,7 +67,7 @@ describe('Entity Write Counts', () => {
       await query;
     });
 
-    const saveEntity = vi.spyOn(store, 'saveEntity');
+    const saveEntity = spyEntityWrites(store);
     client.applyMutationEvent({ type: 'update', typename: 'Item', data: { id: 'i-1', name: 'B' } });
 
     expect(itemSaves(saveEntity)).toHaveLength(1);
@@ -72,7 +83,7 @@ describe('Entity Write Counts', () => {
       await query;
     });
 
-    const saveEntity = vi.spyOn(store, 'saveEntity');
+    const saveEntity = spyEntityWrites(store);
 
     // A subscription re-broadcasting what the store already holds: the apply
     // declines the write, and nothing writes on its behalf afterwards.
@@ -95,7 +106,7 @@ describe('Entity Write Counts', () => {
       await query;
     });
 
-    const saveEntity = vi.spyOn(store, 'saveEntity');
+    const saveEntity = spyEntityWrites(store);
     client.applyMutationEvent({
       type: 'create',
       typename: 'Item',
@@ -123,7 +134,7 @@ describe('Entity Write Counts', () => {
       await query;
     });
 
-    const saveEntity = vi.spyOn(store, 'saveEntity');
+    const saveEntity = spyEntityWrites(store);
     client.applyMutationEvent({
       type: 'create',
       typename: 'Item',
@@ -152,7 +163,7 @@ describe('Entity Write Counts', () => {
       listQuery = query as unknown as typeof listQuery;
     });
 
-    const saveEntity = vi.spyOn(store, 'saveEntity');
+    const saveEntity = spyEntityWrites(store);
     // The item is already current in the store from the first query, so the
     // apply declines its write. The insert must not put one back.
     client.applyMutationEvent({

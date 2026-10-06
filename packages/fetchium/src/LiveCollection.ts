@@ -66,6 +66,8 @@ export interface LiveCollectionParent {
   addChildRef(child: EntityInstance, persist?: boolean): void;
   removeChildRef(child: EntityInstance, persist?: boolean): void;
   save(): void;
+  /** A live field's membership changed outside an apply (an event was routed into it). */
+  liveFieldChanged?(fieldKey: string): void;
 }
 
 // ======================================================
@@ -153,8 +155,9 @@ export class LiveCollectionBinding {
     typename: string,
     entityKey: number,
     eventType: 'create' | 'update' | 'delete',
-    onMatch?: () => void,
+    onMatch?: (willRetain: boolean) => void,
     deleteData?: Record<string, unknown>,
+    dryRun: boolean = false,
   ): void {
     const defs = this._entityDefsByTypename.get(typename);
     if (defs === undefined) return;
@@ -175,8 +178,8 @@ export class LiveCollectionBinding {
       }
       const entity = entityInstance !== undefined ? entityInstance.getProxy(def as unknown as EntityDef) : deleteData;
       if (entity !== undefined) {
-        this.instance.onEvent(entityKey, entity, deleteData ?? entityInstance?.data ?? {}, 'delete');
-        onMatch?.();
+        if (!dryRun) this.instance.onEvent(entityKey, entity, deleteData ?? entityInstance?.data ?? {}, 'delete');
+        onMatch?.(false);
       }
       return;
     }
@@ -189,7 +192,9 @@ export class LiveCollectionBinding {
     if (def === undefined) return;
     if (!entityInstance.satisfiesDef(def as unknown as ValidatorDef<unknown>)) return;
 
-    onMatch?.();
+    // A live array retains what it adds; a live value only reduces over it.
+    onMatch?.(this.instance instanceof LiveArrayInstance);
+    if (dryRun) return;
     const proxy = entityInstance.getProxy(def as unknown as EntityDef);
     this.instance.onEvent(entityKey, proxy, entityInstance.data, eventType);
   }
@@ -214,6 +219,8 @@ export class LiveArrayInstance {
   _queryClient: QueryClient;
   _parent: LiveCollectionParent;
 
+  _fieldKey: string | undefined;
+
   constructor(
     queryClient: QueryClient,
     parent: LiveCollectionParent,
@@ -221,12 +228,14 @@ export class LiveArrayInstance {
     constraintFieldPaths?: FieldPath[],
     constraintHash?: number,
     sort?: (a: unknown, b: unknown) => number,
+    fieldKey?: string,
   ) {
     this._notifier = notifier();
     this._items = items;
     this._keys = buildKeySet(items);
     this._queryClient = queryClient;
     this._parent = parent;
+    this._fieldKey = fieldKey;
 
     const needsFilter = constraintFieldPaths !== undefined && constraintHash !== undefined;
     const needsSort = sort !== undefined;
@@ -309,6 +318,7 @@ export class LiveArrayInstance {
     this._keys.add(key);
     this._items.push(proxy);
 
+    if (this._fieldKey !== undefined) this._parent.liveFieldChanged?.(this._fieldKey);
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
       // Only the parent's ref set needs persisting; the child's record is current.
@@ -325,6 +335,7 @@ export class LiveArrayInstance {
     const idx = this._findIndex(key);
     if (idx !== -1) this._items.splice(idx, 1);
 
+    if (this._fieldKey !== undefined) this._parent.liveFieldChanged?.(this._fieldKey);
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
       this._parent.removeChildRef(child);
@@ -498,6 +509,7 @@ export function createLiveCollection(
   parent: LiveCollectionParent,
   parentData: Record<string, unknown>,
   queryClient: QueryClient,
+  fieldKey?: string,
 ): LiveCollectionBinding {
   let constraintFieldRefs = config.constraintFieldRefs;
 
@@ -540,6 +552,7 @@ export function createLiveCollection(
       arrayConstraintFieldPaths,
       arrayConstraintHash,
       config.sort,
+      fieldKey,
     );
   } else {
     inner = new LiveValueInstance(
@@ -597,7 +610,7 @@ export function initializeLiveFields(
         }
         data[fieldName] = existing;
       } else {
-        data[fieldName] = createLiveCollection(config, data[fieldName], parent, data, queryClient);
+        data[fieldName] = createLiveCollection(config, data[fieldName], parent, data, queryClient, fieldName);
       }
     } else if (
       (fieldDef.mask & Mask.OBJECT) !== 0 &&

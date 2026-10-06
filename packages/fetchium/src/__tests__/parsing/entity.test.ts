@@ -39,11 +39,11 @@ describe('Entity parsing', () => {
       },
     };
 
-    await parseEntities(result, QueryResult, client, new Map());
+    const parsed = (await parseEntities(result, QueryResult, client, new Map())) as { data: unknown };
 
-    expect(result.data).toBeInstanceOf(Entity);
-    expect(result.data).toBeInstanceOf(User);
-    expect(Object.getPrototypeOf(result.data)).toBe(User.prototype);
+    expect(parsed.data).toBeInstanceOf(Entity);
+    expect(parsed.data).toBeInstanceOf(User);
+    expect(Object.getPrototypeOf(parsed.data)).toBe(User.prototype);
   });
 
   describe('nested entities', () => {

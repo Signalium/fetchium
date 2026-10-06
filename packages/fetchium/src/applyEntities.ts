@@ -28,21 +28,44 @@ export interface ApplyResult {
 }
 
 /**
+ * Whether an apply writes to the store. `true` writes every entity that needs
+ * it; `false` writes nothing (a cache hydration); `'existing'` writes entities
+ * that already existed in memory and not the ones this apply creates: those
+ * are written when a written record references them (`EntityInstance.save`
+ * writes a record's missing children first), or by the caller once it knows
+ * the root is retained (a streamed event whose root may end up routed
+ * nowhere).
+ */
+export type PersistMode = boolean | 'existing';
+
+/**
  * Single depth-first walk from the root that applies entities to the store,
  * replaces parsed data objects with entity proxies, and counts child refs.
  */
 export function applyEntityRefs(
   ctx: ParseContext,
   rootData: unknown,
-  persist: boolean,
+  persist: PersistMode,
   appendMode: boolean = false,
+  created?: Set<EntityInstance>,
 ): ApplyResult {
   const queryClient = ctx.queryClient!;
   queryClient.currentParseId++;
 
   const seen = ctx.seen!;
   const entityRefs = new Map<EntityInstance, number>();
-  const data = reifyAndApply(rootData, seen, queryClient, persist, entityRefs, appendMode);
+  let data: unknown;
+  try {
+    data = reifyAndApply(rootData, seen, queryClient, persist, entityRefs, appendMode, created);
+  } catch (e) {
+    queryClient.discardDeferredWrites();
+    throw e;
+  }
+
+  // Entities a written record referenced while they were still being reified
+  // (a payload that links back to an ancestor) are complete now, and so are
+  // the records that reference them.
+  queryClient.flushDeferredWrites();
 
   return { data, entityRefs };
 }
@@ -55,22 +78,26 @@ function reifyAndApply(
   value: unknown,
   seen: Map<Record<string, unknown>, ParsedEntity>,
   queryClient: QueryClient,
-  persist: boolean,
+  persist: PersistMode,
   entityRefs: Map<EntityInstance, number>,
   appendMode: boolean,
+  created: Set<EntityInstance> | undefined,
 ): unknown {
   if (typeof value !== 'object' || value === null) return value;
 
   const entity = seen.get(value as Record<string, unknown>);
   if (entity !== undefined) {
-    return applyEntity(entity, seen, queryClient, persist, entityRefs, appendMode);
+    return applyEntity(entity, seen, queryClient, persist, entityRefs, appendMode, created);
   }
 
+  // Only a slot whose value changes is written: values the parser did not
+  // declare (and so did not copy) may belong to the caller, and be frozen.
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const item = value[i];
       if (typeof item === 'object' && item !== null && !(item instanceof FormattedValue) && !PROXY_ID.has(item)) {
-        value[i] = reifyAndApply(item, seen, queryClient, persist, entityRefs, appendMode);
+        const reified = reifyAndApply(item, seen, queryClient, persist, entityRefs, appendMode, created);
+        if (reified !== item) value[i] = reified;
       }
     }
     return value;
@@ -81,7 +108,8 @@ function reifyAndApply(
     for (const key of Object.keys(obj)) {
       const v = obj[key];
       if (typeof v === 'object' && v !== null && !(v instanceof FormattedValue) && !PROXY_ID.has(v)) {
-        obj[key] = reifyAndApply(v, seen, queryClient, persist, entityRefs, appendMode);
+        const reified = reifyAndApply(v, seen, queryClient, persist, entityRefs, appendMode, created);
+        if (reified !== v) obj[key] = reified;
       }
     }
   }
@@ -101,12 +129,24 @@ function applyEntity(
   entity: ParsedEntity,
   seen: Map<Record<string, unknown>, ParsedEntity>,
   queryClient: QueryClient,
-  persist: boolean,
+  persist: PersistMode,
   parentEntityRefs: Map<EntityInstance, number>,
   appendMode: boolean,
+  created: Set<EntityInstance> | undefined,
 ): Record<string, unknown> {
-  const { key, data, shape: entityShape, rawKeys } = entity;
+  const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial } = entity;
   const shapeFields = entityShape.shape;
+
+  // The same entity can appear more than once in one payload (an author under
+  // `author` and again under `mentions`). The parser hands every slot the one
+  // parsed object, so the walk arrives here once per slot; applying it again
+  // would find its children already reified, count none of them and release
+  // every child ref. Count this slot's reference and hand out the proxy.
+  const applied = queryClient.entityMap.getEntity(key);
+  if (applied !== undefined && applied.parseId === queryClient.currentParseId) {
+    parentEntityRefs.set(applied, (parentEntityRefs.get(applied) ?? 0) + 1);
+    return applied.getProxy(entityShape);
+  }
 
   const entityInstance = queryClient.prepareEntity(key, data, entityShape);
   const existingData = entityInstance.data;
@@ -122,24 +162,55 @@ function applyEntity(
   // A refetch or a poll that returns identical data is a no-op: nothing to
   // notify consumers about, and nothing new to write to the store.
   let changed = true;
-  if (isUpdate) {
-    changed = mergeFields(
-      shapeFields,
-      data,
-      existingData,
-      rawKeys,
-      entityInstance,
-      existingData,
-      seen,
-      queryClient,
-      persist,
-      childRefs,
-      appendMode,
-    );
-    if (changed) entityInstance.notify();
-  } else {
-    initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode);
+  // Until the fields are reified the data is not a record yet: a write that
+  // reaches this instance through a reference from inside its own subtree is
+  // deferred to the end of the walk.
+  entityInstance._applying = true;
+  try {
+    if (isUpdate) {
+      changed = mergeFields(
+        shapeFields,
+        data,
+        existingData,
+        rawKeys,
+        entityInstance,
+        existingData,
+        seen,
+        queryClient,
+        persist,
+        childRefs,
+        appendMode,
+        created,
+      );
+      if ((persist === true && rawKeys === undefined) || fillsPartial) {
+        // A full payload (a fetch), or the record's fields merged in, makes
+        // the data a complete record again.
+        entityInstance._partial = false;
+        entityInstance._partialKeys = undefined;
+      } else if (entityInstance._partial && rawKeys !== undefined) {
+        for (const k of rawKeys) entityInstance._partialKeys!.add(k);
+      }
+    } else {
+      initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
+      if (eventKeys !== undefined) {
+        // Streamed events are partial: what this entity holds is what its
+        // events carried, not necessarily the whole record.
+        entityInstance._partial = true;
+        entityInstance._partialKeys = new Set(eventKeys);
+        // A record always carries its typename and id, whether or not the
+        // event did (the parser fills the literal in).
+        if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
+        if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
+      } else if (persist === false) {
+        // Hydrated from the store: its record exists.
+        entityInstance._recorded = true;
+      }
+      if (persist === 'existing') created?.add(entityInstance);
+    }
+  } finally {
+    entityInstance._applying = false;
   }
+  if (isUpdate && changed) entityInstance.notify();
 
   if (appendMode && entityInstance.liveCollections.length > 0) {
     for (const binding of entityInstance.liveCollections) {
@@ -159,9 +230,17 @@ function applyEntity(
 
   const newRefs = childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
-  // An entity hydrated from the store was never written, so there is no write to skip.
-  const needsPersist = changed || refsChanged || !entityInstance._persisted || !queryClient.storeReportsDeletes;
-  entityInstance.setChildRefs(newRefs, persist && needsPersist);
+  // An entity hydrated from the store was never written, so there is no write
+  // to skip. A skip is also only safe while the store has nothing queued: a
+  // deletion it has yet to process could drop the record this apply trusts.
+  const needsPersist =
+    changed ||
+    refsChanged ||
+    !entityInstance._persisted ||
+    !queryClient.storeReportsDeletes ||
+    !queryClient.storeIsSettled();
+  const writes = persist === true || (persist === 'existing' && isUpdate);
+  entityInstance.setChildRefs(newRefs, writes && needsPersist);
 
   const proxy = entityInstance.getProxy(entityShape);
 
@@ -183,16 +262,17 @@ function mergeFields(
   entityData: Record<string, unknown>,
   seen: Map<Record<string, unknown>, ParsedEntity>,
   queryClient: QueryClient,
-  persist: boolean,
+  persist: PersistMode,
   childRefs: Map<EntityInstance, number>,
   appendMode: boolean,
+  created: Set<EntityInstance> | undefined,
 ): boolean {
   let changed = false;
   for (const [fieldKey, propShape] of entries(shape)) {
     if (rawKeys !== undefined && !rawKeys.has(fieldKey)) continue;
 
     if (shouldReify(data[fieldKey])) {
-      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode);
+      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode, created);
     }
 
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
@@ -208,13 +288,14 @@ function mergeFields(
           entityInstance,
           entityData,
           queryClient,
+          fieldKey,
         );
         changed = true;
       }
     } else {
       const newVal = data[fieldKey];
       const oldVal = existingData[fieldKey];
-      if (newVal === oldVal) continue;
+      if (Object.is(newVal, oldVal)) continue;
       // Replace a union wholesale instead of merging by field, otherwise a
       // changed variant keeps the old variant's fields. Unlike entity unions,
       // there is no partial-update path to preserve here: a partial variant
@@ -248,6 +329,7 @@ function mergeFields(
               persist,
               childRefs,
               appendMode,
+              created,
             )
           ) {
             changed = true;
@@ -295,7 +377,8 @@ export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>)
  * they were built from, arrays and plain objects element by element.
  */
 export function sameValue(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
+  // `Object.is`: re-applying NaN is not a change, and `-0` over `0` is one.
+  if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (a instanceof FormattedValue || b instanceof FormattedValue) {
     return a instanceof FormattedValue && b instanceof FormattedValue && a._raw === b._raw;
@@ -354,15 +437,16 @@ function initFields(
   entityData: Record<string, unknown>,
   seen: Map<Record<string, unknown>, ParsedEntity>,
   queryClient: QueryClient,
-  persist: boolean,
+  persist: PersistMode,
   childRefs: Map<EntityInstance, number>,
   appendMode: boolean,
+  created: Set<EntityInstance> | undefined,
 ): void {
   for (const [fieldKey, propShape] of entries(shape)) {
     if (!(fieldKey in data)) continue;
 
     if (shouldReify(data[fieldKey])) {
-      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode);
+      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode, created);
     }
 
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
@@ -372,6 +456,7 @@ function initFields(
         entityInstance,
         entityData,
         queryClient,
+        fieldKey,
       );
     } else {
       const val = data[fieldKey];
@@ -390,7 +475,18 @@ function initFields(
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
         if (nestedShape !== undefined) {
-          initFields(nestedShape, val, entityInstance, entityData, seen, queryClient, persist, childRefs, appendMode);
+          initFields(
+            nestedShape,
+            val,
+            entityInstance,
+            entityData,
+            seen,
+            queryClient,
+            persist,
+            childRefs,
+            appendMode,
+            created,
+          );
         }
       }
     }

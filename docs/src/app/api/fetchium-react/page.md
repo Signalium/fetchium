@@ -132,7 +132,7 @@ const SearchResults = component(() => {
 
 - `useQuery` is a thin wrapper around Signalium v3's `useReactive`, which is deep-by-default. It returns a **structurally-shared snapshot** of the query result, so memoized children that receive subtrees as props keep stable references when the underlying data is unchanged.
 - Fetchium registers a custom snapshot for entity proxies so the snapshot walks into entities (instead of returning them by reference), giving you correct re-rendering on entity field changes.
-- The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Use `draft()` from `fetchium` if you need a mutable copy for mutations.
+- The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Treat it as read-only: in development builds the snapshot and every nested object and array in it are frozen, so an in-place `sort()`, a `push()` or an assignment in render throws a `TypeError` at that line. Production snapshots are not frozen, and a mutation there is carried forward until the entity changes. Sort a copy (`[...items].sort()`) or use `draft()` from `fetchium` if you need a mutable copy for mutations.
 - `useQuery` never suspends. Reading `.value` while pending returns `undefined`. Use [`useSuspenseQuery`](#usesuspensequery) to suspend on a cold miss.
 
 ---

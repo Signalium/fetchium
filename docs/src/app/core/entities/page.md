@@ -58,7 +58,7 @@ class GetPost extends RESTQuery {
 ```
 
 {% callout type="warning" %}
-Entities are **read-only**. Attempting to set a property on an entity will throw an error in development mode. To update entity data, use mutations or streaming updates.
+Entities are **read-only**, and so are the snapshots `useQuery` and `useReactive` take of them. Attempting to set a property on an entity, or on a snapshot in a development build, will throw an error. To update entity data, use mutations or streaming updates.
 {% /callout %}
 
 ---

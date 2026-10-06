@@ -289,6 +289,8 @@ Fetchium uses a compile-time constant `IS_DEV` to enable additional runtime chec
 
 - **Parse validation warnings** --- detailed logs when response data doesn't match your type definitions
 - **Entity write protection** --- throws when you accidentally try to mutate an entity property directly (entities are read-only)
+- **Frozen snapshots** --- the snapshots `useQuery` and `useReactive` hand out are frozen, so mutating one (an in-place `sort()`, an assignment in render) throws a `TypeError` at the offending line instead of silently corrupting what the next render shows
+- **Stale-snapshot detection** --- a snapshot taken at an unchanged entity version re-reads only the fields whose values live elsewhere; development builds re-read the rest too and, if one changed, serve the re-read value, log the discrepancy through the client's `log.error`, and raise it once per typename and field as an uncaught error
 - **Reference validation** --- catches common mistakes like using conditional logic in class field definitions
 
 In production builds, all `IS_DEV` code paths are tree-shaken, so there is zero runtime cost.

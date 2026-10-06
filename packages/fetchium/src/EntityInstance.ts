@@ -159,6 +159,17 @@ function snapshotCameFrom(snapshotObj: unknown, sourceId: number): boolean {
   return snapshotOrigins.get(snapshotObj)?.sourceId === sourceId;
 }
 
+/**
+ * Dev builds hand out frozen snapshots. A consumer that mutates one (a
+ * `sort()` in render, an assignment) then fails at its own call site with a
+ * TypeError and a stack trace, instead of the fast path quietly carrying the
+ * mutation forward. Production keeps the objects mutable: freezing costs a
+ * call per new container and the contract is documented instead.
+ */
+function freezeInDev<T extends object>(obj: T): T {
+  return IS_DEV ? Object.freeze(obj) : obj;
+}
+
 function asPrevObject(prev: unknown): Record<string, unknown> | undefined {
   return prev !== null && typeof prev === 'object' && !Array.isArray(prev)
     ? (prev as Record<string, unknown>)
@@ -198,9 +209,11 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
       }
       const next = snapshotRawValue(item, prevItem, snap);
       result[i] = next;
-      if (!changed && next !== prevArr![i]) changed = true;
+      // `Object.is`, not `!==`: a NaN slot must not mark the array changed on
+      // every walk, or the snapshot never reaches a stable identity.
+      if (!changed && !Object.is(next, prevArr![i])) changed = true;
     }
-    return changed ? result : prevArr!;
+    return changed ? freezeInDev(result) : prevArr!;
   }
 
   if (Object.getPrototypeOf(value) === ObjectProto) {
@@ -213,12 +226,66 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
       const key = keys[i];
       const next = snapshotRawValue(obj[key], prevObj?.[key], snap);
       result[key] = next;
-      if (!changed && next !== prevObj![key]) changed = true;
+      if (!changed && !Object.is(next, prevObj![key])) changed = true;
     }
-    return changed ? result : prevObj!;
+    return changed ? freezeInDev(result) : prevObj!;
   }
 
   return snap(value, prev);
+}
+
+/**
+ * Structural equality of two snapshot values (plain objects, arrays, and
+ * primitives compared with `Object.is`). Used by the dev guard to tell a real
+ * drift from a value that merely lost reference identity, e.g. a `Set` a
+ * format parser returned, which Signalium's `snapshotSet` rebuilds each walk.
+ */
+function sameSnapshotValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameSnapshotValue(a[i], b[i])) return false;
+    return true;
+  }
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) return false;
+    // A rebuilt Set (Signalium's `snapshotSet` copies one every walk) keeps
+    // the insertion order, so pair members by position first and only search
+    // for a member that fails to line up. This keeps the common case linear.
+    const bItems = [...b];
+    // Indices of `b` already paired, tracked from the first misalignment on.
+    let matched: Set<number> | undefined;
+    let i = 0;
+    for (const item of a) {
+      if (matched === undefined && sameSnapshotValue(item, bItems[i])) {
+        i++;
+        continue;
+      }
+      if (matched === undefined) {
+        matched = new Set();
+        for (let k = 0; k < i; k++) matched.add(k);
+      }
+      const j = bItems.findIndex((other, idx) => !matched!.has(idx) && sameSnapshotValue(item, other));
+      if (j === -1) return false;
+      matched.add(j);
+      i++;
+    }
+    return true;
+  }
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map) || !(b instanceof Map) || a.size !== b.size) return false;
+    for (const [k, v] of a) if (!b.has(k) || !sameSnapshotValue(v, b.get(k))) return false;
+    return true;
+  }
+  if (Object.getPrototypeOf(a) !== ObjectProto || Object.getPrototypeOf(b) !== ObjectProto) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (const key of aKeys) {
+    if (!Object.hasOwn(b, key)) return false;
+    if (!sameSnapshotValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
 }
 
 /** Dev-only counters: losing the fast path is invisible to behavioral tests. */
@@ -245,12 +312,44 @@ function walkFields(
   }
 }
 
+/**
+ * The pre-fast-path walk: `Object.keys` on the proxy and a read per key. Kept
+ * for a proxy this module instance did not create — after a hot reload
+ * re-evaluates this file, proxies made by the previous instance are still
+ * live but absent from the new `snapshotSources`.
+ */
+function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn): unknown {
+  const obj = current as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  const prevObj = asPrevObject(prev);
+  let changed = prevObj === undefined || Object.keys(prevObj).length !== keys.length;
+  const result: Record<string, unknown> = {};
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const val = obj[key];
+    const next = typeof val === 'function' ? val : snap(val, prevObj?.[key]);
+    result[key] = next;
+    if (!changed && !Object.is(next, prevObj![key])) changed = true;
+  }
+  return changed ? freezeInDev(result) : prevObj;
+}
+
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
   const source = snapshotSources.get(current);
-  // An `Entity` that never went through `createProxy` has no fields to read —
-  // its own properties are the shape's type defs. Hand it back untouched, the
-  // way Signalium treats any class it has no handler for.
-  if (source === undefined) return current;
+  if (source === undefined) {
+    // A proxy from another instance of this module (hot reload re-evaluated
+    // this file and its registries, but the proxies are still live): walk it
+    // the old way rather than handing the proxy back, which would stop React
+    // from ever re-rendering on its changes. Every entity proxy answers
+    // `toJSON`; a bare `Entity` instance does not.
+    if (PROXY_ID.has(current) || typeof (current as { toJSON?: unknown }).toJSON === 'function') {
+      return snapshotProxyByWalking(current, prev, snap);
+    }
+    // An `Entity` that never went through `createProxy` has no fields to read —
+    // its own properties are the shape's type defs. Hand it back untouched, the
+    // way Signalium treats any class it has no handler for.
+    return current;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   source.relay?.value;
@@ -276,14 +375,33 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
     let result: Record<string, unknown> | undefined;
     for (let i = 0; i < keys.dynamic.length; i++) {
       const key = keys.dynamic[i];
-      if (patch[key] !== before[key]) {
+      if (!Object.is(patch[key], before[key])) {
         if (result === undefined) result = { ...before };
         result[key] = patch[key];
       }
     }
 
-    if (IS_DEV) assertStaticFieldsUnchanged(source, keys, before, snap);
-    return rememberSnapshot(source.id, result ?? before, version, keys);
+    if (IS_DEV) {
+      // Dev builds re-read what the fast path skipped. A field that drifted is
+      // served from the re-read (the pre-fast-path behaviour) and reported,
+      // rather than thrown: a throw from inside a snapshot lands in Signalium's
+      // watcher flush, which has no catch, and stalls every consumer on the page.
+      const drifted = verifyStaticFields(source, keys, before, snap);
+      if (drifted !== undefined) {
+        if (result === undefined) result = { ...before };
+        for (const key of Object.keys(drifted)) result[key] = drifted[key];
+      }
+      // A consumer that added or deleted keys on the snapshot it was handed:
+      // rebuild with the shape's keys, in the shape's order, as a walk would.
+      if (!sameKeyList(Object.keys(before), keys.enumerable)) {
+        const source_ = result ?? before;
+        const rebuilt: Record<string, unknown> = {};
+        for (const key of keys.enumerable) rebuilt[key] = source_[key];
+        result = rebuilt;
+        reportDrift(source, '(keys)', 'its key set was altered');
+      }
+    }
+    return rememberSnapshot(source.id, result !== undefined ? freezeInDev(result) : before, version, keys);
   }
 
   if (IS_DEV) __debug_snapshotFullWalks++;
@@ -294,47 +412,97 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   let changed = prevObj === undefined || Object.keys(prevObj).length !== enumerable.length;
   if (!changed) {
     for (let i = 0; i < enumerable.length; i++) {
-      if (result[enumerable[i]] !== prevObj![enumerable[i]]) {
+      if (!Object.is(result[enumerable[i]], prevObj![enumerable[i]])) {
         changed = true;
         break;
       }
     }
   }
-  return rememberSnapshot(source.id, changed ? result : prevObj!, version, keys);
+  return rememberSnapshot(source.id, changed ? freezeInDev(result) : prevObj!, version, keys);
 };
 
+function sameKeyList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Dev-only: (typename, field) pairs already reported, so a drift is raised once. */
+const reportedDrift = new Set<string>();
+
+export type SnapshotDriftHandler = (error: Error, queryClient: QueryClient) => void;
+
 /**
- * Guards the fast path's assumptions: `data` only changes through a `notify()`
+ * Dev-only default: log through the client's logger, then raise the error
+ * outside the snapshot so it surfaces as an uncaught error (a red box in
+ * React Native, "Uncaught Error" in a browser, a failed run under vitest)
+ * without throwing from inside Signalium's watcher flush, which has no catch
+ * and would stop every consumer on the page from updating.
+ */
+const defaultDriftHandler: SnapshotDriftHandler = (error, queryClient) => {
+  queryClient.getContext().log?.error?.(error.message, error);
+  queueMicrotask(() => {
+    throw error;
+  });
+};
+
+let snapshotDriftHandler: SnapshotDriftHandler = defaultDriftHandler;
+
+/**
+ * Dev-only test hook: replace how a stale snapshot is raised, and forget which
+ * fields were already raised. `undefined` restores the default handler.
+ */
+export function __setSnapshotDriftHandler(handler: SnapshotDriftHandler | undefined): void {
+  snapshotDriftHandler = handler ?? defaultDriftHandler;
+  reportedDrift.clear();
+}
+
+function reportDrift(source: EntitySnapshotSource, key: string, what: string): void {
+  const tag = `${source.instance.typename}.${key}`;
+  if (reportedDrift.has(tag)) return;
+  reportedDrift.add(tag);
+  const error = new Error(
+    `[fetchium] stale entity snapshot: ${source.instance.typename}:${source.instance.id} ${what} while version ` +
+      `stayed at ${source.instance.version}. The re-read value is being served, but a production build would keep ` +
+      `the stale one. Either the field was mutated without notify(), the shape's static/dynamic split is wrong ` +
+      `for it, or a consumer mutated a snapshot it received (dev snapshots are frozen so that fails at the call ` +
+      `site; in production they are not). Raised once per field.`,
+  );
+  snapshotDriftHandler(error, source.instance._queryClient);
+}
+
+/**
+ * Checks the fast path's assumptions: `data` only changes through a `notify()`
  * that bumps `version`, and every field outside `keys.dynamic` is a pure
- * function of `data`. Either breaking strands a snapshot permanently, which no
- * behavioral test catches. Skipped fields only — re-reading a dynamic field is
- * not identity-stable, since snapshotting a child updates state it pairs on.
+ * function of `data`. Re-reads the skipped fields and returns the ones whose
+ * value differs structurally from the cached snapshot (identity alone is not
+ * enough: a `Set` from a format parser is rebuilt on every walk), or
+ * `undefined` when nothing drifted. Skipped fields only — re-reading a dynamic
+ * field is not identity-stable, since snapshotting a child updates state it
+ * pairs on.
  *
  * This costs dev builds the read the fast path saved, so the speedup shows up
  * in production builds only.
  */
-function assertStaticFieldsUnchanged(
+function verifyStaticFields(
   source: EntitySnapshotSource,
   keys: EntityKeys,
   before: Record<string, unknown>,
   snap: SnapshotFn,
-): void {
+): Record<string, unknown> | undefined {
   const verified: Record<string, unknown> = {};
   const readsBefore = __debug_snapshotFieldReads;
   walkFields(source, keys.static, before, snap, verified);
   // This walk is verification, not work the fast path did.
   __debug_snapshotFieldReads = readsBefore;
+  let drifted: Record<string, unknown> | undefined;
   for (const key of keys.static) {
-    if (verified[key] !== before[key]) {
-      throw new Error(
-        `[fetchium] stale entity snapshot: ${source.instance.typename}:${source.instance.id} field '${key}' ` +
-          `changed while version stayed at ${source.instance.version}. Either the field was mutated without ` +
-          `notify(), or the shape's static/dynamic split is wrong for it. This throws from inside a snapshot, ` +
-          `so the reactive computation holding it stays in an error state and will rethrow on every read — ` +
-          `reload rather than chasing the later throws, which are all this one.`,
-      );
-    }
+    if (Object.is(verified[key], before[key]) || sameSnapshotValue(verified[key], before[key])) continue;
+    if (drifted === undefined) drifted = {};
+    drifted[key] = verified[key];
+    reportDrift(source, key, `field '${key}' changed`);
   }
+  return drifted;
 }
 
 // Register once on the `Entity` base class. Signalium 3.0.1+ resolves custom
@@ -361,6 +529,23 @@ export class EntityInstance {
   refCount: number = 0;
   /** Whether this instance has been written to the store. */
   _persisted: boolean = false;
+  /** Writes handed to a store that acknowledges them, not yet acknowledged. */
+  _pendingWrites: number = 0;
+  /** Set while an apply is still reifying this instance's fields; its data is not yet a record. */
+  _applying: boolean = false;
+  /**
+   * The data came from streamed events only (the entity was created by one),
+   * so it may lack fields a record of it on disk has: a write merges over
+   * that record. Cleared by the first full payload applied to the entity.
+   */
+  _partial: boolean = false;
+  /** With `_partial`: the fields the events carried, i.e. the ones a write merges. */
+  _partialKeys: Set<string> | undefined = undefined;
+  /** A write requested while a child was still being reified; performed when that apply is done. */
+  _deferredWrite: boolean = false;
+  /** The store is known to hold a record of this entity (hydrated from it, or written to it). */
+  _recorded: boolean = false;
+  private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
   satisfiedDefs: WeakSet<ValidatorDef<unknown>> = new WeakSet();
@@ -484,8 +669,86 @@ export class EntityInstance {
   }
 
   save(): void {
-    this._persisted = true;
-    this._queryClient.entityMap.save(this);
+    const client = this._queryClient;
+    if (this._saving) return;
+    this._saving = true;
+    try {
+      // A record's references must point at records that exist: a child the
+      // store holds no record of (never written, dropped, or a failed write)
+      // is written first. While an apply is still reifying a child (a payload
+      // that links back to an ancestor), neither it nor this entity can be
+      // written yet: both are written, in that order, once the apply is done.
+      const refs = this.entityRefs;
+      if (refs !== undefined) {
+        let deferred = false;
+        for (const child of refs.keys()) {
+          if (child._recorded || child._persisted || child._pendingWrites > 0 || child._saving) continue;
+          if (client.entityMap.getEntity(child.key) !== child) continue;
+          if (child._applying) {
+            client.deferWrite(child);
+            deferred = true;
+          } else {
+            try {
+              child.save();
+            } catch (e) {
+              // This entity's record (if any) still lacks the reference: the
+              // next apply must write it again.
+              this._persisted = false;
+              throw e;
+            }
+            if (child._deferredWrite) deferred = true;
+          }
+        }
+        if (deferred) {
+          this._deferredWrite = true;
+          client.deferWrite(this);
+          return;
+        }
+      }
+      this._deferredWrite = false;
+      // Mark after the store call: a store that throws leaves the record stale
+      // or missing, so the flag is cleared and the next apply writes again. A
+      // store that acknowledges writes later (`onPersisted`) marks it itself
+      // once the write has been processed. An entity built from events hands
+      // the store only the fields they carried, to merge over its record.
+      // Counted before the call: a store may acknowledge synchronously.
+      if (client.storeAcksWrites) this._pendingWrites++;
+      try {
+        client.entityMap.save(this, this._partial ? this._partialKeys : undefined);
+      } catch (e) {
+        if (client.storeAcksWrites && this._pendingWrites > 0) this._pendingWrites--;
+        this._persisted = false;
+        throw e;
+      }
+      if (!client.storeAcksWrites) this._persisted = this._recorded = true;
+    } finally {
+      this._saving = false;
+    }
+  }
+
+  /** A live field of this entity gained or lost a member outside an apply. */
+  liveFieldChanged(fieldKey: string): void {
+    if (this._partial) this._partialKeys?.add(fieldKey);
+  }
+
+  /**
+   * The store processed a write of this entity's record. Only a write this
+   * instance dispatched counts: an acknowledgement can also belong to a write
+   * queued by a previous instance of the same entity (one that was collected
+   * and re-hydrated from the store while the write was in flight), and that
+   * write carried a value this instance never had. The record is current
+   * once every dispatched write has landed.
+   */
+  acknowledgeWrite(): void {
+    if (this._pendingWrites === 0) return;
+    if (--this._pendingWrites === 0) this._persisted = this._recorded = true;
+  }
+
+  /** The store dropped (or failed to write) this entity's record. */
+  recordDropped(): void {
+    this._persisted = false;
+    this._recorded = false;
+    this._pendingWrites = 0;
   }
 
   notify(): void {
@@ -504,18 +767,31 @@ function sameMembers(a: unknown[], b: unknown[]): boolean {
   return true;
 }
 
-function filterEntityArray(array: unknown[], innerDef: ValidatorDef<unknown>, queryClient: QueryClient): unknown[] {
-  const result: unknown[] = [];
+interface NarrowedArray {
+  source: unknown[];
+  filtered: unknown[];
+  /** Members that do not (yet) satisfy the def; the only ones whose membership can change. */
+  excluded: EntityInstance[];
+  parseId: number;
+}
+
+function filterEntityArray(
+  array: unknown[],
+  innerDef: ValidatorDef<unknown>,
+  queryClient: QueryClient,
+): { filtered: unknown[]; excluded: EntityInstance[] } {
+  const filtered: unknown[] = [];
+  const excluded: EntityInstance[] = [];
   for (const item of array) {
     if (typeof item !== 'object' || item === null) continue;
     const entityKey = PROXY_ID.get(item);
     if (entityKey === undefined) continue;
     const entityInstance = queryClient.entityMap.getEntity(entityKey);
-    if (entityInstance !== undefined && entityInstance.satisfiesDef(innerDef)) {
-      result.push(item);
-    }
+    if (entityInstance === undefined) continue;
+    if (entityInstance.satisfiesDef(innerDef)) filtered.push(item);
+    else excluded.push(entityInstance);
   }
-  return result;
+  return { filtered, excluded };
 }
 
 // ======================================================
@@ -587,7 +863,7 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
  * The key lists a proxy reports, shared per shape. `own` is `ownKeys`;
  * `enumerable` drops the non-enumerable entity methods.
  */
-interface EntityKeys {
+export interface EntityKeys {
   own: string[];
   enumerable: string[];
   dynamic: string[];
@@ -596,14 +872,29 @@ interface EntityKeys {
   enumerableSet: Set<string>;
 }
 
-const shapeKeyCache = new WeakMap<ValidatorDef<unknown>, EntityKeys>();
+/**
+ * A field whose def carries no shape: a primitive, a format, `t.typename`, or
+ * a set of literals. Its value can only be a primitive or a format's parsed
+ * value, so no other class sharing the typename can put an entity under it.
+ */
+function isShapelessFieldDef(def: unknown): boolean {
+  if (typeof def === 'number' || typeof def === 'string') return true;
+  if (def instanceof Set) return true;
+  return def instanceof ValidatorDef && (def.shape === undefined || def.shape === null);
+}
 
+/**
+ * Cached per client (`queryClient.shapeKeyCache`): the split depends on which
+ * other classes share the typename, and that set grows as queries register.
+ */
 function shapeKeys(
   validatorDef: ValidatorDef<unknown>,
   shapeFields: Record<string, unknown>,
   methods: Record<string, (...args: unknown[]) => unknown> | undefined,
+  queryClient: QueryClient,
 ): EntityKeys {
-  let keys = shapeKeyCache.get(validatorDef);
+  const cache = queryClient.shapeKeyCache;
+  let keys = cache.get(validatorDef);
   if (keys !== undefined) return keys;
 
   const own = Object.keys(shapeFields);
@@ -614,7 +905,16 @@ function shapeKeys(
       if (!own.includes(methodKey)) own.push(methodKey);
     }
   }
-  const dynamic = enumerable.filter(key => key !== '__typename' && !isStaticFieldDef(shapeFields[key]));
+  // The data object is shared by every class with this typename, so a nested
+  // object that is entity-free in this class may hold a child entity written
+  // through another class's shape. Only shapeless fields stay static then.
+  const typename = validatorDef.typenameValue;
+  const shared = typename !== undefined && (queryClient.getEntityDefsForTypename(typename)?.length ?? 0) > 1;
+  const dynamic = enumerable.filter(
+    key =>
+      key !== '__typename' &&
+      (!isStaticFieldDef(shapeFields[key]) || (shared && !isShapelessFieldDef(shapeFields[key]))),
+  );
 
   const dynamicSet = new Set(dynamic);
   keys = {
@@ -624,7 +924,7 @@ function shapeKeys(
     static: enumerable.filter(key => !dynamicSet.has(key)),
     enumerableSet: new Set(enumerable),
   };
-  shapeKeyCache.set(validatorDef, keys);
+  cache.set(validatorDef, keys);
   return keys;
 }
 
@@ -675,12 +975,24 @@ function bindMethod(
   return bound;
 }
 
+/**
+ * The members a narrowed array leaves out are dependencies of the read: one
+ * of them gaining the def's fields notifies itself, and that is what must
+ * recompute the consumer. Members already in the array are read through the
+ * array by any consumer that cares about their fields, and a member never
+ * loses eligibility, so consuming them here would only add recomputes (and
+ * cost a lookup per member on every read of the field).
+ */
+function consumeExcluded(excluded: EntityInstance[]): void {
+  for (let i = 0; i < excluded.length; i++) excluded[i].consume();
+}
+
 /** Narrow a shared-typename array to this field's def, cached on array identity. */
 function narrowEntityArray(
   prop: string,
   value: unknown[],
   shapeFields: Record<string, unknown>,
-  filterCache: Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>,
+  filterCache: Map<string, NarrowedArray>,
   queryClient: QueryClient,
 ): unknown[] {
   const fieldDef = shapeFields[prop];
@@ -695,11 +1007,14 @@ function narrowEntityArray(
           const parseId = queryClient.currentParseId;
           const cached = filterCache.get(prop);
           if (cached !== undefined && cached.source === value && cached.parseId === parseId) {
+            consumeExcluded(cached.excluded);
             return cached.filtered;
           }
-          let filtered = filterEntityArray(value, innerDef, queryClient);
+          const narrowed = filterEntityArray(value, innerDef, queryClient);
+          let filtered = narrowed.filtered;
           if (cached !== undefined && sameMembers(cached.filtered, filtered)) filtered = cached.filtered;
-          filterCache.set(prop, { source: value, filtered, parseId });
+          filterCache.set(prop, { source: value, filtered, excluded: narrowed.excluded, parseId });
+          consumeExcluded(narrowed.excluded);
           return filtered;
         }
       }
@@ -728,7 +1043,7 @@ function createProxy(
   const typenameField = shape.typenameField;
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
-  const filterCache = new Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>();
+  const filterCache = new Map<string, NarrowedArray>();
 
   const toJSON = () => ({ __entityRef: key });
 
@@ -755,22 +1070,24 @@ function createProxy(
   }
 
   // Shared per shape; only a query's root entity allocates its own lists.
-  const baseKeys = shapeKeys(validatorDef, shapeFields, methods);
+  let cachedBase: EntityKeys | undefined;
   let cachedMethods: Record<string, unknown> | undefined;
   let cachedGetters: Record<string, unknown> | undefined;
-  let keys = baseKeys;
+  let keys: EntityKeys | undefined;
 
   function entityKeys(): EntityKeys {
-    // Both slots: these lists decide what a snapshot walks and re-reads.
+    // The base is re-resolved on every call (a WeakMap lookup): the client
+    // resets its cache when another class registers for this typename, and
+    // the new split must reach snapshots already in flight. Both extras
+    // slots matter too: these lists decide what a snapshot walks and re-reads.
+    const base = shapeKeys(validatorDef, shapeFields, methods, queryClient);
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;
-    if (methodsNow !== cachedMethods || gettersNow !== cachedGetters) {
+    if (keys === undefined || base !== cachedBase || methodsNow !== cachedMethods || gettersNow !== cachedGetters) {
+      cachedBase = base;
       cachedMethods = methodsNow;
       cachedGetters = gettersNow;
-      keys =
-        methodsNow === undefined && gettersNow === undefined
-          ? baseKeys
-          : withExtraKeys(baseKeys, methodsNow, gettersNow);
+      keys = methodsNow === undefined && gettersNow === undefined ? base : withExtraKeys(base, methodsNow, gettersNow);
     }
     return keys;
   }

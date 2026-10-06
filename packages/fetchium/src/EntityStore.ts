@@ -5,9 +5,13 @@ import { ValidatorDef } from './typeDefs.js';
 
 export class EntityStore {
   private instances = new Map<number, EntityInstance>();
-  private persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>) => void;
+  private persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void;
+  /** Whether the store can merge fields over a record it holds. */
+  mergesEntities: boolean = false;
 
-  constructor(persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>) => void) {
+  constructor(
+    persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void,
+  ) {
     this.persistEntity = persistEntity;
   }
 
@@ -58,12 +62,24 @@ export class EntityStore {
     this.instances.clear();
   }
 
-  save(instance: EntityInstance): void {
+  /**
+   * With `mergeKeys`, only those fields are handed to the store, to be merged
+   * over the record it holds (the rest of the instance's data is what streamed
+   * events left unset, not what the record says).
+   */
+  save(instance: EntityInstance, mergeKeys?: Set<string>): void {
     let refKeys: Set<number> | undefined;
     if (instance.entityRefs) {
       refKeys = new Set<number>();
-      for (const e of instance.entityRefs.keys()) refKeys.add(e.key);
+      // A child evicted from memory has no record to reference.
+      for (const e of instance.entityRefs.keys()) if (this.instances.get(e.key) === e) refKeys.add(e.key);
     }
-    this.persistEntity(instance.key, instance.data, refKeys);
+    let value = instance.data;
+    const merge = mergeKeys !== undefined && this.mergesEntities;
+    if (merge) {
+      value = {};
+      for (const k of mergeKeys) value[k] = instance.data[k];
+    }
+    this.persistEntity(instance.key, value, refKeys, merge);
   }
 }
