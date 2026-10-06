@@ -12,6 +12,7 @@ import type { MutationEvent } from '../types.js';
 import type { Query } from '../query.js';
 import { TopicQuery } from '../topic/TopicQuery.js';
 import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
+import { Entity } from '../proxy.js';
 import { createMockFetch, createTestWatcher } from './utils.js';
 
 /**
@@ -255,6 +256,54 @@ describe('reactivation grace and stagger', () => {
       expect(fetchCount('/a')).toBe(3);
     });
 
+    it('refetches when the last fetch failed, even if an older replaced fetch succeeded later', async () => {
+      class GetNoRetry extends RESTQuery {
+        path = '/a';
+        result = { n: t.number };
+        config = { retry: false };
+      }
+      mockFetch.reset();
+      mockFetch.get('/a', { n: 1 });
+      mockFetch.get('/a', { n: 2 }, { delay: 1_000 });
+      mockFetch.get('/a', { n: 3 }, { error: new Error('network down') });
+      mockFetch.get('/a', { n: 4 });
+
+      const client = makeClient({ reactivationGraceMs: 15_000 });
+      let relay: any;
+      const watchRelay = () => {
+        const { unsub } = withContexts([[QueryClientContext, client]], () =>
+          createTestWatcher(() => (relay = fetchQuery(GetNoRetry)).value),
+        );
+        unsubs.push(unsub);
+        return unsub;
+      };
+
+      let unsub = watchRelay();
+      await vi.advanceTimersByTimeAsync(50);
+
+      // A slow refetch, which the mock lets finish even after it is aborted.
+      void relay.value.__refetch().catch(() => {});
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Deactivating aborts it; reactivating replaces it with a fetch that fails.
+      unsub();
+      await vi.advanceTimersByTimeAsync(10);
+      unsub = watchRelay();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(3);
+      expect(relay.isRejected).toBe(true);
+
+      // The replaced fetch lands.
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      unsub();
+      await vi.advanceTimersByTimeAsync(10);
+      watchRelay();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(4);
+      expect(relay.isRejected).toBe(false);
+    });
+
     it('measures from the last push when a subscription delivered data', async () => {
       let push: (() => void) | undefined;
       class GetStreamed extends RESTQuery {
@@ -473,6 +522,22 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(2);
     });
+
+    it('does not apply after a network reconnect while the query was inactive', async () => {
+      const networkManager = new NetworkManager(true);
+      const client = makeClient({ reactivationGraceMs: 15_000, networkManager });
+      await loadThenDeactivate(client, GetA);
+      expect(fetchCount('/a')).toBe(1);
+
+      networkManager.setNetworkStatus(false);
+      await vi.advanceTimersByTimeAsync(50);
+      networkManager.setNetworkStatus(true);
+      await vi.advanceTimersByTimeAsync(50);
+
+      watch(client, GetA);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/a')).toBe(2);
+    });
   });
 
   describe('reactivationStaggerMs', () => {
@@ -641,6 +706,39 @@ describe('reactivation grace and stagger', () => {
       expect(fetchCount('/c')).toBe(1);
       expect(fetchCount('/a')).toBe(1);
       expect(fetchCount('/b')).toBe(1);
+    });
+
+    it('skips a staggered refetch when __fetchNext() loaded a page during the window', async () => {
+      class Item extends Entity {
+        __typename = t.typename('Item');
+        id = t.id;
+      }
+      class GetItems extends RESTQuery {
+        path = '/items';
+        result = { items: t.liveArray(Item), nextCursor: t.optional(t.string) };
+        fetchNext = { searchParams: { cursor: this.result.nextCursor } };
+      }
+      mockFetch.get('/items', { items: [{ __typename: 'Item', id: '1' }], nextCursor: 'c1' });
+      mockFetch.get('/items', { items: [{ __typename: 'Item', id: '2' }] });
+      mockFetch.get('/items', { items: [{ __typename: 'Item', id: '1' }], nextCursor: 'c1' });
+
+      const client = makeClient({ reactivationStaggerMs: 3_000 });
+      await loadThenDeactivate(client, GetA, GetB, GetItems);
+      starts.length = 0;
+
+      let value: any;
+      const { unsub } = withContexts([[QueryClientContext, client]], () =>
+        createTestWatcher(() => [fetchQuery(GetA).value, fetchQuery(GetB).value, (value = fetchQuery(GetItems).value)]),
+      );
+      unsubs.push(unsub);
+      // /items' slot is 2 s out. Load the next page now.
+      await vi.advanceTimersByTimeAsync(100);
+      await value.__fetchNext();
+      expect(value.items.map((i: any) => i.id)).toEqual(['1', '2']);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(fetchCount('/items')).toBe(1);
+      expect(value.items.map((i: any) => i.id)).toEqual(['1', '2']);
     });
 
     it('does not abort a fetch still in flight when its stagger slot comes up', async () => {

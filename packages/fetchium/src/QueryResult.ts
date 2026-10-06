@@ -50,6 +50,8 @@ export class QueryInstance<T extends Query> {
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
   private wasPaused: boolean = false;
+  /** `networkManager.reconnects` at the last deactivation. */
+  private reconnectsAtDeactivate: number = 0;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   /**
@@ -156,6 +158,7 @@ export class QueryInstance<T extends Query> {
         // but skip GC, so resuming reuses the cached result instead of refetching.
         const deactivate = ({ isPausing = false }: DeactivateOptions = {}) => {
           this._isActive = false;
+          this.reconnectsAtDeactivate = this.queryClient.networkManager.reconnects;
 
           this.cancelDebounced();
 
@@ -217,8 +220,12 @@ export class QueryInstance<T extends Query> {
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
               // The grace covers a relay resuming, not a network reconnect: data
-              // may have been missed while offline.
-              const withinGrace = activating && !wasPaused && this.isWithinReactivationGrace;
+              // may have been missed while offline, including while inactive.
+              const withinGrace =
+                activating &&
+                !wasPaused &&
+                this.queryClient.networkManager.reconnects === this.reconnectsAtDeactivate &&
+                this.isWithinReactivationGrace;
               if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
                 if (this.queryClient.reactivationStaggerMs > 0) {
                   this.reactivationQueuedAt = this.fetchStarts;
@@ -378,7 +385,8 @@ export class QueryInstance<T extends Query> {
     if (cached === undefined) return;
 
     try {
-      this.updatedAt = cached.updatedAt;
+      // Keep an invalidation made before the cache loaded.
+      if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
       this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
     } catch (error) {
       // Unusable entry: treat it as a miss so the query still fetches, instead
@@ -505,7 +513,8 @@ export class QueryInstance<T extends Query> {
         signal,
         attempt.options,
       );
-      this.lastFetchFailed = false;
+      // An aborted fetch may have been replaced by one that failed.
+      if (!signal.aborted) this.lastFetchFailed = false;
       return result;
     } catch (error) {
       if (!signal.aborted) this.lastFetchFailed = true;
@@ -677,6 +686,8 @@ export class QueryInstance<T extends Query> {
     if (this._fetchNextPromise !== undefined) {
       return this._fetchNextPromise;
     }
+    // Cancels a waiting staggered refetch, which would reset the pages.
+    this.fetchStarts++;
     // Schedule notification so __isFetchingNext becomes true reactively.
     // Must be async to avoid "dirtied after consumed" when called from
     // within a reactive context (the proxy consumes the notifier on access).
@@ -761,7 +772,8 @@ export class QueryInstance<T extends Query> {
   // ======================================================
 
   private get isStale(): boolean {
-    if (this.updatedAt === undefined) {
+    // Never loaded, or invalidated (`markStale()`), whatever the staleTime.
+    if (this.updatedAt === undefined || this.updatedAt === 0) {
       return true;
     }
 

@@ -839,8 +839,11 @@ function filterEntityArray(
  * while `t.union(t.object({ child: t.entity(A) }), …)` does not. What catches
  * the nested case is `computeIsStaticFieldDef` recursing into the union's
  * member defs. Short-circuiting a union on its mask alone would go stale.
+ *
+ * `HAS_FORMAT` because a formatted value's snapshot can go through a custom
+ * snapshot handler that reads other signals (a locale, say).
  */
-const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE;
+const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE | Mask.HAS_FORMAT;
 
 const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 
@@ -853,7 +856,8 @@ const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 function isStaticFieldDef(def: unknown): boolean {
   // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
   // `t.enum`/`t.const` a `Set` of allowed values.
-  if (typeof def === 'number' || typeof def === 'string') return true;
+  if (typeof def === 'number') return (def & DYNAMIC_MASKS) === 0;
+  if (typeof def === 'string') return true;
   if (def instanceof Set) return true;
   if (!(def instanceof ValidatorDef)) return false;
 
@@ -872,7 +876,7 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
   if (def._liveConfig !== undefined) return false;
   if ((def.mask & DYNAMIC_MASKS) !== 0) return false;
 
-  // No shape: primitive, format, or union of literals. One inner def: array,
+  // No shape: primitive or union of literals. One inner def: array,
   // record, parse result, optional/nullable clone. A record of defs: object.
   const shape = def.shape;
   if (shape === undefined || shape === null) return true;
