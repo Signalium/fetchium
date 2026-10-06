@@ -108,6 +108,11 @@ export class QueryInstance<T extends Query> {
    * it earlier would leave the fetch applying to an instance nothing owns.
    */
   private keptFetchSignal: AbortSignal | undefined = undefined;
+  /**
+   * The signal of a fetch whose abort leaves the relay pending rather than
+   * rejecting it. See `holdsDeactivationAbort()`.
+   */
+  private heldAbortSignal: AbortSignal | undefined = undefined;
   /** Some param is a Signal, so its value can change before the first start runs. */
   private hasSignalParams: boolean = false;
   /** The first fetch's controller and its start window. See `openStartWindow()`. */
@@ -234,18 +239,18 @@ export class QueryInstance<T extends Query> {
             // deactivation tears down (a topic query's send() resolves from
             // it) could never finish, so it is aborted as before and the next
             // activation restarts it.
-            const keepFirstFetch =
-              !isPausing &&
-              controller === this.firstFetchController &&
-              startWindowOpen &&
-              this.firstFetchWindow === startWindow &&
-              this.unsubscribe === undefined;
+            const sameTask =
+              controller === this.firstFetchController && startWindowOpen && this.firstFetchWindow === startWindow;
+            const keepFirstFetch = !isPausing && sameTask && this.unsubscribe === undefined;
             if (keepFirstFetch) {
               // Mounted and unmounted in one task: let the first fetch finish.
               this.firstFetchController = undefined;
               if (this.relayState.isPending) this.keptFetchSignal = controller.signal;
             } else {
-              if (this.relayState.isPending) this.abortedByDeactivation = true;
+              if (this.relayState.isPending) {
+                this.abortedByDeactivation = true;
+                if (!sameTask && this.holdsDeactivationAbort()) this.heldAbortSignal = controller.signal;
+              }
               controller.abort();
               this._abortController = undefined;
             }
@@ -268,7 +273,7 @@ export class QueryInstance<T extends Query> {
           if (parked !== undefined) {
             this.parkedRestart = undefined;
             this.abortedByDeactivation = true;
-            parked(abortError());
+            if (!this.holdsDeactivationAbort()) parked(abortError());
           }
 
           // A kept first fetch schedules collection when it settles.
@@ -706,6 +711,12 @@ export class QueryInstance<T extends Query> {
       return result;
     } catch (error) {
       if (!signal.aborted) this.lastFetchFailed = true;
+      if (signal === this.heldAbortSignal) {
+        // Pending until the next activation replaces this fetch, or the
+        // query is collected or destroyed (abortForDestroy() settles it).
+        this.heldAbortSignal = undefined;
+        return new Promise<never>(() => {});
+      }
       throw error;
     } finally {
       if (signal === this.keptFetchSignal) {
@@ -713,6 +724,23 @@ export class QueryInstance<T extends Query> {
         if (!this._isActive) this.scheduleGc();
       }
     }
+  }
+
+  /**
+   * Whether a deactivation that cancels this query's fetch leaves its relay
+   * pending instead of rejecting it with the AbortError: when the relay has
+   * no value yet and the query has a subscription (a topic query's fetch
+   * waits on the subscription the deactivation tears down). Signalium keeps
+   * a rejected relay's error until it gets a value, so a rejection would
+   * have the next mount report `isRejected` with the AbortError until its
+   * refetch lands. The relay instead stays pending: the next activation's
+   * refetch settles whoever awaits it, as does collection or `destroy()`
+   * (`abortForDestroy()`). A query mounted and unmounted in one task is not
+   * held: whoever started it is a one-off read that awaits it, and gets the
+   * AbortError at once.
+   */
+  private holdsDeactivationAbort(): boolean {
+    return this.relayState.value === undefined && this.config?.subscribe !== undefined;
   }
 
   private scheduleGc(): void {
@@ -729,6 +757,7 @@ export class QueryInstance<T extends Query> {
   private restartAbortedFetch(afterFlush: boolean = false): void {
     this.fetchStarts++;
     this.parkedRestart = undefined;
+    this.heldAbortSignal = undefined;
     if (this.abortedByDeactivation) {
       this.abortedByDeactivation = false;
       // The abort rejected the relay (it is no longer pending). Signalium
@@ -808,6 +837,7 @@ export class QueryInstance<T extends Query> {
     this.fetchStarts++;
     this.abortedByDeactivation = false;
     this.parkedRestart = undefined;
+    this.heldAbortSignal = undefined;
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();

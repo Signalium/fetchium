@@ -586,6 +586,85 @@ describe('A topic query mounted and unmounted in one task', () => {
   });
 });
 
+describe('A topic query unmounted before its first data, in a later task', () => {
+  const hadWindow = 'window' in globalThis;
+  afterEach(() => {
+    if (!hadWindow) delete (globalThis as any).window;
+  });
+
+  /** Mounts the topic query, and unmounts it 1 ms later: before its data, due 5 ms after subscribing. */
+  async function mountAndLeave(client: QueryClient): Promise<{ relay: any }> {
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    await sleep(1);
+    first();
+    // Wrapped: returning the relay itself would await it.
+    return { relay };
+  }
+
+  it('is pending, not rejected, when mounted again, until its data lands', async () => {
+    const client = makeTopicClient(new MemoryPersistentStore());
+    const { relay } = await mountAndLeave(client);
+    await sleep(20);
+    expect(relay.isRejected).toBe(false);
+
+    const reads: ReturnType<typeof state>[] = [];
+    const second = activate(client, () => reads.push(state(fetchQuery(GetPrices))));
+    expect(reads[0]).toEqual({ isPending: true, isRejected: false, value: undefined });
+    await sleep(3);
+    expect(state(relay)).toEqual({ isPending: true, isRejected: false, value: undefined });
+    await sleep(30);
+    expect(reads.some(r => r.isRejected)).toBe(false);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
+    second();
+    client.destroy();
+  });
+
+  it('settles an awaiter of the first mount with the data a later mount brings', async () => {
+    const client = makeTopicClient(new MemoryPersistentStore());
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    const awaited = outcome(relay, 500);
+    await sleep(1);
+    first();
+    await sleep(20);
+
+    const second = activate(client, () => fetchQuery(GetPrices).isPending);
+    expect(await awaited).toBe('resolved');
+    second();
+    client.destroy();
+  });
+
+  it('settles an awaiter with an AbortError when the client is destroyed', async () => {
+    const client = makeTopicClient(new MemoryPersistentStore());
+    const { relay } = await mountAndLeave(client);
+    const awaited = outcome(relay, 500);
+    await sleep(20);
+    client.destroy();
+    expect(await awaited).toBe('rejected:AbortError');
+  });
+
+  it('settles an awaiter with an AbortError when the query is collected', async () => {
+    if (!hadWindow) (globalThis as any).window = globalThis;
+    class GetCollectedPrices extends TopicQuery {
+      topic = 'prices';
+      result = { value: t.string };
+      getConfig() {
+        return { ...super.getConfig(), gcTime: 0 };
+      }
+    }
+    const client = makeTopicClient(new MemoryPersistentStore());
+    expect((client as any).isServer).toBe(false);
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetCollectedPrices)).isPending);
+    await sleep(1);
+    first();
+    expect(await outcome(relay, 500)).toBe('rejected:AbortError');
+    expect((client as any).queryInstances.size).toBe(0);
+    client.destroy();
+  });
+});
+
 describe('Every awaiter settles', () => {
   it('when destroy() runs in the task the query mounts, before its first start', async () => {
     const { fetch, calls } = createFetch(20);
