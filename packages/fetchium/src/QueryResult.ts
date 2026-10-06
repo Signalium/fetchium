@@ -168,7 +168,11 @@ export class QueryInstance<T extends Query> {
   /** Extra methods (__refetch, __fetchNext) attached to the root entity proxy. */
   private _extraMethods: Record<string, (...args: unknown[]) => unknown> = {};
 
-  /** Query id injected as QUERY_ID on non-entity payloads. */
+  /**
+   * Query id injected as QUERY_ID on non-entity payloads: the key of the root
+   * entity that holds the result, per params, so each params key's cached
+   * record points at its own data.
+   */
   private _queryId: number = 0;
 
   get key(): number {
@@ -382,6 +386,7 @@ export class QueryInstance<T extends Query> {
     preloadedEntities?: import('./query-types.js').PreloadedEntityMap,
   ): QueryResult<T> {
     const def = this.def;
+    const previousRoot = this.rootEntity;
     this.rootEntity = this.queryClient.parseAndApplyRootEntity(
       data,
       this._queryId,
@@ -390,6 +395,12 @@ export class QueryInstance<T extends Query> {
       appendMode,
       preloadedEntities,
     );
+
+    if (previousRoot !== undefined && previousRoot !== this.rootEntity && !def.statics.isEntityResult) {
+      // The params changed: the previous params' root holds their data, and
+      // their cached record points at it. This query no longer shows it.
+      this.queryClient.releaseQueryRoot(previousRoot, this);
+    }
 
     // Attach extra methods and getters on first discovery
     if (this.rootEntity._extraMethods === undefined) {
@@ -526,6 +537,7 @@ export class QueryInstance<T extends Query> {
   private adoptParams(extractedParams: Record<string, unknown> | undefined, storageKey: number): void {
     this.currentParams = extractedParams as QueryParams;
     this.storageKey = storageKey;
+    this._queryId = extractedParams !== undefined ? hashValue(extractedParams) : 0;
     // The timestamp belongs to the old params' data: refetch, as after invalidation.
     if (this.updatedAt !== undefined) this.updatedAt = 0;
   }

@@ -1092,6 +1092,19 @@ export class QueryClient {
   // In-Memory GC
   // ======================================================
 
+  /**
+   * Evicts the root entity a query's earlier params applied to (a non-entity
+   * result's), unless another query instance still shows it.
+   *
+   * @internal
+   */
+  releaseQueryRoot(root: EntityInstance, owner: QueryInstance<any>): void {
+    for (const instance of this.queryInstances.values()) {
+      if (instance !== owner && instance.rootEntity === root) return;
+    }
+    root.evict();
+  }
+
   private handleEviction = (key: number, type: GcKeyType): void => {
     if (type === GcKeyType.Query) {
       const instance = this.queryInstances.get(key);

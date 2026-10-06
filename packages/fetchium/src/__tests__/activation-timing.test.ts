@@ -113,6 +113,13 @@ class GetItemById extends RESTQuery {
   result = { value: t.string };
 }
 
+class GetItemByIdFresh extends RESTQuery {
+  params = { id: t.string };
+  path = `/items/${this.params.id}`;
+  result = { value: t.string };
+  config = { staleTime: 60_000 };
+}
+
 function persisted(kv: MemoryPersistentStore, params: { id: string }): boolean {
   return kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItemById, params))) !== undefined;
 }
@@ -206,6 +213,57 @@ describe('Activation and deactivation in one task', () => {
 });
 
 describe('Signal params changing around a fetch', () => {
+  it('keeps each params key cached with its own data', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(5);
+    const client = makeClient(kv, f.fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const dispose = activate(client, () => (relay = fetchQuery(GetItemByIdFresh, { id })).isPending);
+    await sleep(30);
+    const first = relay.value;
+    id.value = '2';
+    await sleep(30);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    expect(relay.value).not.toBe(first);
+    dispose();
+    await sleep(5);
+    client.destroy();
+
+    // A cold start for either key, within staleTime, shows that key's data.
+    for (const key of ['1', '2']) {
+      const cold = createFetch(5);
+      const next = makeClient(kv, cold.fetch);
+      let cached: any;
+      const off = activate(next, () => (cached = fetchQuery(GetItemByIdFresh, { id: key })).isPending);
+      expect(state(cached)).toEqual({ isPending: false, isRejected: false, value: `/items/${key}` });
+      await sleep(20);
+      expect(cold.paths()).toEqual([]);
+      off();
+      next.destroy();
+    }
+  });
+
+  it('leaves another query showing the old params alone when a Signal param moves on', async () => {
+    const f = createFetch(5);
+    const client = makeClient(new MemoryPersistentStore(), f.fetch);
+    const id = signal('1');
+
+    let moving: any;
+    let fixed: any;
+    const offMoving = activate(client, () => (moving = fetchQuery(GetItemById, { id })).isPending);
+    const offFixed = activate(client, () => (fixed = fetchQuery(GetItemById, { id: '1' })).isPending);
+    await sleep(30);
+    id.value = '2';
+    await sleep(30);
+    expect(state(moving).value).toBe('/items/2');
+    expect(state(fixed).value).toBe('/items/1');
+    offMoving();
+    offFixed();
+    client.destroy();
+  });
+
   it('sends the current params when a Signal param changes in the task the query activates', async () => {
     const kv = new MemoryPersistentStore();
     const f = createFetch(5);
