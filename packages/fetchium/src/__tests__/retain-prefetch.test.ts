@@ -590,3 +590,94 @@ describe('client.retain()', () => {
     ).toThrow('boom');
   });
 });
+
+describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
+  class GetFailing extends RESTQuery {
+    path = '/failing';
+    result = { n: t.number };
+    config = { retry: false };
+  }
+
+  type ColdMiss = { promise: Promise<void> | undefined; failed?: true; error?: unknown };
+
+  function failingClient() {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/failing', { error: 'down' }, { status: 500 });
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
+    clients.push(client);
+    const def = QueryDefinition.for(GetFailing);
+    // What a useSuspenseQuery render does before it throws.
+    const render = (): ColdMiss =>
+      (client as unknown as { suspendOnColdMiss(d: typeof def, p: undefined): ColdMiss }).suspendOnColdMiss(
+        def,
+        undefined,
+      );
+    return { client, mockFetch, render };
+  }
+
+  /** Destroys the clients and drains their timers (and Signalium's flush) before restoring real timers. */
+  async function destroyOnFakeClock(): Promise<void> {
+    for (const c of clients) c.destroy();
+    clients = [];
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.useRealTimers();
+  }
+
+  it('hands a failed cold fetch to a render that reaches the reader long after it failed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { mockFetch, render } = failingClient();
+      const first = render();
+      expect(first.promise).toBeDefined();
+      await vi.advanceTimersByTimeAsync(5);
+      await first.promise;
+
+      // A time-sliced retry render that takes several hundred ms to reach the reader.
+      await vi.advanceTimersByTimeAsync(400);
+      const retry = render();
+      expect(retry).toMatchObject({ failed: true, promise: undefined });
+      expect(mockFetch.calls).toHaveLength(1);
+
+      // An error-boundary reset after the claim makes a new attempt.
+      await vi.advanceTimersByTimeAsync(5);
+      expect(render().promise).toBeDefined();
+      expect(mockFetch.calls).toHaveLength(2);
+    } finally {
+      await destroyOnFakeClock();
+    }
+  });
+
+  it('lets an unclaimed failure go after a while, then keeps the next one until a render claims it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { mockFetch, render } = failingClient();
+      const first = render();
+      await vi.advanceTimersByTimeAsync(5);
+      await first.promise;
+
+      // Nobody claimed the error (the tree was abandoned): a later mount makes a new attempt.
+      await vi.advanceTimersByTimeAsync(1_500);
+      const remount = render();
+      expect(remount.promise).toBeDefined();
+      await vi.advanceTimersByTimeAsync(5);
+      await remount.promise;
+      expect(mockFetch.calls).toHaveLength(2);
+
+      // That attempt failed too; a render slower than the first window still gets its error
+      // instead of refetching again.
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(render()).toMatchObject({ failed: true, promise: undefined });
+      expect(mockFetch.calls).toHaveLength(2);
+
+      // A claimed error is let go on the next task, so a reset retries.
+      await vi.advanceTimersByTimeAsync(5);
+      expect(render().promise).toBeDefined();
+      expect(mockFetch.calls).toHaveLength(3);
+    } finally {
+      await destroyOnFakeClock();
+    }
+  });
+});

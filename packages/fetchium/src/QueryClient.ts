@@ -133,11 +133,14 @@ const SUSPENSE_HOLD_TTL = 10_000;
 
 /**
  * How long a failed cold fetch's error waits for a render to claim it. React
- * retries a suspended render within a task or two of its promise settling; an
- * error nobody claimed by then belongs to an abandoned tree, and a later mount
- * makes a fresh attempt instead of inheriting it.
+ * starts the retry of a suspended render soon after its promise settles, but
+ * a large or time-sliced tree can take far longer than a task to reach the
+ * reader again, and a reader that found no hold would refetch instead of
+ * throwing, every time. An error nobody claimed by then belongs to an
+ * abandoned tree, and a later mount makes a fresh attempt instead of
+ * inheriting it.
  */
-const UNCLAIMED_FAILURE_TTL = 50;
+const UNCLAIMED_FAILURE_TTL = 1_000;
 
 interface SuspenseHold {
   release: () => void;
@@ -214,6 +217,13 @@ export class QueryClient {
   private warnedReactiveRetain = false;
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
+  /**
+   * Keys whose last cold failure expired unclaimed. The next failure of the
+   * attempt that follows waits for a render as long as an unsettled hold
+   * would, so a reader slower than `UNCLAIMED_FAILURE_TTL` gets the error
+   * after one retried request rather than refetching in a loop.
+   */
+  private unclaimedFailures = new Set<number>();
 
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
@@ -601,7 +611,9 @@ export class QueryClient {
    * last fetch failed is refetched once per hold: when that attempt fails too,
    * `error` is set and the hold is dropped, so the caller can throw it. A
    * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
+   * tree was abandoned) drops the hold, so a later mount makes a new attempt;
+   * if that attempt fails too, its error waits `SUSPENSE_HOLD_TTL` for a
+   * render, so a reader that slow still reaches its error boundary.
    *
    * @internal
    */
@@ -646,6 +658,7 @@ export class QueryClient {
         const error = relay.error;
         if (!hold.failed) {
           hold.failed = true;
+          this.unclaimedFailures.delete(key);
           clearTimeout(hold.timer);
           hold.timer = setTimeout(() => {
             if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
@@ -663,6 +676,7 @@ export class QueryClient {
         relay.then(
           () => {
             current.done = true;
+            this.unclaimedFailures.delete(key);
             this.expireSuspenseHold(key, current);
             resolve();
           },
@@ -670,9 +684,12 @@ export class QueryClient {
             current.done = true;
             // Dropped unless the retried render claims the error first.
             clearTimeout(current.timer);
+            const ttl = this.unclaimedFailures.has(key) ? SUSPENSE_HOLD_TTL : UNCLAIMED_FAILURE_TTL;
             current.timer = setTimeout(() => {
-              if (this.suspenseHolds.get(key) === current && !current.failed) this.releaseSuspenseHold(key);
-            }, UNCLAIMED_FAILURE_TTL);
+              if (this.suspenseHolds.get(key) !== current || current.failed) return;
+              this.unclaimedFailures.add(key);
+              this.releaseSuspenseHold(key);
+            }, ttl);
             resolve();
           },
         );
@@ -1138,6 +1155,7 @@ export class QueryClient {
 
   destroy(): void {
     for (const key of [...this.suspenseHolds.keys()]) this.releaseSuspenseHold(key);
+    this.unclaimedFailures.clear();
     for (const release of [...this.leases]) release();
     clearTimeout(this.staggerTimer);
     this.staggerTimer = undefined;
