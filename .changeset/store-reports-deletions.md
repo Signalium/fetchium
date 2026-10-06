@@ -2,10 +2,7 @@
 'fetchium': patch
 ---
 
-Keep the "skip the write when nothing changed" optimisation consistent with the store. The store deletes records on its own — an LRU eviction of the oldest key of a query definition, the refcount cascade that follows it, a stale purge — and the in-memory entity did not hear about it, so its next unchanged apply skipped the write while the query record was re-saved pointing at a value that no longer existed. On the next cold start that query's cache failed to hydrate ("the query cache may be corrupted or invalid") and was dropped. Any mounted query whose definition has more than `cache.maxCount` (default 50) live keys, refetching unchanged data, was affected.
+Fixed cached queries failing to load after a restart ("the query cache may be corrupted or invalid") when a query had more than `cache.maxCount` cached params and refetched unchanged data.
 
-`QueryStore` gains an optional `onDelete(listener)`; both built-in stores call it with every id they drop, and the client clears the entity's persisted flag so the next apply writes it again. A custom store that does not implement `onDelete` gets every persisted apply written, as before 0.6.0.
-
-An `AsyncQueryStore` in reader role does not offer `onDelete` (deletions happen in the writer), so a reader-backed client writes every persisted apply, as before 0.6.0.
-
-Also: an entity-array field narrowed by a shared-typename def (`t.array(t.entity(X))` with two entity classes for `X`) is re-narrowed after each apply, so a member that gains the fields the def requires shows up without the array itself having to change.
+- Custom stores: `QueryStore` has a new optional `onDelete(listener)`. Call the listener with every id the store deletes on its own. A store without it keeps writing every update, as before.
+- A `t.array(t.entity(X))` field whose typename two entity classes share now shows an item as soon as it gains the fields `X` requires.
