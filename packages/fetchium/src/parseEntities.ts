@@ -54,6 +54,13 @@ export interface ParsedEntity {
   eventKeys: Set<string> | undefined;
   /** A cached record parsed to fill in the fields an entity built from events lacks. */
   fillsPartial: boolean;
+  /**
+   * Hydration only: the raw cached record, when it holds fields the
+   * instance's data does not (another class sharing the typename wrote
+   * them). The apply keeps those fields on the instance so its writes carry
+   * them instead of dropping them from the record.
+   */
+  record?: Record<string, unknown>;
 }
 
 /** Trust-memory verdicts: `true`/`false` once settled, `'pending'` while a check is in progress (a cycle). */
@@ -508,6 +515,8 @@ function parseEntityData(
     parsedData[entityShape.idField] = id;
   }
 
+  let record: Record<string, unknown> | undefined;
+
   if (preloadedEntities !== undefined) {
     const existing = queryClient.entityMap.getEntity(key);
 
@@ -521,36 +530,39 @@ function parseEntityData(
       // parse the record for those fields only and merge them in.
       fillKeys = existing._partialKeys;
       obj = preloaded;
-    } else if (existing !== undefined) {
-      // The entity is already live in memory, so the cache has nothing newer
-      // to offer: the in-memory data is what every consumer already sees.
-      // Re-parsing that data would run already-parsed values (formatted
-      // values, parse results, child proxies) through the parser again, in
-      // place, and corrupt them. An empty partial entry merges nothing and
-      // hands the query the existing proxy. The data must still satisfy this
-      // query's shape, or the cached query is not usable as-is.
-      ctx.trusted ??= new Map();
-      if (!dataSatisfiesDef(existing.data, entityShape as unknown as ValidatorDef<unknown>, queryClient, ctx.trusted)) {
-        throw new CachedEntityMismatchError(
-          `Cached entity ${entityShape.typenameValue}:${String(existing.id)} in memory does not satisfy the query's shape`,
-        );
+      // The fill makes the entity whole, so its next write replaces the
+      // record: hand over the record when it holds fields this class does not
+      // declare (another class of the typename wrote them), and that write
+      // keeps them. Hydrating over an event-built entity is rare, so every
+      // record is checked, not only for a class known to lack fields: a store
+      // written before field names were remembered may not know the other
+      // class.
+      const shape = entityShape.shape;
+      for (const k in preloaded) {
+        if (!(k in shape)) {
+          record = preloaded;
+          break;
+        }
       }
-      const entry: ParsedEntity = {
-        key,
-        shape: entityShape,
-        data: parsedData,
-        rawKeys: new Set(),
-        eventKeys: undefined,
-        fillsPartial: false,
-      };
-      ctx.seen!.set(parsedData, entry);
-      ctx.seenByKey!.set(key, entry);
-      return parsedData;
+    } else if (existing !== undefined) {
+      return hydrateFromMemory(existing, preloaded, key, id, parsedData, entityShape, ctx);
     } else {
       if (preloaded === undefined) {
         throw new Error(`Cached entity ${key} not found in preloaded map`);
       }
       obj = preloaded;
+      // Only a class lacking fields another class of its typename declares
+      // can be handed a record holding fields it does not parse; for every
+      // other class this is one WeakMap lookup.
+      if (queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)) {
+        const shape = entityShape.shape;
+        for (const k in preloaded) {
+          if (!(k in shape)) {
+            record = preloaded;
+            break;
+          }
+        }
+      }
     }
 
     if (fillKeys !== undefined) {
@@ -565,6 +577,7 @@ function parseEntityData(
         eventKeys: undefined,
         fillsPartial: true,
       };
+      if (record !== undefined) entry.record = record;
       ctx.seen!.set(parsedData, entry);
       ctx.seenByKey!.set(key, entry);
       const entityDesc = `[[${entityShape.typenameValue}:${id}]]`;
@@ -594,6 +607,7 @@ function parseEntityData(
     eventKeys,
     fillsPartial: false,
   };
+  if (record !== undefined) entry.record = record;
   ctx.seen!.set(parsedData, entry);
   ctx.seenByKey!.set(key, entry);
 
@@ -608,6 +622,95 @@ function parseEntityData(
     parsedData[fieldKey] = parseData(obj[fieldKey], propShape as unknown as TypeDef, ctx, `${entityDesc}.${fieldKey}`);
   }
 
+  return parsedData;
+}
+
+// ======================================================
+// Hydrating an entity that is already in memory
+// ======================================================
+
+/**
+ * A cached query references an entity that is already live in memory. The
+ * in-memory data is at least as fresh as the cached record (it was hydrated
+ * from that record or applied from a later payload) and every consumer
+ * already sees it, so it is never re-parsed or overwritten from the cache:
+ * re-parsing would run already-parsed values (formatted values, parse
+ * results, child proxies) through the parser again, in place, and corrupt
+ * them.
+ *
+ * Field by field, against the hydrating query's shape:
+ *  - no class applied to the instance declares the field (it is not an own
+ *    key of the data; every applied class's parse sets each of its fields,
+ *    even to `undefined`) and the record holds it: the record's value is
+ *    parsed and merged in. Nothing in memory says anything about it, and it
+ *    was written by a class that declares it, so it is no older than this
+ *    cached query;
+ *  - the in-memory value satisfies the field: used as is;
+ *  - anything else (a value of another type, or `undefined` from a class
+ *    that declares the field optional, which is fresher than the record):
+ *    the cached query cannot be served, `CachedEntityMismatchError`, and it
+ *    is dropped and fetched.
+ */
+function hydrateFromMemory(
+  existing: EntityInstance,
+  preloaded: Record<string, unknown> | undefined,
+  key: number,
+  id: string | number,
+  parsedData: Record<string | symbol, unknown>,
+  entityShape: EntityDef,
+  ctx: ParseContext,
+): Record<string, unknown> {
+  const queryClient = ctx.queryClient!;
+  const shape = entityShape.shape as Record<string, unknown>;
+  const typenameField = entityShape.typenameField;
+  const data = existing.data;
+  const trusted = (ctx.trusted ??= new Map());
+  let fillKeys: Set<string> | undefined;
+
+  for (const fieldKey of Object.keys(shape)) {
+    if (fieldKey === typenameField) continue;
+    const value = data[fieldKey];
+    if (
+      value === undefined &&
+      preloaded !== undefined &&
+      preloaded[fieldKey] !== undefined &&
+      !Object.hasOwn(data, fieldKey)
+    ) {
+      // An optional field too: the record knows it, memory does not.
+      (fillKeys ??= new Set()).add(fieldKey);
+      continue;
+    }
+    if (valueSatisfiesDef(value, shape[fieldKey], queryClient, trusted)) continue;
+    throw new CachedEntityMismatchError(
+      `Cached entity ${entityShape.typenameValue}:${String(existing.id)} in memory does not satisfy the query's shape at ${fieldKey}`,
+    );
+  }
+
+  // With nothing to fill, an empty key set merges nothing and hands the
+  // query the existing proxy.
+  const entry: ParsedEntity = {
+    key,
+    shape: entityShape,
+    data: parsedData,
+    rawKeys: fillKeys ?? new Set(),
+    eventKeys: undefined,
+    fillsPartial: false,
+  };
+  if (fillKeys !== undefined) entry.record = preloaded;
+  ctx.seen!.set(parsedData, entry);
+  ctx.seenByKey!.set(key, entry);
+
+  if (fillKeys !== undefined) {
+    const entityDesc = `[[${entityShape.typenameValue}:${id}]]`;
+    for (const fieldKey of fillKeys) {
+      parsedData[fieldKey] = parseData(
+        preloaded![fieldKey],
+        shape[fieldKey] as unknown as TypeDef,
+        ctx,
+        `${entityDesc}.${fieldKey}`,
+      );
+    }
+  }
   return parsedData;
 }
 

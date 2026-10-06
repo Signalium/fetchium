@@ -5,13 +5,13 @@ import { ValidatorDef } from './typeDefs.js';
 
 export class EntityStore {
   private instances = new Map<number, EntityInstance>();
-  private persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void;
+  private persistEntity: PersistEntity;
   /** Whether the store can merge fields over a record it holds. */
   mergesEntities: boolean = false;
+  /** A synchronous store's read of an entity's stored record, if it offers one. */
+  readEntity: ((key: number) => Record<string, unknown> | undefined) | undefined = undefined;
 
-  constructor(
-    persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void,
-  ) {
+  constructor(persistEntity: PersistEntity) {
     this.persistEntity = persistEntity;
   }
 
@@ -79,7 +79,29 @@ export class EntityStore {
     if (merge) {
       value = {};
       for (const k of mergeKeys) value[k] = instance.data[k];
+      this.persistEntity(instance.key, value, refKeys, true);
+      return;
     }
-    this.persistEntity(instance.key, value, refKeys, merge);
+    if (instance._checkStoredRecord) {
+      // First write of an instance whose class may lack fields the record
+      // holds: read the record once and keep them from now on.
+      instance._checkStoredRecord = false;
+      const stored = this.readEntity?.(instance.key);
+      if (stored !== undefined) instance.noteRecord(stored);
+    }
+    const rest = instance.recordRestForWrite();
+    if (rest !== undefined && rest.refIds.length > 0) {
+      refKeys ??= new Set<number>();
+      for (let i = 0; i < rest.refIds.length; i++) refKeys.add(rest.refIds[i]);
+    }
+    this.persistEntity(instance.key, value, refKeys, false, rest?.json);
   }
 }
+
+type PersistEntity = (
+  key: number,
+  data: Record<string, unknown>,
+  refKeys: Set<number> | undefined,
+  merge: boolean,
+  rest?: string,
+) => void;

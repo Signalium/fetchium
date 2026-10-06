@@ -259,15 +259,22 @@ export class QueryClient {
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
-    this.entityMap = new EntityStore((key, data, refs, merge) => {
+    this.entityMap = new EntityStore((key, data, refs, merge, rest) => {
       if (merge) this.store.mergeEntity!(key, data, refs);
+      else if (rest !== undefined) this.store.saveEntity(key, data, refs, rest);
       else this.store.saveEntity(key, data, refs);
     });
     this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
+    if (typeof this.store.readEntity === 'function') {
+      const store = this.store;
+      this.entityMap.readEntity = key => store.readEntity!(key);
+    }
     // A record the store drops must be written again by the next apply.
     this.storeReportsDeletes = typeof this.store.onDelete === 'function';
+    this.storeKnowsTypenameFields =
+      typeof this.store.getEntityFieldNames === 'function' && this.store.entityFieldNamesComplete?.() === true;
     const offDelete = this.store.onDelete?.(key => {
-      this.entityMap.getEntity(key)?.recordDropped();
+      this.entityMap.getEntity(key)?.recordDeleted();
     });
     if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
     // A store that processes writes later says when a record is really there.
@@ -391,6 +398,84 @@ export class QueryClient {
       this.shapeKeyCache = new WeakMap();
     } else {
       this.typenameRegistry.set(typename, [def]);
+    }
+    this.noteTypenameFields(typename, def);
+  }
+
+  /**
+   * Per entity def: whether another class sharing its typename declares a
+   * field it does not, in this session or (with a store that remembers field
+   * names) an earlier one. A record of such a class may hold fields it does
+   * not parse, which its writes must keep.
+   */
+  private foreignFieldDefs = new WeakMap<ValidatorDef<any>, boolean>();
+  /** Per typename: every top-level field its classes have declared (see `foreignFieldDefs`). */
+  private typenameFields = new Map<string, Set<string>>();
+  /** Whether any registered def lacks a field of its typename; false for an app whose typenames each have one class. */
+  hasForeignFieldDefs: boolean = false;
+  /**
+   * Whether the store remembers each typename's field names across sessions
+   * (`getEntityFieldNames`) and they cover every class that wrote a record it
+   * holds (`entityFieldNamesComplete`), so a class not registered this
+   * session is still known to `mayMissForeignFields`.
+   */
+  readonly storeKnowsTypenameFields: boolean;
+
+  /**
+   * Whether a stored record of this def's typename may hold fields the def
+   * does not declare. One WeakMap lookup; registers the def first if needed
+   * (a hydration parse runs before the apply registers it).
+   *
+   * @internal
+   */
+  mayMissForeignFields(def: ValidatorDef<any>): boolean {
+    let verdict = this.foreignFieldDefs.get(def);
+    if (verdict === undefined) {
+      this.registerEntityDef(def);
+      verdict = this.foreignFieldDefs.get(def);
+      if (verdict === undefined) {
+        // Not a class: the merged def of a typename's classes (a streamed
+        // event's root), whose fields are some of the typename's. A new class
+        // registered later replaces the merged def, so the verdict cannot go
+        // stale.
+        const fields = def.typenameValue !== undefined ? this.typenameFields.get(def.typenameValue) : undefined;
+        const shape = def.shape as Record<string, unknown> | undefined;
+        verdict = fields !== undefined && shape !== undefined && fields.size > Object.keys(shape).length;
+        this.foreignFieldDefs.set(def, verdict);
+      }
+    }
+    return verdict;
+  }
+
+  /**
+   * Folds a newly registered def's fields into its typename's field set (and
+   * the store's, which outlives the session), then re-derives which of the
+   * typename's defs lack a field of it. Runs once per def and client.
+   */
+  private noteTypenameFields(typename: string, def: ValidatorDef<any>): void {
+    let fields = this.typenameFields.get(typename);
+    if (fields === undefined) {
+      fields = new Set(this.store.getEntityFieldNames?.(typename));
+      this.typenameFields.set(typename, fields);
+    }
+    const declared = Object.keys(def.shape as Record<string, unknown>);
+    let added: boolean = false;
+    for (const k of declared) {
+      if (!fields.has(k)) {
+        fields.add(k);
+        added = true;
+      }
+    }
+    // Every declared name, not just the new ones: the store forgets names no
+    // class has declared for a while.
+    this.store.addEntityFieldNames?.(typename, declared);
+    // Every registered def's fields are in the set, so a def lacks one of
+    // them exactly when the set is larger than its shape.
+    for (const d of this.typenameRegistry.get(typename)!) {
+      if (!added && d !== def) continue;
+      const misses = fields.size > Object.keys(d.shape as Record<string, unknown>).length;
+      this.foreignFieldDefs.set(d, misses);
+      if (misses) this.hasForeignFieldDefs = true;
     }
   }
 
@@ -1199,6 +1284,8 @@ export class QueryClient {
     this.entityMap.clear();
     this.constraintRegistry.clear();
     this.typenameRegistry.clear();
+    this.typenameFields.clear();
+    this.foreignFieldDefs = new WeakMap();
     this.mergedDefCache.clear();
   }
 }

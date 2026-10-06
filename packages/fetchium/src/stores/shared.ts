@@ -1,3 +1,5 @@
+// Every key of cached data starts with this
+export const DOC_PREFIX = 'sq:doc:';
 // Query Instance keys
 export const VALUE_PREFIX = 'sq:doc:value:';
 export const valueKeyFor = (id: number) => `${VALUE_PREFIX}${id}`;
@@ -11,6 +13,10 @@ export const lastUsedKeyFor = (queryDefId: string) => `sq:doc:lastUsed:${queryDe
 export const cacheTimeKeyFor = (queryDefId: string) => `sq:doc:cacheTime:${queryDefId}`;
 
 export const LAST_USED_PREFIX = 'sq:doc:lastUsed:';
+// Per typename: the top-level fields its entity classes have declared
+export const fieldNamesKeyFor = (typename: string) => `sq:meta:fields:${typename}`;
+// Since when the field names cover every record (0: since the store held no cached data)
+export const FIELD_NAMES_SINCE_KEY = 'sq:meta:fieldsSince';
 
 // Default values
 export const DEFAULT_MAX_COUNT = 50;
@@ -76,6 +82,30 @@ export function storedRecordRest(
   const refIds = new Set<number>();
   collectEntityRefs(rest, refIds);
   return { json: JSON.stringify(rest).slice(1, -1), refIds: [...refIds] };
+}
+
+/**
+ * The fields of a parsed stored record that `data` does not hold as its own
+ * keys: their names, the fields as a JSON object body (`"a":1,"b":{…}`), and
+ * the references inside them. `undefined` when there are none.
+ */
+export function recordRestOutside(
+  record: Record<string, unknown>,
+  data: Record<string, unknown>,
+): { keys: string[]; json: string; refIds: number[] } | undefined {
+  let values: Record<string, unknown> | undefined;
+  let keys: string[] | undefined;
+  for (const key in record) {
+    const value = record[key];
+    if (value !== undefined && !Object.hasOwn(data, key)) {
+      (values ??= {})[key] = value;
+      (keys ??= []).push(key);
+    }
+  }
+  if (values === undefined) return undefined;
+  const refIds = new Set<number>();
+  collectEntityRefs(values, refIds);
+  return { keys: keys!, json: JSON.stringify(values).slice(1, -1), refIds: [...refIds] };
 }
 
 /** The `{ __entityRef }` markers in a record's JSON, as `collectEntityRefs` finds them in the parsed record. */

@@ -11,6 +11,22 @@ import type { QueryClient } from './QueryClient.js';
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 import type { LiveCollectionBinding } from './LiveCollection.js';
 import { entitySatisfiesShape } from './parseEntities.js';
+import { recordRestOutside } from './stores/shared.js';
+
+/**
+ * Fields of an entity's stored record that no class applied to the in-memory
+ * instance declares: another class sharing the typename wrote them, in this
+ * session or an earlier one. Kept, as raw record JSON, so the instance's
+ * writes carry them instead of dropping them from the record.
+ */
+export interface RecordRest {
+  /** The fields kept. */
+  keys: string[];
+  /** Their raw values as a JSON object body (`"a":1,"b":{…}`), written as is. */
+  json: string;
+  /** The `{ __entityRef }` keys inside them, which the record goes on referencing. */
+  refIds: number[];
+}
 
 // ======================================================
 // Nested proxy wrapping — transparently unwraps WRAPPED_VALUE items
@@ -639,6 +655,20 @@ export class EntityInstance {
   _deferredWrite: boolean = false;
   /** The store is known to hold a record of this entity (hydrated from it, or written to it). */
   _recorded: boolean = false;
+  /** The stored record's fields this instance does not hold; its writes carry them. */
+  _recordRest: RecordRest | undefined = undefined;
+  /**
+   * The stored record handed over at hydration, while `_recordRest` has not
+   * been taken from it yet: that happens at the first write, so a cold start
+   * pays nothing for it.
+   */
+  private _storedRecord: Record<string, unknown> | undefined = undefined;
+  /**
+   * Built from a fetch, of a class that lacks fields another class sharing
+   * its typename declares: the stored record may hold such fields, so the
+   * first write reads it (synchronous stores) and keeps them.
+   */
+  _checkStoredRecord: boolean = false;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
@@ -864,6 +894,54 @@ export class EntityInstance {
   recordDropped(): void {
     this._recorded = false;
     this.markUnwritten();
+  }
+
+  /** The store deleted this entity's record, and with it the fields this instance kept from it. */
+  recordDeleted(): void {
+    this._recordRest = undefined;
+    this._storedRecord = undefined;
+    this.recordDropped();
+  }
+
+  /** Whether this instance keeps fields of its stored record (or has the record to take them from). */
+  keepsRecordFields(): boolean {
+    return this._recordRest !== undefined || this._storedRecord !== undefined;
+  }
+
+  /**
+   * Keeps the fields of this entity's stored record (raw, as parsed from the
+   * store) that the instance's data does not hold, so its writes carry them.
+   * A field the data holds, even as `undefined` (a class declares it and the
+   * payload left it out), is the instance's to write. The record is kept as
+   * handed over and the fields are taken from it at the first write.
+   */
+  noteRecord(record: Record<string, unknown>): void {
+    this._storedRecord = record;
+    this._recordRest = undefined;
+  }
+
+  /**
+   * The kept record fields to write with the data. Normally exactly what was
+   * kept; once a class declaring some of them has been applied, the data
+   * holds those itself and they are dropped from what is kept.
+   */
+  recordRestForWrite(): RecordRest | undefined {
+    const data = this.data;
+    const record = this._storedRecord;
+    if (record !== undefined) {
+      this._storedRecord = undefined;
+      return (this._recordRest = recordRestOutside(record, data));
+    }
+    const rest = this._recordRest;
+    if (rest === undefined) return undefined;
+    const keys = rest.keys;
+    for (let i = 0; i < keys.length; i++) {
+      if (Object.hasOwn(data, keys[i])) {
+        const values = JSON.parse(`{${rest.json}}`) as Record<string, unknown>;
+        return (this._recordRest = recordRestOutside(values, data));
+      }
+    }
+    return rest;
   }
 
   /**

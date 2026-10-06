@@ -62,6 +62,12 @@ export type StoreMessage =
       refIds?: number[];
       /** `value` holds only some fields; the writer merges them over the stored record, if any. */
       merge?: boolean;
+      /**
+       * Fields of the stored record to keep alongside `value` (a JSON object
+       * body, see `QueryStore.saveEntity`). Optional on the wire: a writer
+       * built before it ignores it and writes `value` alone.
+       */
+      rest?: string;
     }
   | { type: StoreMessageType.ActivateQuery; queryDefId: string; queryKey: number; cacheTime: number; maxCount?: number }
   | { type: StoreMessageType.DeleteQuery; queryKey: number };
@@ -326,7 +332,7 @@ export class AsyncQueryStore implements QueryStore {
         );
         break;
       case StoreMessageType.SaveEntity:
-        await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true);
+        await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true, msg.rest);
         for (let i = 0; i < this.persistedListeners.length; i++) this.persistedListeners[i](msg.entityKey);
         break;
       case StoreMessageType.ActivateQuery:
@@ -422,13 +428,15 @@ export class AsyncQueryStore implements QueryStore {
     this.dispatch(message);
   }
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void {
-    this.dispatch({
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void {
+    const message: Extract<StoreMessage, { type: StoreMessageType.SaveEntity }> = {
       type: StoreMessageType.SaveEntity,
       entityKey,
       value,
       refIds: refIds ? Array.from(refIds) : undefined,
-    });
+    };
+    if (rest !== undefined && rest !== '') message.rest = rest;
+    this.dispatch(message);
   }
 
   mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {
@@ -483,6 +491,7 @@ export class AsyncQueryStore implements QueryStore {
     value: unknown,
     refIds: number[] | undefined,
     merge: boolean,
+    rest?: string,
   ): Promise<void> {
     if (merge) {
       const stored = await this.delegate!.getString(valueKeyFor(entityKey));
@@ -492,7 +501,7 @@ export class AsyncQueryStore implements QueryStore {
         return;
       }
     }
-    await this.setValue(entityKey, value, refIds ? new Set(refIds) : undefined);
+    await this.setValue(entityKey, value, refIds ? new Set(refIds) : undefined, rest);
   }
 
   private async writerActivateQuery(
@@ -607,10 +616,13 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  private async setValue(id: number, value: unknown, refIds?: Set<number>): Promise<void> {
+  /** `rest`: fields of the stored record to keep, written ahead of `value`'s (see `QueryStore.saveEntity`). */
+  private async setValue(id: number, value: unknown, refIds?: Set<number>, rest?: string): Promise<void> {
     const delegate = this.delegate!;
 
-    await delegate.setString(valueKeyFor(id), JSON.stringify(value));
+    let json = JSON.stringify(value);
+    if (rest !== undefined && rest !== '') json = json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`;
+    await delegate.setString(valueKeyFor(id), json);
     this.noteHeld(id);
 
     const refIdsKey = refIdsKeyFor(id);

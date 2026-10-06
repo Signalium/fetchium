@@ -11,7 +11,7 @@ import type { QueryClient } from './QueryClient.js';
 import type { EntityInstance } from './EntityInstance.js';
 import type { ParseContext, ParsedEntity } from './parseEntities.js';
 import { FormattedValue, ValidatorDef } from './typeDefs.js';
-import { Mask } from './types.js';
+import { type EntityDef, Mask } from './types.js';
 import { createLiveCollection, LiveCollectionBinding } from './LiveCollection.js';
 import { PROXY_ID } from './proxyId.js';
 import { dropNestedWrapper } from './nestedNotifiers.js';
@@ -135,7 +135,7 @@ function applyEntity(
   appendMode: boolean,
   created: Set<EntityInstance> | undefined,
 ): Record<string, unknown> {
-  const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial } = entity;
+  const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial, record } = entity;
   const shapeFields = entityShape.shape;
 
   // The same entity can appear more than once in one payload (an author under
@@ -186,14 +186,16 @@ function applyEntity(
       if ((persist === true && rawKeys === undefined) || fillsPartial) {
         // A full payload (a fetch), or the record's fields merged in, makes
         // the data a complete record again.
+        if (entityInstance._partial && !fillsPartial) checkStoredRecord(entityInstance, entityShape, queryClient);
         entityInstance._partial = false;
         entityInstance._partialKeys = undefined;
       } else if (entityInstance._partial && rawKeys !== undefined) {
-        // Stays partial even once the events have carried every field of
-        // this class: another class sharing the typename may have written
-        // fields to the record that this one does not declare, and only a
-        // merge keeps them.
-        for (const k of rawKeys) entityInstance._partialKeys!.add(k);
+        const partialKeys = entityInstance._partialKeys!;
+        for (const k of rawKeys) partialKeys.add(k);
+        if (eventsBuiltWholeRecord(partialKeys, entityShape, queryClient)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       }
     } else {
       initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
@@ -206,14 +208,17 @@ function applyEntity(
         // event did (the parser fills the literal in).
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
-        // An event that carried every field of this class is still partial:
-        // the record may hold fields another class sharing the typename
-        // declares (one not registered this session, too), so it is merged
-        // into, not replaced. With no record to merge into, the first write
-        // makes it whole (see `EntityInstance.save()`).
+        // Events that carried every field built a whole record, unless the
+        // record may hold fields another class of the typename declares.
+        if (eventsBuiltWholeRecord(entityInstance._partialKeys, entityShape, queryClient)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       } else if (persist === false) {
         // Hydrated from the store: its record exists.
         entityInstance._recorded = true;
+      } else if (persist === true && record === undefined) {
+        checkStoredRecord(entityInstance, entityShape, queryClient);
       }
       if (persist === 'existing') created?.add(entityInstance);
     }
@@ -221,6 +226,8 @@ function applyEntity(
     entityInstance._applying = false;
   }
   if (isUpdate && changed) entityInstance.notify();
+  // Hydration handed over the record: it holds fields the data does not.
+  if (record !== undefined) entityInstance.noteRecord(record);
 
   if (appendMode && entityInstance.liveCollections.length > 0) {
     for (const binding of entityInstance.liveCollections) {
@@ -258,6 +265,42 @@ function applyEntity(
   parentEntityRefs.set(entityInstance, (parentEntityRefs.get(entityInstance) ?? 0) + 1);
 
   return proxy;
+}
+
+/**
+ * A whole record is about to be written from a fetch's data: if the entity's
+ * class lacks fields another class sharing its typename declares, the stored
+ * record may hold them, and the first write reads it to keep them. For an app
+ * whose typenames each have one class this is a field read.
+ */
+function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClient: QueryClient): void {
+  if (
+    queryClient.hasForeignFieldDefs &&
+    !instance.keepsRecordFields() &&
+    queryClient.mayMissForeignFields(shape as unknown as ValidatorDef<unknown>)
+  ) {
+    instance._checkStoredRecord = true;
+  }
+}
+
+/**
+ * Whether the fields streamed events carried (`keys`) are the entity's whole
+ * record, so it can be written whole rather than merged into its record. They
+ * must name every field of its class, and no other class sharing the typename
+ * may declare a field this one lacks: such a field can sit in the record (an
+ * earlier session's write), and only a merge keeps it. That takes a store
+ * that remembers each typename's field names across sessions, for every
+ * record it holds; with any other store, or one with records an earlier
+ * release wrote, a class not registered this session may be unknown, so the
+ * entity stays partial and is merged.
+ */
+function eventsBuiltWholeRecord(keys: Set<string>, entityShape: EntityDef, queryClient: QueryClient): boolean {
+  for (const k in entityShape.shape) if (!keys.has(k)) return false;
+  if (!queryClient.storeKnowsTypenameFields) return false;
+  return (
+    !queryClient.hasForeignFieldDefs ||
+    !queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+  );
 }
 
 // ======================================================

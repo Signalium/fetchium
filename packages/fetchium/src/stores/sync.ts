@@ -11,6 +11,10 @@ import {
   refIdsKeyFor,
   updatedAtKeyFor,
   valueKeyFor,
+  VALUE_PREFIX,
+  DOC_PREFIX,
+  fieldNamesKeyFor,
+  FIELD_NAMES_SINCE_KEY,
   storedRecordRest,
   entityRefsInJson,
 } from './shared.js';
@@ -103,10 +107,29 @@ const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>(
 /** Bounds the entries kept; past it the least recently merged is dropped, and its next merge reads again. */
 const MAX_MERGE_RESTS = 1024;
 
+/** Per backing kv, like the merge rests: the field names each typename's classes declared, and when. */
+const fieldNamesByKv = new WeakMap<SyncPersistentStore, Map<string, Map<string, number>>>();
+/** A field name no class has declared for this long (30 days) is forgotten. */
+const FIELD_NAME_TTL = 30 * 24 * 60 * 60 * 1000;
+/** A declared name's time is rewritten at most this often (1 day). */
+const FIELD_NAME_REFRESH = 24 * 60 * 60 * 1000;
+/**
+ * Since when a kv's field names have been remembered for every record it
+ * holds (0: since it held no cached data), and whether that is stored yet
+ * (see `entityFieldNamesComplete`).
+ */
+interface FieldNamesSince {
+  at: number;
+  stored: boolean;
+}
+/** Per backing kv, like the field names. */
+const fieldNamesSinceByKv = new WeakMap<SyncPersistentStore, FieldNamesSince>();
+
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
   private readonly deleteListeners: Array<(key: number) => void>;
   private readonly mergeRests: Map<number, MergeRest>;
+  private readonly fieldNames: Map<string, Map<string, number>>;
 
   constructor(private readonly kv: SyncPersistentStore) {
     let listeners = deleteListenersByKv.get(kv);
@@ -121,6 +144,12 @@ export class SyncQueryStore implements QueryStore {
       mergeRestsByKv.set(kv, rests);
     }
     this.mergeRests = rests;
+    let fieldNames = fieldNamesByKv.get(kv);
+    if (fieldNames === undefined) {
+      fieldNames = new Map();
+      fieldNamesByKv.set(kv, fieldNames);
+    }
+    this.fieldNames = fieldNames;
   }
 
   onDelete(listener: (key: number) => void): () => void {
@@ -202,8 +231,151 @@ export class SyncQueryStore implements QueryStore {
     this.activateQuery(queryDef, queryKey);
   }
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void {
-    this.setValue(entityKey, value, refIds);
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void {
+    if (rest === undefined || rest === '') {
+      this.setValue(entityKey, value, refIds);
+      return;
+    }
+    // The kept fields go first: should one ever repeat a field of `value`,
+    // the value's own (later) occurrence is the one a parse keeps.
+    const json = JSON.stringify(value);
+    const rests = this.mergeRests;
+    if (rests.size !== 0) rests.delete(entityKey);
+    this.writeValue(entityKey, json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`, refIds);
+  }
+
+  readEntity(entityKey: number): Record<string, unknown> | undefined {
+    const stored = this.kv.getString(valueKeyFor(entityKey));
+    if (stored === undefined) return undefined;
+    let record: unknown;
+    try {
+      record = JSON.parse(stored);
+    } catch {
+      return undefined;
+    }
+    return typeof record === 'object' && record !== null && !Array.isArray(record)
+      ? (record as Record<string, unknown>)
+      : undefined;
+  }
+
+  getEntityFieldNames(typename: string): readonly string[] | undefined {
+    const names = this.fieldNamesOf(typename);
+    return names.size === 0 ? undefined : [...names.keys()];
+  }
+
+  /**
+   * Whether the remembered field names cover every class that wrote a
+   * record this store holds. Not while it holds records a version that did
+   * not remember field names wrote: they may hold fields of a class not
+   * registered since. When this version first opens a store it notes since
+   * when the names cover its records (`sq:meta:fieldsSince`, after one scan
+   * of the keys, stored with the first field names it writes): from then, or
+   * from the start if it held no cached data. `clear()` resets it to the
+   * start. 30 days on (`FIELD_NAME_TTL`), a class not declared since then
+   * would have been forgotten anyway, and the names count as complete.
+   */
+  entityFieldNamesComplete(): boolean {
+    const at = this.fieldNamesSince().at;
+    return at === 0 || Date.now() - at >= FIELD_NAME_TTL;
+  }
+
+  private fieldNamesSince(): FieldNamesSince {
+    const kv = this.kv;
+    let since = fieldNamesSinceByKv.get(kv);
+    if (since !== undefined) return since;
+    const at = kv.getNumber(FIELD_NAMES_SINCE_KEY);
+    if (at !== undefined) {
+      since = { at, stored: true };
+    } else {
+      since = { at: 0, stored: false };
+      for (const key of kv.getAllKeys()) {
+        if (key.startsWith(DOC_PREFIX)) {
+          since.at = Date.now();
+          break;
+        }
+      }
+    }
+    fieldNamesSinceByKv.set(kv, since);
+    return since;
+  }
+
+  /**
+   * Records that a class of `typename` declares `fields` now. A name keeps
+   * the time it was last declared (refreshed at most once a day, so a
+   * session normally writes nothing here); one no class has declared for
+   * `FIELD_NAME_TTL` is forgotten, so a field an app update removed stops
+   * marking the typename's classes, and stops being kept in its records.
+   */
+  addEntityFieldNames(typename: string, fields: readonly string[]): void {
+    const names = this.fieldNamesOf(typename);
+    const now = Date.now();
+    let changed = false;
+    for (let i = 0; i < fields.length; i++) {
+      const declaredAt = names.get(fields[i]);
+      if (declaredAt === undefined || now - declaredAt > FIELD_NAME_REFRESH) {
+        names.set(fields[i], now);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const since = this.fieldNamesSince();
+    if (!since.stored) {
+      this.kv.setNumber(FIELD_NAMES_SINCE_KEY, since.at);
+      since.stored = true;
+    }
+    let stored = '';
+    for (const [name, declaredAt] of names) stored += `${stored === '' ? '' : '\n'}${name}\t${declaredAt}`;
+    this.kv.setString(fieldNamesKeyFor(typename), stored);
+  }
+
+  /** The field names `typename`'s classes declared within `FIELD_NAME_TTL`, and when; read from the kv once. */
+  private fieldNamesOf(typename: string): Map<string, number> {
+    let names = this.fieldNames.get(typename);
+    if (names !== undefined) return names;
+    names = new Map();
+    const stored = this.kv.getString(fieldNamesKeyFor(typename));
+    if (stored !== undefined && stored !== '') {
+      const now = Date.now();
+      for (const line of stored.split('\n')) {
+        const tab = line.lastIndexOf('\t');
+        if (tab <= 0) continue;
+        const declaredAt = Number(line.slice(tab + 1));
+        if (now - declaredAt <= FIELD_NAME_TTL) names.set(line.slice(0, tab), declaredAt);
+      }
+    }
+    this.fieldNames.set(typename, names);
+    return names;
+  }
+
+  /**
+   * Deletes every query, entity record and queue this store holds (the
+   * `sq:doc:` keys of its kv) and reports each record to `onDelete`
+   * listeners, so a client over it drops what it kept from those records
+   * and its next write of an entity carries only what the entity holds in
+   * memory. Wipe the cache with this rather than on the kv directly (an
+   * MMKV `clearAll()`): a client does not know about records deleted under
+   * it, and its next write of an entity of a typename two classes share puts
+   * back the other class's fields it kept from the deleted record. The field
+   * names the store remembers per typename (`sq:meta:`) describe the app's
+   * entity classes, not cached data, and are kept; with no record left,
+   * they cover every record from now on (`entityFieldNamesComplete`).
+   */
+  clear(): void {
+    const kv = this.kv;
+    const deleted: number[] = [];
+    for (const key of kv.getAllKeys()) {
+      if (!key.startsWith(DOC_PREFIX)) continue;
+      if (key.startsWith(VALUE_PREFIX)) deleted.push(Number(key.slice(VALUE_PREFIX.length)));
+      kv.delete(key);
+    }
+    kv.setNumber(FIELD_NAMES_SINCE_KEY, 0);
+    fieldNamesSinceByKv.set(kv, { at: 0, stored: true });
+    this.queues.clear();
+    this.mergeRests.clear();
+    const listeners = this.deleteListeners;
+    for (let i = 0; i < deleted.length; i++) {
+      for (let j = 0; j < listeners.length; j++) listeners[j](deleted[i]);
+    }
   }
 
   mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {
