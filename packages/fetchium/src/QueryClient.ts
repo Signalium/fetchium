@@ -1169,6 +1169,7 @@ export class QueryClient {
       adapter.destroy?.();
     }
     this.adapters.clear();
+    for (const instance of this.queryInstances.values()) instance.abortForDestroy();
     this.queryInstances.clear();
     this.mutationInstances.clear();
     this.entityMap.clear();

@@ -7,6 +7,8 @@ import { NetworkManager } from '../NetworkManager.js';
 import { t } from '../typeDefs.js';
 import { fetchQuery, queryKeyForClass } from '../query.js';
 import { updatedAtKeyFor } from '../stores/shared.js';
+import { TopicQuery } from '../topic/TopicQuery.js';
+import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { sleep } from './utils.js';
 
 /**
@@ -313,6 +315,262 @@ describe('Reactivating after a deactivation aborted the fetch', () => {
     expect(f.paths()).toEqual(['/item', '/item(aborted)', '/item']);
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/item' });
     second();
+    client.destroy();
+  });
+});
+
+/**
+ * A socket-like topic adapter: subscribing delivers the topic's data 5 ms
+ * later; unsubscribing cancels that and drops the topic's state, so a send()
+ * still waiting on it never resolves.
+ */
+class SocketTopicAdapter extends TopicQueryAdapter {
+  private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  subscribe(topic: string): void {
+    this.timers.set(
+      topic,
+      setTimeout(() => this.fulfillTopic(topic, { value: `data:${topic}` }), 5),
+    );
+  }
+  unsubscribe(topic: string): void {
+    clearTimeout(this.timers.get(topic));
+    this.timers.delete(topic);
+    this.clearTopic(topic);
+  }
+}
+
+class GetPrices extends TopicQuery {
+  topic = 'prices';
+  result = { value: t.string };
+}
+
+function makeTopicClient(kv: MemoryPersistentStore): QueryClient {
+  return new QueryClient({ store: new SyncQueryStore(kv), adapters: [new SocketTopicAdapter()] });
+}
+
+describe('A topic query mounted and unmounted in one task', () => {
+  it('settles when it is mounted again', async () => {
+    const client = makeTopicClient(new MemoryPersistentStore());
+
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    first();
+    await sleep(50);
+
+    const second = activate(client, () => fetchQuery(GetPrices).isPending);
+    await sleep(50);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
+    second();
+    client.destroy();
+  });
+
+  it('settles when it is mounted again with a cached value', async () => {
+    const kv = new MemoryPersistentStore();
+    const seed = makeTopicClient(kv);
+    const seeded = activate(seed, () => fetchQuery(GetPrices).isPending);
+    await sleep(30);
+    seeded();
+    seed.destroy();
+
+    const client = makeTopicClient(kv);
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    first();
+    await sleep(50);
+
+    const second = activate(client, () => fetchQuery(GetPrices).isPending);
+    await sleep(50);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
+    second();
+    client.destroy();
+  });
+});
+
+describe('A Signal param change while other signals keep flushing', () => {
+  it('refetches within a task or two, not once the flushes stop', async () => {
+    const f = createFetch(1);
+    const client = makeClient(new MemoryPersistentStore(), f.fetch);
+    const id = signal('1');
+    const noise = signal(0);
+
+    const dispose = activate(client, () => fetchQuery(GetItemById, { id }).isPending);
+    // A listener that writes a signal another watcher reads: every flush
+    // schedules the next one, as a ticking price feed does.
+    const reader = watcher(() => noise.value);
+    let flushes = 0;
+    const stopReader = reader.addListener(() => {
+      if (flushes++ < 200) noise.value = noise.value + 1;
+    });
+    await sleep(20);
+
+    let tasks = 0;
+    let ticking = true;
+    const tick = (): void => {
+      if (!ticking) return;
+      tasks++;
+      setTimeout(tick, 0);
+    };
+    setTimeout(tick, 0);
+    flushes = 0;
+    id.value = '2';
+    noise.value = noise.value + 1;
+
+    let startedAt = -1;
+    for (let i = 0; i < 400 && startedAt === -1; i++) {
+      await sleep(0);
+      if (f.calls.length === 2) startedAt = tasks;
+    }
+    ticking = false;
+
+    expect(f.paths()).toEqual(['/items/1', '/items/2']);
+    expect(startedAt).toBeLessThanOrEqual(3);
+    expect(flushes).toBeLessThan(200);
+    stopReader();
+    dispose();
+    client.destroy();
+  });
+});
+
+describe('reactivationStaggerMs and refetches a pause aborted', () => {
+  it('spreads the restarted refetches across the window on reconnect', async () => {
+    const starts: number[] = [];
+    let t0 = 0;
+    const f = createFetch(10);
+    const fetch = (url: string, options?: RequestInit) => {
+      starts.push(performance.now() - t0);
+      return f.fetch(url, options);
+    };
+    const networkManager = new NetworkManager(true);
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: fetch as any, baseUrl: 'http://localhost' })],
+      networkManager,
+      reactivationStaggerMs: 300,
+    });
+
+    const relays: any[] = [];
+    const disposers = ['1', '2', '3', '4'].map((id, i) =>
+      activate(client, () => (relays[i] = fetchQuery(GetItemById, { id })).isPending),
+    );
+    await sleep(30);
+    for (const relay of relays) relay.value.__refetch();
+    await sleep(2);
+    networkManager.setNetworkStatus(false);
+    await sleep(20);
+
+    t0 = performance.now();
+    starts.length = 0;
+    networkManager.setNetworkStatus(true);
+    await sleep(400);
+
+    expect(starts).toHaveLength(4);
+    expect(Math.max(...starts) - Math.min(...starts)).toBeGreaterThan(100);
+    for (const relay of relays) expect(relay.isRejected).toBe(false);
+    for (const dispose of disposers) dispose();
+    client.destroy();
+  });
+});
+
+describe('Responses that arrive after the client or the params moved on', () => {
+  it('writes nothing to the store after destroy(), including a same-task unmount kept first fetch', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(20);
+    const client = makeClient(kv, f.fetch);
+
+    const dispose = activate(client, () => fetchQuery(GetItem).isPending);
+    dispose();
+    await sleep(0);
+    client.destroy();
+    await sleep(60);
+
+    expect(f.paths()).toEqual(['/item(aborted)']);
+    expect(kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItem, undefined)))).toBeUndefined();
+  });
+
+  it('drops a fetchNext page for params that changed while it was in flight', async () => {
+    class GetList extends RESTQuery {
+      params = { id: t.string };
+      path = `/lists/${this.params.id}`;
+      searchParams = { page: 1 };
+      result = { items: t.array(t.string), next: t.optional(t.number) };
+      fetchNext = { searchParams: { page: this.result.next } };
+    }
+    const calls: string[] = [];
+    const fetch = (url: string): Promise<Response> => {
+      const u = new URL(url);
+      const page = u.searchParams.get('page') ?? '1';
+      calls.push(`${u.pathname}#p${page}`);
+      const body = { items: [`${u.pathname}#p${page}`], next: page === '1' ? 2 : undefined };
+      // Ignores the abort signal.
+      return new Promise(resolve =>
+        setTimeout(
+          () =>
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              headers: new Headers(),
+              json: async () => body,
+              text: async () => JSON.stringify(body),
+            } as unknown as Response),
+          page === '1' ? 1 : 20,
+        ),
+      );
+    };
+    const kv = new MemoryPersistentStore();
+    const client = makeClient(kv, fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const dispose = activate(client, () => (relay = fetchQuery(GetList, { id })).isPending);
+    await sleep(15);
+    const next = relay.value.__fetchNext().catch((error: Error) => error.name);
+    await sleep(2);
+    id.value = '2';
+    await sleep(60);
+
+    expect(await next).toBe('AbortError');
+    expect(relay.value.items).toEqual(['/lists/2#p1']);
+    dispose();
+    client.destroy();
+  });
+
+  it('does not apply an asynchronous cache load for params that changed while it was pending', async () => {
+    class SlowLoadStore extends SyncQueryStore {
+      override loadQuery(...args: Parameters<SyncQueryStore['loadQuery']>): any {
+        const loaded = super.loadQuery(...args);
+        return new Promise(resolve => setTimeout(() => resolve(loaded), 30));
+      }
+    }
+    const kv = new MemoryPersistentStore();
+    {
+      const seed = makeClient(kv, createFetch(1).fetch);
+      const seeded = activate(seed, () => fetchQuery(GetItemById, { id: '1' }).isPending);
+      await sleep(20);
+      seeded();
+      seed.destroy();
+    }
+    const f = createFetch(5);
+    const client = new QueryClient({
+      store: new SlowLoadStore(kv),
+      adapters: [new RESTQueryAdapter({ fetch: f.fetch as any, baseUrl: 'http://localhost' })],
+    });
+    const id = signal('1');
+
+    let relay: any;
+    const values: (string | undefined)[] = [];
+    const dispose = activate(client, () => {
+      relay = fetchQuery(GetItemById, { id });
+      values.push(relay.value?.value);
+    });
+    await sleep(2);
+    id.value = '2';
+    await sleep(80);
+
+    expect(f.paths()).toEqual(['/items/2']);
+    expect(values).not.toContain('/items/1');
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    dispose();
     client.destroy();
   });
 });

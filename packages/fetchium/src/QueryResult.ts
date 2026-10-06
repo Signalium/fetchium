@@ -214,11 +214,16 @@ export class QueryInstance<T extends Query> {
 
           const controller = this._abortController;
           if (controller !== undefined && !controller.signal.aborted) {
+            // A fetch that may be waiting on the subscription this
+            // deactivation tears down (a topic query's send() resolves from
+            // it) could never finish, so it is aborted as before and the next
+            // activation restarts it.
             const keepFirstFetch =
               !isPausing &&
               controller === this.firstFetchController &&
               startWindowOpen &&
-              this.firstFetchWindow === startWindow;
+              this.firstFetchWindow === startWindow &&
+              this.unsubscribe === undefined;
             if (keepFirstFetch) {
               // Mounted and unmounted in one task: let the first fetch finish.
               this.firstFetchController = undefined;
@@ -283,6 +288,22 @@ export class QueryInstance<T extends Query> {
             // deactivation's abort already rejected is restarted the same way,
             // rather than showing the AbortError until a refetch lands, and so
             // is a fetch still in flight for params that changed meanwhile.
+            // With reactivationStaggerMs, a relay holding a value that the
+            // abort rejected is re-settled with that value instead and
+            // refetches like any stale relay below, so the refetches a pause
+            // or offline switch aborted are still spread across the window.
+            if (
+              this.abortedByDeactivation &&
+              this.queryClient.reactivationStaggerMs > 0 &&
+              !paramsDidChange &&
+              !this.relayState.isPending
+            ) {
+              const value = this.relayState.value;
+              if (value !== undefined) {
+                this.abortedByDeactivation = false;
+                this.relayState.value = value;
+              }
+            }
             if (
               (this.relayState.isPending && (this._abortController === undefined || paramsDidChange)) ||
               this.abortedByDeactivation
@@ -400,23 +421,33 @@ export class QueryInstance<T extends Query> {
     this.initialized = true;
 
     let loaded: MaybePromise<CachedQuery | undefined>;
+    const storageKey = this.storageKey;
+    const fetchStarts = this.fetchStarts;
 
     try {
-      loaded = this.queryClient.loadCachedQuery(this.def, this.storageKey);
+      loaded = this.queryClient.loadCachedQuery(this.def, storageKey);
     } catch (error) {
-      this.discardCorruptCache(error);
+      this.discardCorruptCache(error, storageKey);
       loaded = undefined;
     }
 
     if (isThenable(loaded)) {
       loaded.then(
         cached => {
-          this.hydrate(cached);
-          this.startSubscriptionAndFetch();
+          if (this.storageKey === storageKey) {
+            this.hydrate(cached);
+            this.startSubscriptionAndFetch();
+          } else {
+            this.startAfterParamsChangedDuringLoad(fetchStarts);
+          }
         },
         error => {
-          this.discardCorruptCache(error);
-          this.startSubscriptionAndFetch();
+          this.discardCorruptCache(error, storageKey);
+          if (this.storageKey === storageKey) {
+            this.startSubscriptionAndFetch();
+          } else {
+            this.startAfterParamsChangedDuringLoad(fetchStarts);
+          }
         },
       );
     } else {
@@ -425,6 +456,15 @@ export class QueryInstance<T extends Query> {
       this.queryClient.noteDeferredStart(this);
       queueMicrotask(this.runPendingStart);
     }
+  }
+
+  /**
+   * A Signal param changed while an asynchronous cache load was pending. The
+   * entry belongs to the old params, so it is not applied, and the change
+   * already fetched the new params unless nothing has started since.
+   */
+  private startAfterParamsChangedDuringLoad(fetchStartsAtLoad: number): void {
+    if (this.fetchStarts === fetchStartsAtLoad) this.startSubscriptionAndFetch();
   }
 
   private runPendingStart = (): void => {
@@ -480,9 +520,9 @@ export class QueryInstance<T extends Query> {
     this.pendingRestart?.();
   }
 
-  private discardCorruptCache(error: unknown): void {
+  private discardCorruptCache(error: unknown, storageKey: number = this.storageKey): void {
     const qc = this.queryClient;
-    qc.store.deleteQuery(this.storageKey);
+    qc.store.deleteQuery(storageKey);
     qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
   }
 
@@ -696,7 +736,19 @@ export class QueryInstance<T extends Query> {
    */
   private deferRun(run: () => void, afterFlush: boolean): void {
     if (afterFlush) {
-      void settled().then(run);
+      // settled() also waits for every flush scheduled after this one, which
+      // a listener that writes a signal keeps doing; the timer caps the wait
+      // at one task. A flush runs within the task it starts in, so the
+      // timer still fires after the outstanding one.
+      let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+      const once = (): void => {
+        if (timer === undefined) return;
+        clearTimeout(timer);
+        timer = undefined;
+        run();
+      };
+      timer = setTimeout(once, 0);
+      void settled().then(once);
     } else {
       queueMicrotask(run);
     }
@@ -797,6 +849,24 @@ export class QueryInstance<T extends Query> {
     }, totalDelay);
   }
 
+  /**
+   * Called by `QueryClient.destroy()`: aborts the fetches in flight, including
+   * a first fetch a same-task unmount left running, and cancels deferred
+   * ones, so nothing reaches the store after the client is gone.
+   *
+   * @internal
+   */
+  abortForDestroy(): void {
+    this.cancelDebounced();
+    this.startPending = false;
+    this.pendingRestart = undefined;
+    this.firstFetchController = undefined;
+    this._abortController?.abort();
+    this._abortController = undefined;
+    this._fetchNextAbort?.abort();
+    this._fetchNextAbort = undefined;
+  }
+
   /** Records that the subscription delivered data. See `lastPushAt`. */
   private notePush = (): void => {
     if (this._isActive) this.lastPushAt = Date.now();
@@ -875,11 +945,14 @@ export class QueryInstance<T extends Query> {
     ctx.resultData = this.rootEntity!.data;
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const attempt = this.attemptStatusTracker(ctx);
+    const storageKey = this.storageKey;
 
     return withRetry(
       async () => {
         attempt.start();
         const freshData = await adapter.sendNext!(ctx, signal);
+        // As in runQuery(): a page for params that changed meanwhile.
+        if (this.storageKey !== storageKey) throw abortError();
         this.updatedAt = Date.now();
 
         const result = this.applyData(freshData, true, true);
