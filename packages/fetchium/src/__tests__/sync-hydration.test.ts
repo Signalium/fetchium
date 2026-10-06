@@ -229,3 +229,73 @@ describe('Activation with an asynchronous store', () => {
     client.destroy();
   });
 });
+
+describe('Invalidation before the first fetch', () => {
+  class GetForever extends RESTQuery {
+    path = '/item';
+    result = { value: t.string };
+    config = { staleTime: Infinity };
+  }
+
+  it('fetches an uncached query invalidated before activation', async () => {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { value: 'fresh' });
+    const client = makeClient(new SyncQueryStore(new MemoryPersistentStore()), mockFetch);
+
+    const relay = withContexts([[QueryClientContext, client]], () => fetchQuery(GetForever));
+    client.invalidateQueries([GetForever]);
+    const { dispose } = activate(client, () => fetchQuery(GetForever).isPending);
+
+    await flushMicrotasks();
+    expect(mockFetch.calls).toHaveLength(1);
+    await relay;
+    expect(relay.value!.value).toBe('fresh');
+
+    dispose();
+    client.destroy();
+  });
+
+  for (const [name, Store] of [
+    ['sync', SyncQueryStore],
+    ['async', AsyncLoadingQueryStore],
+  ] as const) {
+    it(`fetches an uncached query invalidated before the first fetch starts (${name} store)`, async () => {
+      const mockFetch = createMockFetch();
+      mockFetch.get('/item', { value: 'fresh' });
+      const client = makeClient(new Store(new MemoryPersistentStore()), mockFetch);
+
+      let relay: ReturnType<typeof fetchQuery<GetForever>> | undefined;
+      const { dispose } = activate(client, () => (relay = fetchQuery(GetForever)).isPending);
+      client.invalidateQueries([GetForever]);
+
+      await flushMicrotasks();
+      expect(mockFetch.calls).toHaveLength(1);
+      await relay;
+      expect(relay!.value!.value).toBe('fresh');
+
+      dispose();
+      client.destroy();
+    });
+  }
+
+  it('refetches a cached query invalidated before its cache loads', async () => {
+    const kv = new MemoryPersistentStore();
+    await seedCache(kv, GetForever, { value: 'cached' });
+
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { value: 'fresh' });
+    const client = makeClient(new AsyncLoadingQueryStore(kv), mockFetch);
+
+    let relay: ReturnType<typeof fetchQuery<GetForever>> | undefined;
+    const { dispose } = activate(client, () => (relay = fetchQuery(GetForever)).isPending);
+    client.invalidateQueries([GetForever]);
+
+    await flushMicrotasks();
+    expect(mockFetch.calls).toHaveLength(1);
+    await sleep(0);
+    expect(relay!.value!.value).toBe('fresh');
+
+    dispose();
+    client.destroy();
+  });
+});
