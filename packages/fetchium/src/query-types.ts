@@ -151,6 +151,16 @@ export interface QueryStore {
   isSettled?(): boolean;
 
   /**
+   * For stores that process writes asynchronously, a narrower `isSettled`:
+   * whether an operation that could delete a record is still queued. This
+   * client's own entity writes do not count; for those that drop a
+   * reference, the client itself writes the referenced entity again. When
+   * present, the client uses it instead of `isSettled`, so a burst of entity
+   * writes does not turn write skipping off for every other entity.
+   */
+  hasQueuedDeletes?(): boolean;
+
+  /**
    * Whether the store currently holds a record for this entity key, or
    * `undefined` while it cannot tell yet (a store that has not finished
    * reading what it holds). A streamed event for an entity that is not in

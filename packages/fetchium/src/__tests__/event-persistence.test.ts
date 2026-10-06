@@ -1542,3 +1542,216 @@ describe('AsyncQueryStore writer', () => {
     expect(first._persisted).toBe(true);
   });
 });
+
+// ======================================================
+// Store work per streamed event
+// ======================================================
+
+describe('store work per streamed event', () => {
+  class Author extends Entity {
+    __typename = t.typename('Author');
+    id = t.id;
+    name = t.string;
+  }
+  class Note extends Entity {
+    __typename = t.typename('Note');
+    id = t.id;
+    boardId = t.string;
+    body = t.string;
+    pinned = t.optional(t.boolean);
+    author = t.optional(t.entity(Author));
+  }
+  class Board extends Entity {
+    __typename = t.typename('Board');
+    id = t.id;
+    notes = t.liveArray(Note, { constraints: { boardId: (this as any).id } });
+  }
+  class GetBoard extends RESTQuery {
+    params = { id: t.id };
+    path = `/board/${this.params.id}`;
+    result = { board: t.entity(Board) };
+  }
+
+  const getClient = setupTestClient();
+
+  it('an entity an event built, of which the store held no record, is written whole afterwards', async () => {
+    const { client, mockFetch, kv, store } = getClient();
+    mockFetch.get('/board/b1', { board: { __typename: 'Board', id: 'b1', notes: [] } });
+    const boardQ = holdQuery(client, () => fetchQuery(GetBoard, { id: 'b1' }));
+    await boardQ;
+    const merges = vi.spyOn(store, 'mergeEntity');
+    const reads = vi.spyOn(kv, 'getString');
+
+    client.applyMutationEvent({
+      type: 'create',
+      typename: 'Note',
+      data: { __typename: 'Note', id: 'n1', boardId: 'b1', body: 'first' },
+    });
+    for (let i = 0; i < 3; i++) {
+      client.applyMutationEvent({ type: 'update', typename: 'Note', data: { id: 'n1', body: `edit ${i}` } });
+    }
+    await sleep(5);
+
+    expect(merges).not.toHaveBeenCalled();
+    expect(reads.mock.calls.filter(([key]) => key === valueKeyFor(K('Note', 'n1')))).toEqual([]);
+    expect(getDoc(kv, K('Note', 'n1'))).toEqual({ __typename: 'Note', id: 'n1', boardId: 'b1', body: 'edit 2' });
+    expect((boardQ.value as any).board.notes.map((n: any) => n.body)).toEqual(['edit 2']);
+    expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
+  });
+
+  it('an entity an event built over a record the store holds keeps merging into it', async () => {
+    const { client, mockFetch, kv, store } = getClient();
+    mockFetch.get('/board/b1', {
+      board: {
+        __typename: 'Board',
+        id: 'b1',
+        notes: [{ __typename: 'Note', id: 'n1', boardId: 'b1', body: 'a', pinned: true }],
+      },
+    });
+    const boardQ = holdQuery(client, () => fetchQuery(GetBoard, { id: 'b1' }));
+    await boardQ;
+    // The note leaves memory but its record stays (the board's cache holds it).
+    client.applyMutationEvent({ type: 'delete', typename: 'Note', data: 'n1' });
+    await sleep(5);
+    kv.setString(
+      valueKeyFor(K('Note', 'n1')),
+      JSON.stringify({ __typename: 'Note', id: 'n1', boardId: 'b1', body: 'a', pinned: true }),
+    );
+    const merges = vi.spyOn(store, 'mergeEntity');
+
+    client.applyMutationEvent({
+      type: 'create',
+      typename: 'Note',
+      data: { __typename: 'Note', id: 'n1', boardId: 'b1', body: 'b' },
+    });
+    await sleep(5);
+
+    expect(merges.mock.calls.map(c => c[0])).toEqual([K('Note', 'n1')]);
+    // The field the event did not carry survives.
+    expect(getDoc(kv, K('Note', 'n1'))).toMatchObject({ body: 'b', pinned: true });
+  });
+});
+
+describe('AsyncQueryStore writer: write skipping while writes are queued', () => {
+  const clients: QueryClient[] = [];
+  afterEach(() => {
+    for (const client of clients.splice(0)) client.destroy();
+  });
+
+  class Badge extends Entity {
+    // Lingers in memory once released, so a later apply finds the same instance.
+    static cache = { gcTime: 60 };
+    __typename = t.typename('Badge');
+    id = t.id;
+    label = t.string;
+  }
+  class User extends Entity {
+    __typename = t.typename('User');
+    id = t.id;
+    name = t.string;
+    karma = t.number;
+    badge = t.optional(t.entity(Badge));
+  }
+  class GetUser extends RESTQuery {
+    params = { id: t.id };
+    path = `/user/${this.params.id}`;
+    result = { user: t.entity(User) };
+  }
+
+  async function setup(users: Record<string, unknown>[]) {
+    const delegate = new AsyncDelegate(3);
+    const store = writerStore(delegate);
+    const mockFetch = createMockFetch();
+    for (const user of users) mockFetch.get(`/user/${user.id as string}`, { user });
+    const client = new QueryClient({
+      store,
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as never, baseUrl: 'http://localhost' })],
+      log: { warn: () => {}, error: () => {} },
+    } as never);
+    clients.push(client);
+    for (const user of users) await holdQuery(client, () => fetchQuery(GetUser, { id: user.id as string }));
+    await drain(store);
+    await scanned(store);
+    const saves = vi.spyOn(store, 'saveEntity');
+    const merges = vi.spyOn(store, 'mergeEntity');
+    const writes = () => [...saves.mock.calls.map(c => c[0]), ...merges.mock.calls.map(c => c[0])];
+    return { delegate, store, client, writes };
+  }
+
+  const user = (id: string, karma: number, badge?: Record<string, unknown>) => ({
+    __typename: 'User',
+    id,
+    name: id,
+    karma,
+    ...(badge !== undefined ? { badge } : {}),
+  });
+
+  it("one entity's queued write leaves skipping on for identical events of other entities", async () => {
+    const { store, client, writes } = await setup([user('u1', 1), user('u2', 2), user('u3', 3)]);
+
+    client.applyMutationEvent({ type: 'update', typename: 'User', data: { id: 'u1', karma: 10 } });
+    client.applyMutationEvent({ type: 'update', typename: 'User', data: { id: 'u2', karma: 2 } });
+    client.applyMutationEvent({ type: 'update', typename: 'User', data: { id: 'u3', karma: 3 } });
+    // Identical to the write still queued for u1.
+    client.applyMutationEvent({ type: 'update', typename: 'User', data: { id: 'u1', karma: 10 } });
+    expect(store.isSettled()).toBe(false);
+    await drain(store);
+
+    expect(writes()).toEqual([K('User', 'u1')]);
+  });
+
+  it('a queued deletion still turns skipping off', async () => {
+    const { store, client, writes } = await setup([user('u1', 1)]);
+
+    store.deleteQuery(12345);
+    client.applyMutationEvent({ type: 'update', typename: 'User', data: { id: 'u1', karma: 1 } });
+    await drain(store);
+
+    expect(writes()).toEqual([K('User', 'u1')]);
+  });
+
+  it('an entity a queued write stops referencing is written again when it is referenced again', async () => {
+    class Card extends Entity {
+      // Lingers in memory once released, so the next event finds the same instance.
+      static cache = { gcTime: 60 };
+      __typename = t.typename('Card');
+      id = t.id;
+      deckId = t.string;
+      title = t.string;
+    }
+    class Deck extends Entity {
+      __typename = t.typename('Deck');
+      id = t.id;
+      cards = t.liveArray(Card, { constraints: { deckId: (this as any).id } });
+    }
+    class GetDeck extends RESTQuery {
+      path = '/deck';
+      result = { deck: t.entity(Deck) };
+    }
+    const card = { __typename: 'Card', id: 'c1', deckId: 'd1', title: 'Ace' };
+    const delegate = new AsyncDelegate(3);
+    const store = writerStore(delegate);
+    const mockFetch = createMockFetch();
+    mockFetch.get('/deck', { deck: { __typename: 'Deck', id: 'd1', cards: [card] } });
+    const client = new QueryClient({
+      store,
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as never, baseUrl: 'http://localhost' })],
+      log: { warn: () => {}, error: () => {} },
+    } as never);
+    clients.push(client);
+    const deckQ = holdQuery(client, () => fetchQuery(GetDeck));
+    await deckQ;
+    await drain(store);
+    await scanned(store);
+
+    // The deck's write drops its reference to c1, the only one on disk; before
+    // it is processed, the same card is created again with identical data.
+    client.applyMutationEvent({ type: 'delete', typename: 'Card', data: 'c1' });
+    client.applyMutationEvent({ type: 'create', typename: 'Card', data: card });
+    await drain(store);
+
+    expect((deckQ.value as any).deck.cards.map((c: any) => c.title)).toEqual(['Ace']);
+    expect(Array.from(delegate.kv[refIdsKeyFor(K('Deck', 'd1'))] as Uint32Array)).toEqual([K('Card', 'c1')]);
+    expect(asyncDoc(delegate, K('Card', 'c1'))).toMatchObject({ title: 'Ace' });
+  });
+});

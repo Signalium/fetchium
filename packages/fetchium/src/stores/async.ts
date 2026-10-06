@@ -124,6 +124,11 @@ export class AsyncQueryStore implements QueryStore {
   private deleteListeners: Array<(key: number) => void> = [];
   private persistedListeners: Array<(key: number) => void> = [];
   private processing = false;
+  // Queued work that can delete a record: everything except the entity
+  // writes of this writer's own client, which tracks the references those
+  // drop (see `hasQueuedDeletes`).
+  private queuedDeletes = 0;
+  private readonly ownEntityWrites = new WeakSet<QueuedWork>();
   // The ids whose value the delegate holds (or is about to: a queued write
   // counts), mirrored by the writer so that `hasEntity` can answer
   // synchronously. Read from the delegate once at start, without holding up
@@ -137,6 +142,7 @@ export class AsyncQueryStore implements QueryStore {
   onDelete?: (listener: (key: number) => void) => () => void;
   onPersisted?: (listener: (key: number) => void) => () => void;
   hasEntity?: (key: number) => boolean | undefined;
+  hasQueuedDeletes?: () => boolean;
 
   constructor(config: AsyncQueryStoreConfig) {
     this.isWriter = config.isWriter;
@@ -144,6 +150,7 @@ export class AsyncQueryStore implements QueryStore {
     if (this.isWriter) {
       this.onDelete = listener => subscribe(this.deleteListeners, listener);
       this.onPersisted = listener => subscribe(this.persistedListeners, listener);
+      this.hasQueuedDeletes = () => this.queuedDeletes > 0;
       this.hasEntity = key => {
         if (this.heldKeys !== undefined) return this.heldKeys.has(key);
         // Not read yet: only what this writer itself wrote is known.
@@ -183,6 +190,7 @@ export class AsyncQueryStore implements QueryStore {
   }
 
   private enqueueMessage(msg: QueuedWork): void {
+    if (!this.ownEntityWrites.has(msg)) this.queuedDeletes++;
     this.messageQueue.push(msg);
     // Wake up the queue processor if it's waiting
     if (this.resolveQueueWait) {
@@ -193,7 +201,10 @@ export class AsyncQueryStore implements QueryStore {
 
   private dispatch(msg: StoreMessage): void {
     if (this.isWriter) {
-      if (msg.type === StoreMessageType.SaveEntity) this.noteHeld(msg.entityKey);
+      if (msg.type === StoreMessageType.SaveEntity) {
+        this.noteHeld(msg.entityKey);
+        this.ownEntityWrites.add(msg);
+      }
       this.enqueueMessage(msg);
     } else {
       this.sendMessage(msg);
@@ -255,6 +266,7 @@ export class AsyncQueryStore implements QueryStore {
         }
       } finally {
         this.processing = false;
+        if (!this.ownEntityWrites.has(msg)) this.queuedDeletes--;
       }
     }
   }

@@ -393,7 +393,9 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
       }
       // A consumer that added or deleted keys on the snapshot it was handed:
       // rebuild with the shape's keys, in the shape's order, as a walk would.
-      if (!sameKeyList(Object.keys(before), keys.enumerable)) {
+      // A frozen snapshot (every one this module hands out in dev) cannot
+      // have been altered, so only an unfrozen one pays for the key list.
+      if (!Object.isFrozen(before) && !sameKeyList(Object.keys(before), keys.enumerable)) {
         const source_ = result ?? before;
         const rebuilt: Record<string, unknown> = {};
         for (const key of keys.enumerable) rebuilt[key] = source_[key];
@@ -617,11 +619,25 @@ export class EntityInstance {
     }
     if (oldRefs !== undefined && oldRefs.size > 0) {
       for (const child of oldRefs.keys()) {
-        if (newRefs === undefined || !newRefs.has(child)) child.release();
+        if (newRefs === undefined || !newRefs.has(child)) {
+          child.release();
+          if (persist) this.writeDropsRef(child);
+        }
       }
     }
     this.entityRefs = newRefs;
     if (persist) this.save();
+  }
+
+  /**
+   * This entity's next write drops its reference to `child`, which can delete
+   * the child's record. A store that processes writes later (`onPersisted`)
+   * does that after anything an apply decides meanwhile, so the child is
+   * written again rather than trusted. A synchronous store reports the
+   * deletion (`onDelete`) as it happens.
+   */
+  private writeDropsRef(child: EntityInstance): void {
+    if (this._queryClient.storeAcksWrites) child.recordDropped();
   }
 
   addChildRef(child: EntityInstance, persist: boolean = true): void {
@@ -639,6 +655,7 @@ export class EntityInstance {
     if (count <= 1) {
       this.entityRefs.delete(child);
       child.release();
+      if (persist) this.writeDropsRef(child);
     } else {
       this.entityRefs.set(child, count - 1);
     }
@@ -693,7 +710,7 @@ export class EntityInstance {
             } catch (e) {
               // This entity's record (if any) still lacks the reference: the
               // next apply must write it again.
-              this._persisted = false;
+              this.markUnwritten();
               throw e;
             }
             if (child._deferredWrite) deferred = true;
@@ -712,12 +729,18 @@ export class EntityInstance {
       // once the write has been processed. An entity built from events hands
       // the store only the fields they carried, to merge over its record.
       // Counted before the call: a store may acknowledge synchronously.
+      // With no record to merge over, the fields this entity holds are the
+      // whole record, so it stops being partial and later writes skip the
+      // merge's read of the stored record.
+      if (this._partial && !this._recorded && client.store.hasEntity?.(this.key) === false) {
+        this._partial = false;
+        this._partialKeys = undefined;
+      }
       if (client.storeAcksWrites) this._pendingWrites++;
       try {
         client.entityMap.save(this, this._partial ? this._partialKeys : undefined);
       } catch (e) {
-        if (client.storeAcksWrites && this._pendingWrites > 0) this._pendingWrites--;
-        this._persisted = false;
+        this.markUnwritten();
         throw e;
       }
       if (!client.storeAcksWrites) this._persisted = this._recorded = true;
@@ -746,8 +769,17 @@ export class EntityInstance {
 
   /** The store dropped (or failed to write) this entity's record. */
   recordDropped(): void {
-    this._persisted = false;
     this._recorded = false;
+    this.markUnwritten();
+  }
+
+  /**
+   * Its record is stale: the next apply writes it even if it finds nothing
+   * changed. Writes still queued hold older data, so their acknowledgements
+   * no longer mark it persisted.
+   */
+  markUnwritten(): void {
+    this._persisted = false;
     this._pendingWrites = 0;
   }
 

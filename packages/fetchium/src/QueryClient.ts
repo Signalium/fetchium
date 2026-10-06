@@ -347,7 +347,9 @@ export class QueryClient {
    * A synchronous store is always settled.
    */
   storeIsSettled(): boolean {
-    return this.store.isSettled?.() ?? true;
+    const store = this.store;
+    if (store.hasQueuedDeletes !== undefined) return !store.hasQueuedDeletes();
+    return store.isSettled?.() ?? true;
   }
 
   private registerEntityDef(def: ValidatorDef<any>): void {
@@ -762,8 +764,18 @@ export class QueryClient {
     return this.entityMap.getEntity(proxyKey!)!;
   }
 
-  prepareEntity(key: number, obj: Record<string, unknown>, shape: EntityDef): EntityInstance {
+  /** `existing`: the instance the caller already looked up under `key`, if any. */
+  prepareEntity(
+    key: number,
+    obj: Record<string, unknown>,
+    shape: EntityDef,
+    existing?: EntityInstance,
+  ): EntityInstance {
     this.registerEntityDef(shape as unknown as ValidatorDef<any>);
+    if (existing !== undefined) {
+      existing.parseId = this.currentParseId;
+      return existing;
+    }
     return this.entityMap.getOrCreateEntity(key, obj, shape, this);
   }
 
@@ -876,9 +888,10 @@ export class QueryClient {
       }
     }
 
-    this.routeEvent(typename, entity.data, key, type, eventSource);
-
-    if (!matched) this.evictUnlessAdopted(entity, created!);
+    // The dry run found no collection to route into: routing again would
+    // only recompute the constraint hashes.
+    if (matched) this.routeEvent(typename, entity.data, key, type, eventSource);
+    else this.evictUnlessAdopted(entity, created!);
   }
 
   /**
@@ -944,7 +957,7 @@ export class QueryClient {
       for (const entity of deferred) {
         if (entity._deferredWrite) {
           entity._deferredWrite = false;
-          entity._persisted = false;
+          entity.markUnwritten();
         }
       }
     }
@@ -963,7 +976,7 @@ export class QueryClient {
     for (const entity of deferred) {
       if (entity._deferredWrite) {
         entity._deferredWrite = false;
-        entity._persisted = false;
+        entity.markUnwritten();
       }
     }
   }

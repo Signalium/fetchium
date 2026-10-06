@@ -148,7 +148,7 @@ function applyEntity(
     return applied.getProxy(entityShape);
   }
 
-  const entityInstance = queryClient.prepareEntity(key, data, entityShape);
+  const entityInstance = queryClient.prepareEntity(key, data, entityShape, applied);
   const existingData = entityInstance.data;
   const isUpdate = existingData !== data;
 
@@ -188,7 +188,12 @@ function applyEntity(
         entityInstance._partial = false;
         entityInstance._partialKeys = undefined;
       } else if (entityInstance._partial && rawKeys !== undefined) {
-        for (const k of rawKeys) entityInstance._partialKeys!.add(k);
+        const partialKeys = entityInstance._partialKeys!;
+        for (const k of rawKeys) partialKeys.add(k);
+        if (coversShape(partialKeys, shapeFields)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       }
     } else {
       initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
@@ -201,6 +206,11 @@ function applyEntity(
         // event did (the parser fills the literal in).
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
+        // Events that carried every field built a whole record.
+        if (coversShape(entityInstance._partialKeys, shapeFields)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       } else if (persist === false) {
         // Hydrated from the store: its record exists.
         entityInstance._recorded = true;
@@ -231,12 +241,13 @@ function applyEntity(
   const newRefs = childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
   // An entity hydrated from the store was never written, so there is no write
-  // to skip. A skip is also only safe while the store has nothing queued: a
-  // deletion it has yet to process could drop the record this apply trusts.
+  // to skip. One whose own write is still queued has its current data on the
+  // way. A skip is also only safe while the store has no deletion queued: it
+  // could drop the record this apply trusts.
   const needsPersist =
     changed ||
     refsChanged ||
-    !entityInstance._persisted ||
+    (!entityInstance._persisted && entityInstance._pendingWrites === 0) ||
     !queryClient.storeReportsDeletes ||
     !queryClient.storeIsSettled();
   const writes = persist === true || (persist === 'existing' && isUpdate);
@@ -247,6 +258,12 @@ function applyEntity(
   parentEntityRefs.set(entityInstance, (parentEntityRefs.get(entityInstance) ?? 0) + 1);
 
   return proxy;
+}
+
+/** Whether `keys` names every field of `shape`. */
+function coversShape(keys: Set<string>, shape: Record<string, unknown>): boolean {
+  for (const k in shape) if (!keys.has(k)) return false;
+  return true;
 }
 
 // ======================================================
