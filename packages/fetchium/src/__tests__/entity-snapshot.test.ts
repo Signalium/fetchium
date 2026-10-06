@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { watcher, withContexts } from 'signalium';
-import { hashValue, snapshot } from 'signalium/utils';
+import { signal, watcher, withContexts } from 'signalium';
+import { hashValue, registerCustomSnapshot, snapshot } from 'signalium/utils';
 import {
   __debug_resetSnapshotCounters,
   __debug_snapshotFieldReads,
   __debug_snapshotFullWalks,
 } from '../EntityInstance.js';
-import { t } from '../typeDefs.js';
+import { t, registerFormat } from '../typeDefs.js';
+import { Mask } from '../types.js';
 import { Entity } from '../proxy.js';
 import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
@@ -227,6 +228,56 @@ describe('Entity Snapshots', () => {
     expect(afterPosition.opened).toBeInstanceOf(Date);
     expect((afterPosition.opened as Date).toISOString()).toBe('2026-01-02T00:00:00.000Z');
     expect(after.__refetch).toBe(before.__refetch);
+  });
+
+  it('re-snapshots a formatted value whose snapshot handler reads a signal', async () => {
+    const { client, mockFetch } = getClient();
+
+    const locale = signal('en');
+    class Money {
+      constructor(public cents: number) {}
+    }
+    registerCustomSnapshot(Money, current => ({ label: `${locale.value}:${current.cents}` }) as never);
+    registerFormat(
+      'snapshot-locale-money',
+      Mask.NUMBER,
+      v => new Money(v),
+      v => v.cents,
+    );
+
+    class Product extends Entity {
+      __typename = t.typename('Product');
+      id = t.id;
+      price = t.format('snapshot-locale-money' as never);
+      nested = t.object({ price: t.format('snapshot-locale-money' as never) });
+      list = t.array(t.format('snapshot-locale-money' as never));
+    }
+    class GetProduct extends RESTQuery {
+      path = '/product';
+      result = { product: t.entity(Product) };
+    }
+
+    mockFetch.get('/product', {
+      product: { __typename: 'Product', id: 'p-1', price: 100, nested: { price: 200 }, list: [300] },
+    });
+
+    const { query, read } = snapshotHarness(client, () => fetchQuery(GetProduct));
+    await query;
+
+    type Snap = {
+      product: { price: { label: string }; nested: { price: { label: string } }; list: { label: string }[] };
+    };
+    const labels = () => {
+      const { product } = read() as unknown as Snap;
+      return [product.price.label, product.nested.price.label, product.list[0].label];
+    };
+    expect(labels()).toEqual(['en:100', 'en:200', 'en:300']);
+
+    locale.value = 'fr';
+    expect(labels()).toEqual(['fr:100', 'fr:200', 'fr:300']);
+
+    locale.value = 'de';
+    expect(labels()).toEqual(['de:100', 'de:200', 'de:300']);
   });
 
   it('reflects live-array membership changes in the parent snapshot', async () => {
