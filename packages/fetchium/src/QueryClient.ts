@@ -712,11 +712,20 @@ export class QueryClient {
   /**
    * Parse data: validates, formats, produces parsed entity data objects.
    * Does NOT touch the entity store. Call applyRefs() after to commit entities.
+   *
+   * `copyInput: false` (a fetch result or a cached record, handed over to the
+   * client) copies a nested object only where a parsed value differs from it.
    */
-  parseData(obj: unknown, shape: InternalTypeDef, preloadedEntities?: PreloadedEntityMap): ParseResult {
+  parseData(
+    obj: unknown,
+    shape: InternalTypeDef,
+    preloadedEntities?: PreloadedEntityMap,
+    copyInput: boolean = true,
+  ): ParseResult {
     const warn = this.context.log?.warn ?? (() => {});
     const ctx = new ParseContext();
     ctx.reset(this, preloadedEntities, warn);
+    ctx.copyInput = copyInput;
     const data = parseEntities(obj, shape as unknown as ComplexTypeDef, ctx);
     return { data, ctx };
   }
@@ -756,7 +765,7 @@ export class QueryClient {
       obj = { ...(obj as Record<string | symbol, unknown>), [QUERY_ID]: queryId };
     }
 
-    const parseResult = this.parseData(obj, rootEntityShape as unknown as InternalTypeDef, preloadedEntities);
+    const parseResult = this.parseData(obj, rootEntityShape as unknown as InternalTypeDef, preloadedEntities, false);
     const result = applyEntityRefs(parseResult.ctx, parseResult.data, persist, appendMode);
 
     // Discover the root entity from the returned proxy
@@ -877,14 +886,19 @@ export class QueryClient {
       undefined,
       /* dryRun */ true,
     );
-    const held = this.store.hasEntity?.(key) === true;
-    if ((retains || held) && !entity._persisted && entity._pendingWrites === 0) {
-      try {
-        entity.save();
-      } catch (e) {
-        this.context.log?.warn?.('Failed to apply mutation event', e);
-        this.evictUnlessAdopted(entity, created!);
-        return;
+    // The store is asked only when no live array retains the root, and only
+    // when there is something to write; its answer is handed to save().
+    let held: boolean | undefined;
+    if (!entity._persisted && entity._pendingWrites === 0) {
+      if (!retains) held = this.store.hasEntity?.(key);
+      if (retains || held === true) {
+        try {
+          entity.save(held);
+        } catch (e) {
+          this.context.log?.warn?.('Failed to apply mutation event', e);
+          this.evictUnlessAdopted(entity, created!);
+          return;
+        }
       }
     }
 

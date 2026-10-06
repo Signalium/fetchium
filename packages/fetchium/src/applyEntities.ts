@@ -288,8 +288,12 @@ function mergeFields(
   for (const [fieldKey, propShape] of entries(shape)) {
     if (rawKeys !== undefined && !rawKeys.has(fieldKey)) continue;
 
-    if (shouldReify(data[fieldKey])) {
-      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode, created);
+    const raw = data[fieldKey];
+    if (shouldReify(raw)) {
+      // Written only when it changes: an object the parser kept as is (a
+      // fetch result's) may belong to the adapter, and be frozen.
+      const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
+      if (reified !== raw) data[fieldKey] = reified;
     }
 
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
@@ -332,12 +336,15 @@ function mergeFields(
           !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
+        // The parser keeps a fetch result's unchanged objects as they are, and
+        // an adapter may hand out frozen ones: merge into a copy of those.
+        const target = Object.isFrozen(oldVal) ? { ...oldVal } : oldVal;
         if (nestedShape !== undefined) {
           if (
             mergeFields(
               nestedShape,
               newVal,
-              oldVal,
+              target,
               undefined,
               entityInstance,
               entityData,
@@ -350,18 +357,22 @@ function mergeFields(
             )
           ) {
             changed = true;
+            existingData[fieldKey] = target;
+          } else {
+            existingData[fieldKey] = oldVal;
           }
-          existingData[fieldKey] = oldVal;
         } else if (sameKeys(oldVal, newVal)) {
           // Shapeless object (e.g. a record) with the same keys: copy field by field, keeping the
           // existing value — and its identity — wherever it already matches.
+          let merged = false;
           for (const k of Object.keys(newVal)) {
             if (!sameValue(oldVal[k], newVal[k])) {
-              oldVal[k] = newVal[k];
-              changed = true;
+              target[k] = newVal[k];
+              merged = true;
             }
           }
-          existingData[fieldKey] = oldVal;
+          if (merged) changed = true;
+          existingData[fieldKey] = merged ? target : oldVal;
         } else {
           // A key was added or removed. Copying field by field would never
           // apply a removal, leaving the old key in `data` indefinitely.
@@ -462,8 +473,12 @@ function initFields(
   for (const [fieldKey, propShape] of entries(shape)) {
     if (!(fieldKey in data)) continue;
 
-    if (shouldReify(data[fieldKey])) {
-      data[fieldKey] = reifyAndApply(data[fieldKey], seen, queryClient, persist, childRefs, appendMode, created);
+    const raw = data[fieldKey];
+    if (shouldReify(raw)) {
+      // Written only when it changes: an object the parser kept as is (a
+      // fetch result's) may belong to the adapter, and be frozen.
+      const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
+      if (reified !== raw) data[fieldKey] = reified;
     }
 
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {

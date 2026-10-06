@@ -438,6 +438,85 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     expect(h.read().doc.meta.views).toBe(2);
     expect(snap.meta.views).toBe(1);
   });
+
+  it('a frozen fetch result is applied without being written to, and later merges reach its nested values', async () => {
+    class DocNote extends Entity {
+      __typename = t.typename('DocNote');
+      id = t.id;
+      docId = t.string;
+    }
+    class Doc extends Entity {
+      __typename = t.typename('Doc');
+      id = t.id;
+      title = t.string;
+      meta = t.object({ views: t.number, stats: t.object({ likes: t.number }) });
+      counts = t.record(t.number);
+      tags = t.array(t.string);
+      notes = t.liveArray(DocNote, { constraints: { docId: (this as any).id } });
+    }
+    class GetDoc extends RESTQuery {
+      path = '/doc';
+      result = { doc: t.entity(Doc), note: t.object({ text: t.string }) };
+    }
+    const deepFreeze = <T>(value: T): T => {
+      if (typeof value === 'object' && value !== null) {
+        for (const v of Object.values(value)) deepFreeze(v);
+        Object.freeze(value);
+      }
+      return value;
+    };
+    const body = deepFreeze({
+      doc: {
+        __typename: 'Doc',
+        id: 'd',
+        title: 'T',
+        meta: { views: 1, stats: { likes: 3 } },
+        counts: { a: 1 },
+        tags: ['x'],
+        notes: [],
+      },
+      note: { text: 'n' },
+    });
+    const before = JSON.stringify(body);
+    // Hands out the same frozen object on every call, as an adapter that
+    // keeps its last response may.
+    const fetch = async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => body });
+    const { client, warn } = makeClient(
+      new SyncQueryStore(new MemoryPersistentStore()),
+      fetch as unknown as ReturnType<typeof createMockFetch>,
+    );
+    const h = snapshotHarness(client, () => fetchQuery(GetDoc));
+    await h.query;
+    expect(h.read().doc.meta.stats.likes).toBe(3);
+    expect(h.read().note.text).toBe('n');
+
+    client.applyMutationEvent({
+      type: 'update',
+      typename: 'Doc',
+      data: { id: 'd', meta: { views: 2, stats: { likes: 4 } }, counts: { a: 2 } },
+    });
+    expect(warn).not.toHaveBeenCalled();
+    expect(h.read().doc.meta.views).toBe(2);
+    expect(h.read().doc.meta.stats.likes).toBe(4);
+    expect(h.read().doc.counts.a).toBe(2);
+    // The live array grows its own array, not the response's (empty, frozen) one.
+    client.applyMutationEvent({
+      type: 'create',
+      typename: 'DocNote',
+      data: { __typename: 'DocNote', id: 'n1', docId: 'd' },
+    });
+    expect(h.read().doc.notes.map((n: { id: string }) => n.id)).toEqual(['n1']);
+    expect(h.read().doc.tags).toEqual(['x']);
+
+    // A refetch of the same (frozen) response puts the old values back.
+    await (h.query as any).value.__refetch();
+    await sleep(5);
+    expect(h.read().doc.meta.stats.likes).toBe(3);
+    expect(h.read().doc.counts.a).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).toBe(before);
+    client.destroy();
+  });
 });
 
 // ======================================================
@@ -992,7 +1071,7 @@ describe('snapshot fast path follow-ups', () => {
     });
   });
 
-  it('query extras attached to a shared entity reach an existing consumer without another trigger', async () => {
+  it('query extras attached to a shared entity reach the query itself without re-running its other consumers', async () => {
     const { client, mockFetch } = getClient();
     class Profile extends Entity {
       __typename = t.typename('Profile');
@@ -1010,13 +1089,27 @@ describe('snapshot fast path follow-ups', () => {
     const profile = { __typename: 'Profile', id: 1, name: 'Alice' };
     mockFetch.get('/wrapped', { profile });
     mockFetch.get('/root', profile);
+    mockFetch.get('/wrapped', { profile: { ...profile, name: 'Alicia' } });
 
     const wrapped = snapshotHarness(client, () => fetchQuery(GetWrapped));
     await wrapped.query;
-    expect('__refetch' in wrapped.read().profile).toBe(false);
+    const before = wrapped.read();
+    const computesBefore = wrapped.computes();
+    expect('__refetch' in before.profile).toBe(false);
 
+    // The entity-rooted query applies identical data: its own consumer sees
+    // the extras, the wrapped query's consumer is not re-run for them.
     const root = snapshotHarness(client, () => fetchQuery(GetRoot));
     await root.query;
+    await sleep(5);
+    expect(typeof root.read().__refetch).toBe('function');
+    expect(wrapped.read()).toBe(before);
+    expect(wrapped.computes()).toBe(computesBefore);
+
+    // Its next recompute (here, a change to the entity) picks them up.
+    await (wrapped.query as any).value.__refetch();
+    await sleep(5);
+    expect(wrapped.read().profile.name).toBe('Alicia');
     expect(typeof wrapped.read().profile.__refetch).toBe('function');
   });
 

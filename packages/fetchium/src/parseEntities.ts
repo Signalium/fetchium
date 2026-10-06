@@ -74,6 +74,14 @@ export class ParseContext {
   seenByKey: Map<number, ParsedEntity> | undefined = undefined;
   /** Verdicts of the trust-memory check, per instance and def, for one parse. */
   trusted: TrustMemo | undefined = undefined;
+  /**
+   * Whether a nested object or record is always parsed into a copy. On for
+   * input the client does not own and may see again (an event payload, a
+   * mutation's effects, a consumer's snapshot fed back). Off for a fetch
+   * result or a cached record, which is copied only where a parsed value
+   * differs from what it holds: unchanged input costs no allocation.
+   */
+  copyInput: boolean = true;
 
   reset(
     queryClient: QueryClient | undefined,
@@ -86,6 +94,7 @@ export class ParseContext {
     this.warn = warn;
     this.isPartialEvent = isPartialEvent;
     this.trusted = undefined;
+    this.copyInput = true;
     if (queryClient !== undefined) {
       if (this.seen === undefined) {
         this.seen = new Map();
@@ -386,28 +395,36 @@ function parseUnionData(
 // ======================================================
 
 function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseContext, path: string): unknown[] {
-  const result: unknown[] = [];
+  // Without `ctx.copyInput`, an array whose items all parse to themselves is
+  // returned as is; the copy starts at the first item that differs or fails.
+  // An empty one is always a new array: a live array grows the one it holds.
+  let result: unknown[] | undefined = ctx.copyInput || array.length === 0 ? [] : undefined;
 
   for (let i = 0; i < array.length; i++) {
+    const item = array[i];
     try {
-      result.push(parseData(array[i], itemShape as unknown as TypeDef, ctx, `${path}[${i}]`));
+      const parsed = parseData(item, itemShape as unknown as TypeDef, ctx, `${path}[${i}]`);
+      if (result !== undefined) result.push(parsed);
+      else if (parsed !== item) (result = array.slice(0, i)).push(parsed);
     } catch (e) {
       if (e instanceof CachedEntityMismatchError) throw e;
+      result ??= array.slice(0, i);
       ctx.warn('Failed to parse array item, filtering out', {
         index: i,
-        value: array[i],
+        value: item,
         error: e instanceof Error ? e.message : String(e),
       });
     }
   }
 
-  return result;
+  return result ?? array;
 }
 
-// Both walkers parse into a shallow copy of their input, like `parseArrayData`
-// builds a new array. The input belongs to whoever handed it in (an adapter,
-// an event payload, a consumer's snapshot — frozen in dev builds) and must not
-// be written to; the copy keeps every key the input had, as before.
+// Neither walker writes into its input. With `ctx.copyInput` they parse into
+// a shallow copy, as `parseArrayData` builds a new array; without it the copy
+// is made only once a parsed value differs from the input's, and input whose
+// values all parse to themselves is returned as is. Either way the result
+// keeps every key the input had, as before.
 
 function parseRecordData(
   record: Record<string, unknown>,
@@ -415,12 +432,14 @@ function parseRecordData(
   ctx: ParseContext,
   path: string,
 ): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...record };
+  let result: Record<string, unknown> | undefined = ctx.copyInput ? { ...record } : undefined;
   for (const [key, value] of entries(record)) {
-    result[key] = parseData(value, valueShape as unknown as TypeDef, ctx, `${path}["${key}"]`);
+    const parsed = parseData(value, valueShape as unknown as TypeDef, ctx, `${path}["${key}"]`);
+    if (result !== undefined) result[key] = parsed;
+    else if (parsed !== value) (result = { ...record })[key] = parsed;
   }
 
-  return result;
+  return result ?? record;
 }
 
 function parseObjectData(
@@ -434,13 +453,17 @@ function parseObjectData(
   }
 
   const shape = objectShape.shape;
-  const result: Record<string, unknown> = { ...obj };
+  let result: Record<string, unknown> | undefined = ctx.copyInput ? { ...obj } : undefined;
 
   for (const [key, propShape] of entries(shape)) {
-    result[key] = parseData(obj[key], propShape as unknown as TypeDef, ctx, `${path}.${key}`);
+    const value = obj[key];
+    const parsed = parseData(value, propShape as unknown as TypeDef, ctx, `${path}.${key}`);
+    if (result !== undefined) result[key] = parsed;
+    // A shape key the input lacks is still set (to undefined), as a copy does.
+    else if (parsed !== value || (value === undefined && !(key in obj))) (result = { ...obj })[key] = parsed;
   }
 
-  return result;
+  return result ?? obj;
 }
 
 // ======================================================

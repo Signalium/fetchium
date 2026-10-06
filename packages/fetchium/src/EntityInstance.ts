@@ -685,7 +685,8 @@ export class EntityInstance {
     return false;
   }
 
-  save(): void {
+  /** `storeHolds`: what the store's `hasEntity` just said about this entity, if the caller asked. */
+  save(storeHolds?: boolean): void {
     const client = this._queryClient;
     if (this._saving) return;
     this._saving = true;
@@ -732,7 +733,7 @@ export class EntityInstance {
       // With no record to merge over, the fields this entity holds are the
       // whole record, so it stops being partial and later writes skip the
       // merge's read of the stored record.
-      if (this._partial && !this._recorded && client.store.hasEntity?.(this.key) === false) {
+      if (this._partial && !this._recorded && (storeHolds ?? client.store.hasEntity?.(this.key)) === false) {
         this._partial = false;
         this._partialKeys = undefined;
       }
