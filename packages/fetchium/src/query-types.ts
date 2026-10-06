@@ -111,14 +111,53 @@ export interface QueryStore {
 
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void;
 
+  /**
+   * Writes the fields streamed events supplied for an entity built from them:
+   * a store that holds a record for the key merges `fields` over it (and
+   * derives the record's references from the merged value); one that does not
+   * writes `fields` as the record. A store without this method gets the
+   * entity's whole in-memory data through `saveEntity` instead, which drops
+   * from its record the fields the events did not carry.
+   */
+  mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>): void;
+
   activateQuery(queryDef: QueryDefinition<any, any, any>, storageKey: number): void;
 
   deleteQuery(queryKey: number): void;
 
   purgeStaleQueries?(): MaybePromise<void>;
 
-  /** Called with the key of every record the store drops on its own (eviction, cascade, purge). */
-  onDelete?(listener: (key: number) => void): void;
+  /**
+   * Called with the key of every record the store drops on its own (eviction,
+   * cascade, purge). May return an unsubscribe function; the client calls it
+   * from `destroy()`. A store without this hook is written on every apply.
+   */
+  onDelete?(listener: (key: number) => void): void | (() => void);
+
+  /**
+   * For stores that process writes asynchronously: called with the key of
+   * every entity record once its write has actually been applied. While a
+   * store offers this, the client treats an entity as persisted only after
+   * the acknowledgement, so a write the store dropped is retried.
+   */
+  onPersisted?(listener: (key: number) => void): void | (() => void);
+
+  /**
+   * For stores that process writes asynchronously: whether every operation
+   * handed to the store has been processed. While it returns `false` the
+   * client does not skip entity writes, since an operation still queued could
+   * delete the record the skip relies on. Absent means always settled.
+   */
+  isSettled?(): boolean;
+
+  /**
+   * Whether the store currently holds a record for this entity key, or
+   * `undefined` while it cannot tell yet (a store that has not finished
+   * reading what it holds). A streamed event for an entity that is not in
+   * memory refreshes the record only when this answers `true`; a store
+   * without this hook is not written for such events.
+   */
+  hasEntity?(key: number): boolean | undefined;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

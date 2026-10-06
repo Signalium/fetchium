@@ -133,7 +133,7 @@ class GetUser extends RESTQuery {
 }
 ```
 
-`maxCount` limits how many distinct parameter combinations are stored for this query class. When the limit is exceeded, the oldest entries are evicted. The default is `50`.
+`maxCount` limits how many distinct parameter combinations are stored for this query class. When the limit is exceeded, the oldest entries are evicted. The default is `50`. Changing `maxCount` between releases resizes the queue already persisted for the class the first time the store touches that class after starting: growing keeps every entry, shrinking evicts the oldest entries that no longer fit.
 
 ---
 
