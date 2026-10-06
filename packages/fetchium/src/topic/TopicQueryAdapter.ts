@@ -1,4 +1,5 @@
 import { QueryAdapter } from '../QueryAdapter.js';
+import { getAbortReason } from '../retry.js';
 import type { Query } from '../query.js';
 import type { MutationEvent } from '../types.js';
 
@@ -28,9 +29,11 @@ interface TopicState {
  * so would whoever awaits the query.
  */
 function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
-  if (signal.aborted) return Promise.reject(signal.reason);
+  // React Native's AbortController polyfill sets no `reason`: reject with an
+  // AbortError there too, so the rejection reads as the abort it is.
+  if (signal.aborted) return Promise.reject(getAbortReason(signal));
   return new Promise((resolve, reject) => {
-    const onAbort = (): void => reject(signal.reason);
+    const onAbort = (): void => reject(getAbortReason(signal));
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
       value => {

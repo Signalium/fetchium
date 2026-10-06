@@ -47,8 +47,10 @@ export interface WithRetryOptions {
 /**
  * Safely retrieve the abort reason from a signal. Falls back to an AbortError
  * for engines (like Hermes) where `signal.reason` is not implemented.
+ *
+ * @internal
  */
-function getAbortReason(signal: AbortSignal): unknown {
+export function getAbortReason(signal: AbortSignal): unknown {
   if (signal.reason !== undefined) return signal.reason;
   if (typeof DOMException !== 'undefined') {
     return new DOMException('The operation was aborted', 'AbortError');

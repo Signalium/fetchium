@@ -464,6 +464,40 @@ describe('A topic query mounted and unmounted in one task', () => {
     expect(await outcome(relay)).toBe('rejected:AbortError');
     client.destroy();
   });
+
+  describe('under an AbortController whose signal has no reason (the React Native polyfill)', () => {
+    const NativeAbortController = globalThis.AbortController;
+    class ReasonlessAbortController {
+      private controller = new NativeAbortController();
+      readonly signal: AbortSignal = this.controller.signal;
+      constructor() {
+        Object.defineProperty(this.signal, 'reason', { get: () => undefined });
+      }
+      abort(): void {
+        this.controller.abort();
+      }
+    }
+    afterEach(() => {
+      globalThis.AbortController = NativeAbortController;
+    });
+
+    it('rejects the awaiter with an AbortError, not undefined, and a remount still settles', async () => {
+      globalThis.AbortController = ReasonlessAbortController as unknown as typeof AbortController;
+      const client = makeTopicClient(new MemoryPersistentStore());
+
+      let relay: any;
+      const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+      first();
+      expect(await outcome(relay)).toBe('rejected:AbortError');
+      expect(relay.error).toBeInstanceOf(Error);
+
+      const second = activate(client, () => fetchQuery(GetPrices).isPending);
+      await sleep(30);
+      expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
+      second();
+      client.destroy();
+    });
+  });
 });
 
 describe('Every awaiter settles', () => {
