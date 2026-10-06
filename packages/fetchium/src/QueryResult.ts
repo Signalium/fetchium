@@ -565,8 +565,9 @@ export class QueryInstance<T extends Query> {
       );
       this._executionCtx.refetch = () => this.refetch();
       // `TopicQuery.getConfig.subscribe` hands this to its adapter, which calls
-      // it when it delivers an event for the query's topic.
-      (this._executionCtx as unknown as Record<string, unknown>)._notePush = this.notePush;
+      // it when it delivers an event for the query's topic. Non-enumerable, so
+      // `Object.keys(this)` inside a query method lists the same keys as before.
+      Object.defineProperty(this._executionCtx, '_notePush', { value: this.notePush, configurable: true });
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
       // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
       // set it eagerly so subscribe/unsubscribe work on the cache-fresh and
