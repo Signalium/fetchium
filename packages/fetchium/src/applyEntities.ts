@@ -159,20 +159,6 @@ function applyEntity(
     isUpdate && rawKeys !== undefined && entityInstance.entityRefs !== undefined
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
-  // A full payload of a class that lacks fields another class of the typename
-  // declares leaves those fields in the data: count the references they hold,
-  // or they would be released while the other class's consumers still show
-  // them, and dropped from the record's references.
-  if (
-    isUpdate &&
-    rawKeys === undefined &&
-    entityInstance.entityRefs !== undefined &&
-    queryClient.hasForeignFieldDefs &&
-    queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
-  ) {
-    countRefsOutsideShape(existingData, shapeFields, entityInstance.entityRefs, childRefs, queryClient);
-  }
-
   // A refetch or a poll that returns identical data is a no-op: nothing to
   // notify consumers about, and nothing new to write to the store.
   let changed = true;
@@ -238,6 +224,32 @@ function applyEntity(
   } finally {
     entityInstance._applying = false;
   }
+  // A full payload of a class that lacks fields another class of the typename
+  // declares leaves those fields in the data: count the references they hold,
+  // or they would be released while the other class's consumers still show
+  // them, and dropped from the record's references. Only fields whose defs
+  // can hold an entity are walked. An unchanged payload skips the walk when
+  // the last full payload counted the references: the entity still holds
+  // exactly those.
+  const heldRefs = entityInstance.entityRefs;
+  let keepsHeldRefs = false;
+  if (
+    isUpdate &&
+    rawKeys === undefined &&
+    heldRefs !== undefined &&
+    queryClient.hasForeignFieldDefs &&
+    queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+  ) {
+    if (!changed && !appendMode && entityInstance._refsCounted) {
+      keepsHeldRefs = true;
+    } else {
+      const fields = queryClient.foreignRefFields(entityShape as unknown as ValidatorDef<unknown>);
+      for (let i = 0; i < fields.length; i++) countHeldRefs(existingData[fields[i]], heldRefs, childRefs, queryClient);
+    }
+  }
+  // Partial updates keep the references they did not replace, so only a full
+  // payload counts every reference the data holds.
+  entityInstance._refsCounted = rawKeys === undefined && !appendMode;
   if (isUpdate && changed) entityInstance.notify();
   // Hydration handed over the record: it holds fields the data does not.
   if (record !== undefined) {
@@ -260,7 +272,7 @@ function applyEntity(
     }
   }
 
-  const newRefs = childRefs.size > 0 ? childRefs : undefined;
+  const newRefs = keepsHeldRefs ? heldRefs : childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
   // An entity hydrated from the store was never written, so there is no write
   // to skip. One whose own write is still queued has its current data on the
@@ -284,20 +296,8 @@ function applyEntity(
 
 /**
  * Counts, into `childRefs`, the references to children the entity already
- * holds (`held`) that sit in data fields `shape` does not declare.
+ * holds (`held`) found in `value`.
  */
-function countRefsOutsideShape(
-  data: Record<string, unknown>,
-  shape: Record<string, unknown>,
-  held: Map<EntityInstance, number>,
-  childRefs: Map<EntityInstance, number>,
-  queryClient: QueryClient,
-): void {
-  for (const k of Object.keys(data)) {
-    if (!(k in shape)) countHeldRefs(data[k], held, childRefs, queryClient);
-  }
-}
-
 function countHeldRefs(
   value: unknown,
   held: Map<EntityInstance, number>,
@@ -334,7 +334,6 @@ function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClie
     queryClient.mayMissForeignFields(shape as unknown as ValidatorDef<unknown>)
   ) {
     instance._checkStoredRecord = true;
-    instance._recordProbe = queryClient.foreignFieldNames(shape as unknown as ValidatorDef<unknown>);
   }
 }
 

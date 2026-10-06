@@ -671,10 +671,10 @@ export class EntityInstance {
    */
   _checkStoredRecord: boolean = false;
   /**
-   * With `_checkStoredRecord`: the other classes' field names, one of which
-   * the record must hold to be worth parsing. `undefined`: parse it.
+   * `entityRefs` were counted from the whole data by a full payload's apply,
+   * not carried over by a partial update or changed by a live collection.
    */
-  _recordProbe: readonly string[] | undefined = undefined;
+  _refsCounted: boolean = false;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
@@ -769,6 +769,7 @@ export class EntityInstance {
   }
 
   addChildRef(child: EntityInstance, persist: boolean = true): void {
+    this._refsCounted = false;
     if (this.entityRefs === undefined) this.entityRefs = new Map();
     const count = this.entityRefs.get(child) ?? 0;
     this.entityRefs.set(child, count + 1);
@@ -777,6 +778,7 @@ export class EntityInstance {
   }
 
   removeChildRef(child: EntityInstance, persist: boolean = true): void {
+    this._refsCounted = false;
     if (this.entityRefs === undefined) return;
     const count = this.entityRefs.get(child);
     if (count === undefined) return;
@@ -925,7 +927,6 @@ export class EntityInstance {
       this._storedRecord = undefined;
       this._recordRest = undefined;
       this._checkStoredRecord = true;
-      this._recordProbe = undefined;
     } else {
       this.noteRecord(record);
     }
@@ -1043,7 +1044,7 @@ const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
  * `getEntityDef` validates against, so an unfamiliar def costs a read rather
  * than serving a stale value.
  */
-function isStaticFieldDef(def: unknown): boolean {
+export function isStaticFieldDef(def: unknown): boolean {
   // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
   // `t.enum`/`t.const` a `Set` of allowed values.
   if (typeof def === 'number' || typeof def === 'string') return true;

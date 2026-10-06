@@ -470,9 +470,9 @@ class CountingStore extends SyncQueryStore {
   reads = 0;
   /** Reads that found a record worth parsing. */
   parsed = 0;
-  readEntity(entityKey: number, fields?: readonly string[]) {
+  readEntity(entityKey: number) {
     this.reads++;
-    const record = super.readEntity(entityKey, fields);
+    const record = super.readEntity(entityKey);
     if (record !== undefined) this.parsed++;
     return record;
   }
@@ -759,6 +759,36 @@ describe('D. writes keep the fields another class sharing the typename declared'
   });
 });
 
+class Part extends Entity {
+  __typename = t.typename('Part');
+  id = t.id;
+  name = t.string;
+}
+class GizmoRow extends Entity {
+  __typename = t.typename('Gizmo');
+  id = t.id;
+  name = t.string;
+  maker = t.entity(Part);
+}
+class GizmoDetail extends Entity {
+  __typename = t.typename('Gizmo');
+  id = t.id;
+  name = t.string;
+  maker = t.entity(Part);
+  parts = t.array(t.entity(Part));
+}
+class GetGizmos extends RESTQuery {
+  path = '/gizmos';
+  result = { items: t.array(t.entity(GizmoRow)) };
+}
+class GetGizmo extends RESTQuery {
+  path = '/gizmo';
+  result = { item: t.entity(GizmoDetail) };
+}
+const part = (id: string) => ({ __typename: 'Part', id, name: id });
+const row = (name: string) => ({ __typename: 'Gizmo', id: 'g1', name, maker: part('m1') });
+const partKey = (id: string) => hashValue(['Part', id]);
+
 describe('F. references and records the other class holds', () => {
   /** The summary in memory from the network, then the detail fetched over the same entity. */
   async function listThenDetail(kv: MemoryPersistentStore, f: ReturnType<typeof makeFetch>) {
@@ -813,7 +843,7 @@ describe('F. references and records the other class holds', () => {
     expect(recordOf(kv, 'Vendor', 'v1')).toMatchObject({ name: 'w1' });
   });
 
-  it('F3 a summary fetched over records without detail fields parses none of them before its first writes', async () => {
+  it('F3 a summary fetched over records without detail fields reads each record once and writes the fetched fields', async () => {
     const kv = new MemoryPersistentStore();
     const f = makeFetch();
     // The detail class registered and wrote i1; i2 and i3 hold summary fields only.
@@ -846,12 +876,73 @@ describe('F. references and records the other class holds', () => {
       result = { items: t.array(t.entity(ItemSummary)) };
     }
     await start(c, () => fetchQuery(GetOtherItems));
+    // One read per entity new in memory (i2, i3), at its first write.
     expect({ reads: store.reads - before.reads, parsed: store.parsed - before.parsed }).toEqual({
       reads: 2,
-      parsed: 0,
+      parsed: 2,
     });
     expect(recordOf(kv, 'Item', 'i2')).toEqual({ __typename: 'Item', id: 'i2', name: 'J2' });
     expect(recordOf(kv, 'Item', 'i1')).toMatchObject({ name: 'I2', details: { rating: 5 } });
+  });
+
+  it('F6 after a restart, a detail class registered after a summary refetch keeps its children referenced through the next one', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    f.set('/gizmo', { item: { ...row('G'), parts: [part('p1'), part('p2')] } });
+    // Session 1 remembers the detail's field names.
+    await session(kv, f, async c => {
+      await start(c, () => fetchQuery(GetGizmo));
+    });
+
+    // Session 2: the summary refetches before the detail class registers, so
+    // the detail adds no field name the store did not already know.
+    const c = makeClient(kv, f);
+    f.set('/gizmos', { items: [row('A')] });
+    const list: any = start(c, () => fetchQuery(GetGizmos));
+    await list;
+    f.set('/gizmos', { items: [row('B')] });
+    await list.value.__refetch();
+    const item: any = start(c, () => fetchQuery(GetGizmo));
+    await item;
+    await sleep(10);
+    f.set('/gizmos', { items: [row('C')] });
+    await list.value.__refetch();
+
+    expect(item.value.item.parts.map((p: any) => p.name)).toEqual(['p1', 'p2']);
+    expect(new Set(kv.getBuffer(refIdsKeyFor(hashValue(['Gizmo', 'g1']))) ?? [])).toEqual(
+      new Set([partKey('m1'), partKey('p1'), partKey('p2')]),
+    );
+    c.applyMutationEvent({ type: 'update', typename: 'Part', data: { ...part('p1'), name: 'q1' } });
+    await sleep(0);
+    expect(item.value.item.parts[0].name).toBe('q1');
+  });
+
+  it('F7 a summary refetch that changes nothing still drops the reference a streamed update replaced', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    const c = makeClient(kv, f);
+    f.set('/gizmos', { items: [row('A')] });
+    const list: any = start(c, () => fetchQuery(GetGizmos));
+    await list;
+    f.set('/gizmo', { item: { ...row('A'), parts: [part('p1')] } });
+    const item: any = start(c, () => fetchQuery(GetGizmo));
+    await item;
+    // Two full payloads count every reference, then an update replaces the maker.
+    await list.value.__refetch();
+    c.applyMutationEvent({
+      type: 'update',
+      typename: 'Gizmo',
+      data: { __typename: 'Gizmo', id: 'g1', maker: part('m2') },
+    });
+    await sleep(0);
+    f.set('/gizmos', { items: [{ ...row('A'), maker: part('m2') }] });
+    await list.value.__refetch();
+
+    expect(list.value.items[0].maker.name).toBe('m2');
+    expect(new Set(kv.getBuffer(refIdsKeyFor(hashValue(['Gizmo', 'g1']))) ?? [])).toEqual(
+      new Set([partKey('m2'), partKey('p1')]),
+    );
+    expect(c.entityMap.getEntity(partKey('m1'))).toBeUndefined();
   });
 
   it('F4 a summary hydrated from its cache over a detail record reads the record again at its first write, not holding it until then', async () => {

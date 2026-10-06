@@ -125,18 +125,6 @@ interface FieldNamesSince {
 /** Per backing kv, like the field names. */
 const fieldNamesSinceByKv = new WeakMap<SyncPersistentStore, FieldNamesSince>();
 
-/**
- * Whether a record's JSON may hold one of `fields` as a key: a cheap check
- * before parsing it. A nested object's key can match too; the parse sorts
- * that out.
- */
-function holdsAnyField(json: string, fields: readonly string[]): boolean {
-  for (let i = 0; i < fields.length; i++) {
-    if (json.indexOf(`${JSON.stringify(fields[i])}:`) !== -1) return true;
-  }
-  return false;
-}
-
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
   private readonly deleteListeners: Array<(key: number) => void>;
@@ -256,10 +244,9 @@ export class SyncQueryStore implements QueryStore {
     this.writeValue(entityKey, json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`, refIds);
   }
 
-  readEntity(entityKey: number, fields?: readonly string[]): Record<string, unknown> | undefined {
+  readEntity(entityKey: number): Record<string, unknown> | undefined {
     const stored = this.kv.getString(valueKeyFor(entityKey));
     if (stored === undefined) return undefined;
-    if (fields !== undefined && !holdsAnyField(stored, fields)) return undefined;
     let record: unknown;
     try {
       record = JSON.parse(stored);

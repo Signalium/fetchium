@@ -11,7 +11,7 @@ import {
 } from './types.js';
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
-import { EntityInstance, type EntityKeys } from './EntityInstance.js';
+import { EntityInstance, isStaticFieldDef, type EntityKeys } from './EntityInstance.js';
 import { NetworkManager, NoOpNetworkManager } from './NetworkManager.js';
 import { QueryInstance } from './QueryResult.js';
 import { MutationResultImpl } from './MutationResult.js';
@@ -267,7 +267,7 @@ export class QueryClient {
     this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
     if (typeof this.store.readEntity === 'function') {
       const store = this.store;
-      this.entityMap.readEntity = (key, fields) => store.readEntity!(key, fields);
+      this.entityMap.readEntity = key => store.readEntity!(key);
     }
     // A record the store drops must be written again by the next apply.
     this.storeReportsDeletes = typeof this.store.onDelete === 'function';
@@ -411,8 +411,8 @@ export class QueryClient {
   private foreignFieldDefs = new WeakMap<ValidatorDef<any>, boolean>();
   /** Per typename: every top-level field its classes have declared (see `foreignFieldDefs`). */
   private typenameFields = new Map<string, Set<string>>();
-  /** Per entity def: the fields of its typename it does not declare (see `foreignFieldNames`). */
-  private foreignFieldNamesByDef = new WeakMap<ValidatorDef<any>, readonly string[]>();
+  /** Per entity def: the fields other classes of its typename declare that can hold an entity (see `foreignRefFields`). */
+  private foreignRefFieldsByDef = new WeakMap<ValidatorDef<any>, readonly string[]>();
   /** Whether any registered def lacks a field of its typename; false for an app whose typenames each have one class. */
   hasForeignFieldDefs: boolean = false;
   /**
@@ -450,23 +450,31 @@ export class QueryClient {
   }
 
   /**
-   * The top-level fields other classes sharing this def's typename declare
-   * and it does not: a stored record holding none of them has nothing for
-   * the def's writes to keep. Computed once per def while the typename's
-   * fields are unchanged.
+   * The top-level fields that other classes registered for this def's
+   * typename declare, that it does not, and whose values can hold an entity
+   * (a `t.entity`, a live array, or an array or object containing one). Only
+   * these can hold references to children that a full payload of this def
+   * leaves in the data. Computed once per def until another class of the
+   * typename registers.
    *
    * @internal
    */
-  foreignFieldNames(def: ValidatorDef<any>): readonly string[] {
-    let names = this.foreignFieldNamesByDef.get(def);
+  foreignRefFields(def: ValidatorDef<any>): readonly string[] {
+    let names = this.foreignRefFieldsByDef.get(def);
     if (names === undefined) {
-      const missing: string[] = [];
-      const fields = def.typenameValue !== undefined ? this.typenameFields.get(def.typenameValue) : undefined;
+      const found: string[] = [];
       const shape = def.shape as Record<string, unknown> | undefined;
-      if (fields !== undefined && shape !== undefined) {
-        for (const f of fields) if (!(f in shape)) missing.push(f);
+      const defs = def.typenameValue !== undefined ? this.typenameRegistry.get(def.typenameValue) : undefined;
+      if (shape !== undefined && defs !== undefined) {
+        for (const d of defs) {
+          if (d === def) continue;
+          const other = d.shape as Record<string, unknown>;
+          for (const f of Object.keys(other)) {
+            if (!(f in shape) && !found.includes(f) && !isStaticFieldDef(other[f])) found.push(f);
+          }
+        }
       }
-      this.foreignFieldNamesByDef.set(def, (names = missing));
+      this.foreignRefFieldsByDef.set(def, (names = found));
     }
     return names;
   }
@@ -496,7 +504,9 @@ export class QueryClient {
     // Every registered def's fields are in the set, so a def lacks one of
     // them exactly when the set is larger than its shape.
     for (const d of this.typenameRegistry.get(typename)!) {
-      if (added) this.foreignFieldNamesByDef.delete(d);
+      // A new class can declare a field name already known with a def that
+      // holds entities, so every def of the typename recomputes.
+      this.foreignRefFieldsByDef.delete(d);
       if (!added && d !== def) continue;
       const misses = fields.size > Object.keys(d.shape as Record<string, unknown>).length;
       this.foreignFieldDefs.set(d, misses);
@@ -1311,7 +1321,7 @@ export class QueryClient {
     this.typenameRegistry.clear();
     this.typenameFields.clear();
     this.foreignFieldDefs = new WeakMap();
-    this.foreignFieldNamesByDef = new WeakMap();
+    this.foreignRefFieldsByDef = new WeakMap();
     this.mergedDefCache.clear();
   }
 }

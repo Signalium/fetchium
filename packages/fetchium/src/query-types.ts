@@ -182,11 +182,9 @@ export interface QueryStore {
    * Synchronous stores: the stored record of an entity, parsed, or
    * `undefined` when there is none. Read once, before the first write of an
    * entity whose record may hold fields of another class sharing its
-   * typename (see `getEntityFieldNames`), so that write keeps them. With
-   * `fields`, a record that holds none of these top-level fields is not
-   * parsed: return `undefined`.
+   * typename (see `getEntityFieldNames`), so that write keeps them.
    */
-  readEntity?(entityKey: number, fields?: readonly string[]): Record<string, unknown> | undefined;
+  readEntity?(entityKey: number): Record<string, unknown> | undefined;
 
   /**
    * The top-level field names the entity classes of `typename` have
