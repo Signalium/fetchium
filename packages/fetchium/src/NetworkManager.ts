@@ -19,6 +19,7 @@ export class NetworkManager {
     // Initialize with manual status if provided, otherwise detect from environment
     const initialOnlineStatus = initialStatus ?? this.detectOnlineStatus();
     this.onlineSignal = signal(initialOnlineStatus);
+    this.lastOnline = initialOnlineStatus;
 
     // Automatically attach event listeners if in browser/React Native environment
     if (this.canAttachListeners()) {
@@ -38,12 +39,23 @@ export class NetworkManager {
     return this.onlineSignal.value;
   }
 
+  /** Offline-to-online transitions so far. */
+  reconnects = 0;
+  /** Untracked copy of the signal's value, so writes don't consume it. */
+  private lastOnline: boolean;
+
+  private setOnline(online: boolean): void {
+    if (online && !this.lastOnline) this.reconnects++;
+    this.lastOnline = online;
+    this.onlineSignal.value = online;
+  }
+
   /**
    * Manually set the network status (useful for testing)
    */
   setNetworkStatus(online: boolean): void {
     this.manualOverride = online;
-    this.onlineSignal.value = online;
+    this.setOnline(online);
   }
 
   /**
@@ -51,7 +63,7 @@ export class NetworkManager {
    */
   clearManualOverride(): void {
     this.manualOverride = undefined;
-    this.onlineSignal.value = this.detectOnlineStatus();
+    this.setOnline(this.detectOnlineStatus());
   }
 
   /**
@@ -106,13 +118,13 @@ export class NetworkManager {
 
     this.handleOnline = () => {
       if (this.manualOverride === undefined) {
-        this.onlineSignal.value = true;
+        this.setOnline(true);
       }
     };
 
     this.handleOffline = () => {
       if (this.manualOverride === undefined) {
-        this.onlineSignal.value = false;
+        this.setOnline(false);
       }
     };
 
@@ -126,6 +138,7 @@ export class NetworkManager {
 // No-op implementation for SSR environments where network status tracking is not needed
 export class NoOpNetworkManager {
   private static readonly onlineSignal: Signal<boolean> = signal(true);
+  readonly reconnects = 0;
 
   get isOnline(): boolean {
     return true;
