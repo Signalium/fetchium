@@ -188,12 +188,11 @@ function applyEntity(
         entityInstance._partial = false;
         entityInstance._partialKeys = undefined;
       } else if (entityInstance._partial && rawKeys !== undefined) {
-        const partialKeys = entityInstance._partialKeys!;
-        for (const k of rawKeys) partialKeys.add(k);
-        if (coversShape(partialKeys, shapeFields)) {
-          entityInstance._partial = false;
-          entityInstance._partialKeys = undefined;
-        }
+        // Stays partial even once the events have carried every field of
+        // this class: another class sharing the typename may have written
+        // fields to the record that this one does not declare, and only a
+        // merge keeps them.
+        for (const k of rawKeys) entityInstance._partialKeys!.add(k);
       }
     } else {
       initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
@@ -206,11 +205,11 @@ function applyEntity(
         // event did (the parser fills the literal in).
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
-        // Events that carried every field built a whole record.
-        if (coversShape(entityInstance._partialKeys, shapeFields)) {
-          entityInstance._partial = false;
-          entityInstance._partialKeys = undefined;
-        }
+        // An event that carried every field of this class is still partial:
+        // the record may hold fields another class sharing the typename
+        // declares (one not registered this session, too), so it is merged
+        // into, not replaced. With no record to merge into, the first write
+        // makes it whole (see `EntityInstance.save()`).
       } else if (persist === false) {
         // Hydrated from the store: its record exists.
         entityInstance._recorded = true;
@@ -258,12 +257,6 @@ function applyEntity(
   parentEntityRefs.set(entityInstance, (parentEntityRefs.get(entityInstance) ?? 0) + 1);
 
   return proxy;
-}
-
-/** Whether `keys` names every field of `shape`. */
-function coversShape(keys: Set<string>, shape: Record<string, unknown>): boolean {
-  for (const k in shape) if (!keys.has(k)) return false;
-  return true;
 }
 
 // ======================================================

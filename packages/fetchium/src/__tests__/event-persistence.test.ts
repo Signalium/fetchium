@@ -1755,3 +1755,139 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
     expect(asyncDoc(delegate, K('Card', 'c1'))).toMatchObject({ title: 'Ace' });
   });
 });
+
+// ======================================================
+// A typename two classes share, across sessions
+// ======================================================
+
+describe('an event for a typename whose other class is not registered this session', () => {
+  class Tag extends Entity {
+    __typename = t.typename('Tag');
+    id = t.id;
+    label = t.string;
+  }
+  // A list's class and a detail class of one typename: a list-shaped event
+  // carries every field of the list's class, but not the detail's.
+  class CoinRow extends Entity {
+    __typename = t.typename('Coin');
+    id = t.id;
+    symbol = t.string;
+    price = t.number;
+  }
+  class CoinDetail extends Entity {
+    __typename = t.typename('Coin');
+    id = t.id;
+    symbol = t.string;
+    price = t.number;
+    about = t.string;
+    tag = t.entity(Tag);
+  }
+  class Market extends Entity {
+    __typename = t.typename('Market');
+    id = t.id;
+    top = t.entity(CoinRow);
+  }
+  class GetCoinDetail extends RESTQuery {
+    path = '/coin';
+    result = { coin: t.entity(CoinDetail) };
+  }
+  class GetCoinRows extends RESTQuery {
+    path = '/coins';
+    result = { coins: t.array(t.entity(CoinRow)) };
+  }
+  class GetMarket extends RESTQuery {
+    path = '/market';
+    result = { market: t.entity(Market) };
+  }
+
+  const clients: QueryClient[] = [];
+  afterEach(() => {
+    for (const client of clients.splice(0)) client.destroy();
+  });
+
+  const detailCoin = {
+    __typename: 'Coin',
+    id: 'c1',
+    symbol: 'C',
+    price: 1,
+    about: 'cached',
+    tag: { __typename: 'Tag', id: 'g1', label: 'gold' },
+  };
+  const row = (id: string, price: number) => ({ __typename: 'Coin', id, symbol: 'C', price });
+  const detailRecord = (price: number) => ({
+    __typename: 'Coin',
+    id: 'c1',
+    symbol: 'C',
+    price,
+    about: 'cached',
+    tag: { __entityRef: K('Tag', 'g1') },
+  });
+
+  function session(kv: MemoryPersistentStore, mockFetch: ReturnType<typeof createMockFetch>): QueryClient {
+    const client = new QueryClient({
+      store: new SyncQueryStore(kv),
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as never, baseUrl: 'http://localhost' })],
+    } as never);
+    clients.push(client);
+    return client;
+  }
+
+  /** A first session caches the detail of c1, then ends. */
+  async function cacheDetail(kv: MemoryPersistentStore): Promise<ReturnType<typeof createMockFetch>> {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/coin', { coin: detailCoin });
+    const first = session(kv, mockFetch);
+    await holdQuery(first, () => fetchQuery(GetCoinDetail));
+    first.destroy();
+    return mockFetch;
+  }
+
+  /** The next session's detail query, served from the cache before its slow fetch lands. */
+  async function detailAtNextStart(
+    kv: MemoryPersistentStore,
+    mockFetch: ReturnType<typeof createMockFetch>,
+  ): Promise<unknown> {
+    mockFetch.get('/coin', { coin: { ...detailCoin, about: 'network' } }, { delay: 200 });
+    const next = session(kv, mockFetch);
+    const detailQ = holdQuery(next, () => fetchQuery(GetCoinDetail));
+    await sleep(20);
+    return detailQ.isReady ? (detailQ.value as any).coin.about : 'not ready';
+  }
+
+  it('an update for an entity not in memory merges into its record instead of replacing it', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = await cacheDetail(kv);
+
+    // Only the list's class is registered (a list of other coins); c1 is not in memory.
+    mockFetch.get('/coins', { coins: [row('c2', 2)] });
+    const client = session(kv, mockFetch);
+    await holdQuery(client, () => fetchQuery(GetCoinRows));
+    client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row('c1', 3) });
+
+    expect(getDoc(kv, K('Coin', 'c1'))).toEqual(detailRecord(3));
+    expect(refIds(kv, K('Coin', 'c1'))).toEqual([K('Tag', 'g1')]);
+    client.destroy();
+    expect(await detailAtNextStart(kv, mockFetch)).toBe('cached');
+  });
+
+  it('an entity an event builds under a root in memory merges into its record too', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = await cacheDetail(kv);
+
+    mockFetch.get('/market', { market: { __typename: 'Market', id: 'm1', top: row('c2', 2) } });
+    const client = session(kv, mockFetch);
+    await holdQuery(client, () => fetchQuery(GetMarket));
+    client.applyMutationEvent({
+      type: 'update',
+      typename: 'Market',
+      data: { __typename: 'Market', id: 'm1', top: row('c1', 3) },
+    });
+    // A later event for the in-memory entity still merges.
+    client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row('c1', 4) });
+
+    expect(getDoc(kv, K('Coin', 'c1'))).toEqual(detailRecord(4));
+    expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
+    client.destroy();
+    expect(await detailAtNextStart(kv, mockFetch)).toBe('cached');
+  });
+});
