@@ -274,4 +274,54 @@ describe('poll() with an activity source', () => {
     await vi.advanceTimersByTimeAsync(5 * INTERVAL);
     expect(count()).toBe(0);
   });
+
+  it('accepts an activity source whose methods live on its prototype', async () => {
+    class AppActivity implements ActivitySource {
+      active = true;
+      listeners = new Set<() => void>();
+      isActive(): boolean {
+        return this.active;
+      }
+      subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+      }
+    }
+    const activity = new AppActivity();
+    const client = makeClient({ activity });
+    await mount(client, GetPolled);
+
+    activity.active = false;
+    for (const listener of activity.listeners) listener();
+    await vi.advanceTimersByTimeAsync(3 * INTERVAL);
+    expect(count()).toBe(0);
+  });
+
+  it('ignores an `activity` context value that is not an activity source, and warns once', async () => {
+    // Custom config keys reach the context, so an app may use the name for a value of its own.
+    const warn = vi.fn();
+    const client = makeClient({ activity: { history: [] } as unknown as ActivitySource, log: { warn } });
+    await mount(client, GetPolled, GetPolledB);
+    await vi.advanceTimersByTimeAsync(3 * INTERVAL);
+    expect(count('/polled')).toBe(3);
+    expect(count('/polled-b')).toBe(3);
+    expect((client.getContext() as Record<string, unknown>).activity).toEqual({ history: [] });
+    expect(warn).toHaveBeenCalledTimes(IS_DEV ? 1 : 0);
+  });
+
+  it('treats a non-finite pollResumeJitterMs as no jitter', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const activity = createActivity();
+    const client = makeClient({ activity, pollResumeJitterMs: Infinity });
+    await mount(client, GetPolled);
+
+    activity.set(false);
+    await vi.advanceTimersByTimeAsync(2 * INTERVAL);
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    activity.set(true);
+    await vi.advanceTimersByTimeAsync(5);
+    expect(count()).toBe(1);
+    // An infinite delay is clamped to 1 ms by Node and the browser; other runtimes may never fire it.
+    expect(setTimeoutSpy.mock.calls.filter(call => call[1] === Infinity)).toEqual([]);
+  });
 });

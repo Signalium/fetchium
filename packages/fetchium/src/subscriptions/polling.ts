@@ -1,5 +1,5 @@
 import type { MutationEvent } from '../types.js';
-import type { QueryContext } from '../query-types.js';
+import type { ActivitySource, QueryContext } from '../query-types.js';
 
 const MIN_INTERVAL = 100;
 
@@ -18,6 +18,36 @@ export interface PollConfig {
    * an overdue tick is spread across when the app becomes active again.
    */
   resumeJitterMs?: number;
+}
+
+/** Contexts whose invalid `activity` value was already reported. */
+const warnedActivity = new WeakSet<object>();
+
+/**
+ * The context's `activity`, when it is an `ActivitySource`. Custom config keys
+ * pass through to the context, so an app may already use the name for a value
+ * of its own; anything without `isActive` and `subscribe` functions is
+ * ignored (polls then run as without one), with a warning in development.
+ */
+function activitySource(queryContext: QueryContext | undefined): ActivitySource | undefined {
+  const activity = (queryContext as Record<string, unknown> | undefined)?.activity;
+  if (activity === undefined || activity === null) return undefined;
+  const candidate = activity as Partial<ActivitySource>;
+  if (typeof candidate.isActive === 'function' && typeof candidate.subscribe === 'function') {
+    return activity as ActivitySource;
+  }
+  if (IS_DEV && !warnedActivity.has(queryContext!)) {
+    warnedActivity.add(queryContext!);
+    queryContext!.log?.warn?.(
+      'poll: the `activity` context value is not an ActivitySource ({ isActive(), subscribe(listener) }); polls ignore it.',
+    );
+  }
+  return undefined;
+}
+
+/** Milliseconds: a finite positive number, else 0. */
+function finitePositive(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function clampInterval(interval: number): number {
@@ -42,8 +72,10 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
 
     const refetch = this.refetch as () => Promise<unknown>;
     const queryContext = this.context as QueryContext | undefined;
-    const activity = queryContext?.activity;
-    const jitterWindow = config.resumeJitterMs ?? queryContext?.pollResumeJitterMs ?? 0;
+    const activity = activitySource(queryContext);
+    const jitterWindow = finitePositive(
+      config.resumeJitterMs ?? (queryContext as Record<string, unknown> | undefined)?.pollResumeJitterMs,
+    );
 
     const isAppActive = (): boolean => activity === undefined || activity.isActive();
 

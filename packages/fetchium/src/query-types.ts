@@ -26,10 +26,10 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
-  /** See `QueryClientConfig.activity`. */
-  activity?: ActivitySource;
-  /** See `QueryClientConfig.pollResumeJitterMs`. */
-  pollResumeJitterMs?: number;
+  // `activity` and `pollResumeJitterMs` (see `QueryClientConfig`) reach the
+  // context as pass-through keys, as any custom config key does, but are not
+  // declared here: an app may have augmented this interface with its own
+  // field of the same name. `poll()` checks their shape before using them.
 }
 
 /**

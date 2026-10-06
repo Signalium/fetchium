@@ -39,6 +39,12 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
+/**
+ * Options for `new QueryClient(config)`. Every key, including ones not listed
+ * here, also reaches query and mutation code as `this.context`, so an app can
+ * pass its own services through the config. The names declared below are
+ * reserved: a custom value under one of them is read as that option.
+ */
 export interface QueryClientConfig {
   store?: QueryStore;
   adapters?: QueryAdapter[];
@@ -60,7 +66,8 @@ export interface QueryClientConfig {
    * makes. Queries can override the window with `reactivationGraceMs` in
    * their config. Network reconnects,
    * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
-   * still refetch. Default: 0 (every stale query refetches on reactivation).
+   * still refetch. `Infinity` never refetches on reactivation. Default: 0
+   * (every stale query refetches on reactivation).
    */
   reactivationGraceMs?: number;
   /**
@@ -76,14 +83,16 @@ export interface QueryClientConfig {
    * Milliseconds. Reactivation refetches that start in the same task (for
    * example every query on a screen that just resumed) are spread evenly
    * across this window, in activation order, instead of all starting at once.
-   * Queries of an adapter that `coalescesRequests` are not spread. Default: 0
-   * (all start together).
+   * Queries of an adapter that `coalescesRequests` are not spread. A value
+   * that is not a finite positive number counts as 0. Default: 0 (all start
+   * together).
    */
   reactivationStaggerMs?: number;
   /**
    * Foreground/background source. When set, `poll()` stops its timers while
-   * the app is inactive and resumes them when it becomes active again.
-   * Default: undefined (polls run regardless of app state).
+   * the app is inactive and resumes them when it becomes active again. A value
+   * without `isActive` and `subscribe` functions is ignored (with a warning in
+   * development). Default: undefined (polls run regardless of app state).
    */
   activity?: ActivitySource;
   /**
@@ -91,7 +100,8 @@ export interface QueryClientConfig {
    * again (or whose timer fires more than a second late, as happens when the
    * JS thread was suspended in the background) is rescheduled at a random
    * point within this window rather than firing immediately alongside every
-   * other overdue poll. Default: 0 (overdue ticks fire immediately).
+   * other overdue poll. A value that is not a finite positive number counts
+   * as 0. Default: 0 (overdue ticks fire immediately).
    */
   pollResumeJitterMs?: number;
 }
@@ -219,9 +229,6 @@ export class QueryClient {
       store = new SyncQueryStore(new MemoryPersistentStore()),
       log,
       evictionMultiplier,
-      reactivationGraceMs,
-      reactivationStaggerMs,
-      shouldRetry,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -229,11 +236,15 @@ export class QueryClient {
     } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
+    const { reactivationGraceMs, reactivationStaggerMs, shouldRetry } = config;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
-    this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
-    this.shouldRetry = shouldRetry;
-    // `activity` and `pollResumeJitterMs` ride along in `rest`: poll() reads them from the context.
-    this.context = { ...rest, log: log ?? console, evictionMultiplier };
+    // Finite: the window becomes setTimeout delays.
+    this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
+    this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
+    // Every other key passes through to the context, as custom keys always
+    // have, including the reserved ones read above and `activity` /
+    // `pollResumeJitterMs`, which poll() reads from there.
+    this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));

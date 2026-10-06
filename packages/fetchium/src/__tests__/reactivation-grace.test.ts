@@ -115,6 +115,15 @@ describe('reactivation grace and stagger', () => {
     return starts.filter(s => s.path === path).length;
   }
 
+  it('passes the grace, stagger and shouldRetry options through to the query context too', () => {
+    // As every config key did before these options existed.
+    const shouldRetry = () => false;
+    const client = makeClient({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
+    expect(client.getContext()).toMatchObject({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
+    expect(client.shouldRetry).toBe(shouldRetry);
+    expect(makeClient({ shouldRetry: 'never' as never }).shouldRetry).toBeUndefined();
+  });
+
   describe('reactivationGraceMs', () => {
     it('refetches every stale query on reactivation by default', async () => {
       const client = makeClient();
@@ -510,6 +519,17 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(400);
       expect(starts).toHaveLength(1);
       expect(starts[0].at - t0).toBeLessThanOrEqual(2);
+    });
+
+    it('treats a non-finite window as no stagger', async () => {
+      const client = makeClient({ reactivationStaggerMs: Infinity });
+      expect(client.reactivationStaggerMs).toBe(0);
+      await loadThenDeactivate(client, GetA, GetB, GetC);
+      starts.length = 0;
+
+      watch(client, GetA, GetB, GetC);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(offsets()).toEqual([0, 0, 0]);
     });
 
     it('drops a queued refetch whose query deactivated before the flush', async () => {
