@@ -665,6 +665,45 @@ describe('A topic query unmounted before its first data, in a later task', () =>
   });
 });
 
+describe('A query without a subscription unmounted mid-fetch, in a later task', () => {
+  it('is pending, not rejected, when mounted again, and its awaiter gets the refetch', async () => {
+    const f = createFetch(20);
+    const client = makeClient(new MemoryPersistentStore(), f.fetch);
+
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    const awaited = outcome(relay, 500);
+    await sleep(5);
+    first(); // aborts the fetch in flight
+    await sleep(5);
+    expect(state(relay)).toEqual({ isPending: true, isRejected: false, value: undefined });
+
+    const reads: ReturnType<typeof state>[] = [];
+    const second = activate(client, () => reads.push(state(fetchQuery(GetItem))));
+    expect(reads[0]).toEqual({ isPending: true, isRejected: false, value: undefined });
+    await sleep(50);
+    expect(reads.some(r => r.isRejected)).toBe(false);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/item' });
+    expect(await awaited).toBe('resolved');
+    expect(f.paths()).toEqual(['/item(aborted)', '/item']);
+    second();
+    client.destroy();
+  });
+
+  it('settles its awaiter with an AbortError when the client is destroyed', async () => {
+    const f = createFetch(20);
+    const client = makeClient(new MemoryPersistentStore(), f.fetch);
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    const awaited = outcome(relay, 500);
+    await sleep(5);
+    first();
+    await sleep(5);
+    client.destroy();
+    expect(await awaited).toBe('rejected:AbortError');
+  });
+});
+
 describe('Every awaiter settles', () => {
   it('when destroy() runs in the task the query mounts, before its first start', async () => {
     const { fetch, calls } = createFetch(20);

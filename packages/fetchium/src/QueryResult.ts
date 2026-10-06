@@ -249,7 +249,9 @@ export class QueryInstance<T extends Query> {
             } else {
               if (this.relayState.isPending) {
                 this.abortedByDeactivation = true;
-                if (!sameTask && this.holdsDeactivationAbort()) this.heldAbortSignal = controller.signal;
+                if (!sameTask && (isPausing ? this.holdsDeactivationAbort() : this.relayState.value === undefined)) {
+                  this.heldAbortSignal = controller.signal;
+                }
               }
               controller.abort();
               this._abortController = undefined;
@@ -728,16 +730,22 @@ export class QueryInstance<T extends Query> {
 
   /**
    * Whether a deactivation that cancels this query's fetch leaves its relay
-   * pending instead of rejecting it with the AbortError: when the relay has
-   * no value yet and the query has a subscription (a topic query's fetch
-   * waits on the subscription the deactivation tears down). Signalium keeps
-   * a rejected relay's error until it gets a value, so a rejection would
-   * have the next mount report `isRejected` with the AbortError until its
-   * refetch lands. The relay instead stays pending: the next activation's
+   * pending instead of rejecting it with the AbortError. Signalium keeps a
+   * rejected relay's error until it gets a value, so a rejection would have
+   * the next mount report `isRejected` with the AbortError until its refetch
+   * lands (a chart switched away from mid-fetch and back would flash its
+   * error state). The relay instead stays pending: the next activation's
    * refetch settles whoever awaits it, as does collection or `destroy()`
-   * (`abortForDestroy()`). A query mounted and unmounted in one task is not
-   * held: whoever started it is a one-off read that awaits it, and gets the
-   * AbortError at once.
+   * (`abortForDestroy()`).
+   *
+   * An unmount mid-fetch holds any query whose relay has no value yet. A
+   * query mounted and unmounted in one task is not held: whoever started it
+   * is a one-off read that awaits it, and gets the AbortError at once. A
+   * pause (the network went offline) and a restart parked while offline,
+   * which wait on the network rather than on a remount, hold only a query
+   * with a subscription (this method: a topic query's fetch waits on the
+   * subscription the deactivation tears down); any other query's awaiter
+   * gets the AbortError at once, as before.
    */
   private holdsDeactivationAbort(): boolean {
     return this.relayState.value === undefined && this.config?.subscribe !== undefined;
