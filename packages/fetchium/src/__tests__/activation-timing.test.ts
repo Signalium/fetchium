@@ -191,6 +191,97 @@ describe('Activation and deactivation in one task', () => {
   });
 });
 
+describe('Signal params changing around a fetch', () => {
+  it('sends the current params when a Signal param changes in the task the query activates', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(5);
+    const client = makeClient(kv, f.fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const dispose = activate(client, () => (relay = fetchQuery(GetItemById, { id })).isPending);
+    id.value = '2';
+    await sleep(30);
+
+    expect(f.paths()).toEqual(['/items/2']);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    expect(persisted(kv, { id: '1' })).toBe(false);
+    expect(persisted(kv, { id: '2' })).toBe(true);
+    dispose();
+    client.destroy();
+  });
+
+  it('replaces a fetch in flight for the old params', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(15);
+    const client = makeClient(kv, f.fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const dispose = activate(client, () => (relay = fetchQuery(GetItemById, { id })).isPending);
+    await sleep(5);
+    id.value = '2';
+    await sleep(50);
+
+    expect(f.paths()).toEqual(['/items/1(aborted)', '/items/2']);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    expect(persisted(kv, { id: '1' })).toBe(false);
+    expect(persisted(kv, { id: '2' })).toBe(true);
+    dispose();
+    client.destroy();
+  });
+
+  it('never applies or persists an old-params response from an adapter that ignores the abort', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(15, { ignoreAbort: true });
+    const client = makeClient(kv, f.fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const values: (string | undefined)[] = [];
+    const dispose = activate(client, () => {
+      relay = fetchQuery(GetItemById, { id });
+      values.push(relay.value?.value);
+    });
+    await sleep(5);
+    id.value = '2';
+    await sleep(50);
+
+    expect(f.calls.map(c => c.path)).toEqual(['/items/1', '/items/2']);
+    expect(values).not.toContain('/items/1');
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    expect(persisted(kv, { id: '1' })).toBe(false);
+    dispose();
+    client.destroy();
+  });
+
+  it('refetches on reactivation when a Signal param changed while the query was inactive, even if fresh', async () => {
+    class GetFreshItem extends RESTQuery {
+      params = { id: t.string };
+      path = `/items/${this.params.id}`;
+      result = { value: t.string };
+      config = { staleTime: 60_000 };
+    }
+    const f = createFetch(5);
+    const client = makeClient(new MemoryPersistentStore(), f.fetch);
+    const id = signal('1');
+
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetFreshItem, { id })).isPending);
+    await sleep(20);
+    first();
+    await sleep(5);
+    id.value = '2';
+
+    const second = activate(client, () => fetchQuery(GetFreshItem, { id }).isPending);
+    await sleep(20);
+    expect(f.paths()).toEqual(['/items/1', '/items/2']);
+    expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
+    second();
+    client.destroy();
+  });
+});
+
 describe('Reactivating after a deactivation aborted the fetch', () => {
   it('refetches without showing the AbortError next to the cached value', async () => {
     class GetStaleItem extends RESTQuery {

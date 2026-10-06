@@ -6,6 +6,7 @@ import {
   type ReadonlySignal,
   type DeactivateOptions,
   settled,
+  isSignal,
 } from 'signalium';
 import { NetworkMode, type QueryResult, type EntityDef } from './types.js';
 import {
@@ -26,6 +27,12 @@ import { getFailedResponseStatus, withRetry, type WithRetryOptions } from './ret
 
 function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as { then?: unknown } | null | undefined)?.then === 'function';
+}
+
+function abortError(): Error {
+  const error = new Error('The operation was aborted');
+  error.name = 'AbortError';
+  return error;
 }
 
 /**
@@ -89,6 +96,8 @@ export class QueryInstance<T extends Query> {
   private startPending: boolean = false;
   /** The fetch restartAbortedFetch() queued on a microtask, until it runs. */
   private pendingRestart: (() => void) | undefined = undefined;
+  /** Some param is a Signal, so its value can change before the first start runs. */
+  private hasSignalParams: boolean = false;
   /** The first fetch's controller and its start window. See `openStartWindow()`. */
   private firstFetchController: AbortController | undefined = undefined;
   private firstFetchWindow: number = 0;
@@ -180,6 +189,14 @@ export class QueryInstance<T extends Query> {
     // Compute the query id used for QUERY_ID injection on non-entity results.
     const extractedParams = extractParamsForKey(params);
     this._queryId = extractedParams !== undefined ? hashValue(extractedParams) : 0;
+    if (params !== undefined) {
+      for (const key in params) {
+        if (isSignal(params[key])) {
+          this.hasSignalParams = true;
+          break;
+        }
+      }
+    }
 
     // Create the relay whose value is the root entity's proxy (stable identity)
     this.relay = relay<QueryResult<T>>(
@@ -243,8 +260,7 @@ export class QueryInstance<T extends Query> {
           const paramsDidChange = newStorageKey !== this.storageKey;
 
           if (paramsDidChange) {
-            this.currentParams = newExtractedParams as QueryParams;
-            this.storageKey = newStorageKey;
+            this.adoptParams(newExtractedParams, newStorageKey);
           }
 
           this.getOrCreateExecutionContext();
@@ -265,8 +281,12 @@ export class QueryInstance<T extends Query> {
             // the doomed promise, which may also never settle (a topic query's
             // send() waits on a subscription that is gone). A relay the
             // deactivation's abort already rejected is restarted the same way,
-            // rather than showing the AbortError until a refetch lands.
-            if ((this.relayState.isPending && this._abortController === undefined) || this.abortedByDeactivation) {
+            // rather than showing the AbortError until a refetch lands, and so
+            // is a fetch still in flight for params that changed meanwhile.
+            if (
+              (this.relayState.isPending && (this._abortController === undefined || paramsDidChange)) ||
+              this.abortedByDeactivation
+            ) {
               this.restartAbortedFetch();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
@@ -286,7 +306,14 @@ export class QueryInstance<T extends Query> {
             // Force rebuild: the running subscriber captured the old params.
             this.lastSubscribeFn = undefined;
             this.reconcileSubscription();
-            this.runDebounced(0, false, true);
+            if (this.startPending) {
+              // The first start hasn't run yet; it sends the new params.
+            } else if (this.relayState.isPending) {
+              // A fetch for the old params is in flight (or queued): replace it.
+              this.restartAbortedFetch(true);
+            } else {
+              this.runDebounced(0, false, true);
+            }
           }
         };
 
@@ -403,6 +430,16 @@ export class QueryInstance<T extends Query> {
   private runPendingStart = (): void => {
     if (!this.startPending) return;
     this.startPending = false;
+    if (this.hasSignalParams) {
+      // A Signal param set in the same task as the activation reaches update()
+      // only in Signalium's next flush. Send the params as they are now.
+      const extractedParams = extractParamsForKey(this.params);
+      const storageKey = queryKeyFor(this.def, extractedParams);
+      if (storageKey !== this.storageKey) {
+        this.adoptParams(extractedParams, storageKey);
+        this.getOrCreateExecutionContext();
+      }
+    }
     const fetchesBefore = this.fetchStarts;
     this.startSubscriptionAndFetch();
     if (this.fetchStarts !== fetchesBefore) {
@@ -410,6 +447,14 @@ export class QueryInstance<T extends Query> {
       this.firstFetchWindow = openStartWindow();
     }
   };
+
+  /** Switches to new params. Data shown until the next fetch lands is the old params'. */
+  private adoptParams(extractedParams: Record<string, unknown> | undefined, storageKey: number): void {
+    this.currentParams = extractedParams as QueryParams;
+    this.storageKey = storageKey;
+    // The timestamp belongs to the old params' data: refetch, as after invalidation.
+    if (this.updatedAt !== undefined) this.updatedAt = 0;
+  }
 
   /**
    * Runs, now, the start initialize() or a zero-delay runDebounced() left for
@@ -541,6 +586,7 @@ export class QueryInstance<T extends Query> {
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
     const attempt = this.attemptStatusTracker(ctx);
+    const storageKey = this.storageKey;
 
     try {
       const result = await withRetry(
@@ -548,6 +594,9 @@ export class QueryInstance<T extends Query> {
           attempt.start();
           try {
             const freshData = await adapter.send(ctx, signal);
+            // The params changed while the request was in flight (an adapter
+            // that ignores the abort): its data belongs to the old params.
+            if (this.storageKey !== storageKey) throw abortError();
             this.updatedAt = Date.now();
 
             const result = this.applyData(freshData, true);
@@ -580,7 +629,7 @@ export class QueryInstance<T extends Query> {
    * settle it, but the subscription and the request start on a microtask (or
    * when a lease starts them), outside the read: both run adapter code.
    */
-  private restartAbortedFetch(): void {
+  private restartAbortedFetch(afterFlush: boolean = false): void {
     this.fetchStarts++;
     if (this.abortedByDeactivation) {
       this.abortedByDeactivation = false;
@@ -592,6 +641,8 @@ export class QueryInstance<T extends Query> {
       const value = this.relayState.value;
       if (value !== undefined && !this.relayState.isPending) this.relayState.value = value;
     }
+    this.cancelDebounced();
+    this._abortController?.abort();
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
     this._fetchNextPromise = undefined;
@@ -608,7 +659,7 @@ export class QueryInstance<T extends Query> {
       if (this.pendingRestart !== run) return;
       this.pendingRestart = undefined;
       if (controller.signal.aborted) {
-        reject(controller.signal.reason);
+        reject(controller.signal.reason ?? abortError());
         return;
       }
       if (!this._isActive || this.isPaused) {
@@ -621,7 +672,7 @@ export class QueryInstance<T extends Query> {
     };
     this.pendingRestart = run;
     this.queryClient.noteDeferredStart(this);
-    queueMicrotask(run);
+    this.deferRun(run, afterFlush);
     this.relayState.setPromise(promise);
   }
 
