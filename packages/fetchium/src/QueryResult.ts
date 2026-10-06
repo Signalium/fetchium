@@ -335,7 +335,8 @@ export class QueryInstance<T extends Query> {
     if (cached === undefined) return;
 
     try {
-      this.updatedAt = cached.updatedAt;
+      // Keep an invalidation made before the cache loaded.
+      if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
       this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
     } catch (error) {
       // Unusable entry: treat it as a miss so the query still fetches, instead
@@ -609,7 +610,8 @@ export class QueryInstance<T extends Query> {
   // ======================================================
 
   private get isStale(): boolean {
-    if (this.updatedAt === undefined) {
+    // Never loaded, or invalidated (`markStale()`), whatever the staleTime.
+    if (this.updatedAt === undefined || this.updatedAt === 0) {
       return true;
     }
 
