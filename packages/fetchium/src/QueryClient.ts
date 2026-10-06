@@ -804,8 +804,9 @@ export class QueryClient {
 
     // Entities the event creates are not written by the apply; entities it
     // merely updates are. A created entity is written once a written record
-    // references it, or below, once the root is known to be retained.
-    const created = new Set<EntityInstance>();
+    // references it, or below, once the root is known to be retained. Only an
+    // event whose root is new can create entities that need collecting here.
+    const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
       const parseCtx = this.mutationParseContext;
@@ -823,7 +824,7 @@ export class QueryClient {
       if (existing === undefined) {
         // Half applied: nothing built from it can stay.
         const createdRoot = this.entityMap.getEntity(key);
-        if (createdRoot !== undefined) this.evictCreated(createdRoot, created);
+        if (createdRoot !== undefined) this.evictCreated(createdRoot, created!);
       }
       return;
     }
@@ -870,14 +871,14 @@ export class QueryClient {
         entity.save();
       } catch (e) {
         this.context.log?.warn?.('Failed to apply mutation event', e);
-        this.evictUnlessAdopted(entity, created);
+        this.evictUnlessAdopted(entity, created!);
         return;
       }
     }
 
     this.routeEvent(typename, entity.data, key, type, eventSource);
 
-    if (!matched) this.evictUnlessAdopted(entity, created);
+    if (!matched) this.evictUnlessAdopted(entity, created!);
   }
 
   /**

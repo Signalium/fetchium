@@ -1070,21 +1070,29 @@ function createProxy(
   }
 
   // Shared per shape; only a query's root entity allocates its own lists.
-  let cachedBase: EntityKeys | undefined;
+  let cachedBaseCache: QueryClient['shapeKeyCache'] | undefined;
   let cachedMethods: Record<string, unknown> | undefined;
   let cachedGetters: Record<string, unknown> | undefined;
   let keys: EntityKeys | undefined;
 
   function entityKeys(): EntityKeys {
-    // The base is re-resolved on every call (a WeakMap lookup): the client
-    // resets its cache when another class registers for this typename, and
-    // the new split must reach snapshots already in flight. Both extras
-    // slots matter too: these lists decide what a snapshot walks and re-reads.
-    const base = shapeKeys(validatorDef, shapeFields, methods, queryClient);
+    // The client replaces its key cache when another class registers for
+    // this typename, and the new split must reach snapshots already in
+    // flight. A cache's entries are never overwritten, so the base can only
+    // have changed when the cache object did: an identity check, rather than
+    // a WeakMap lookup on every snapshot of every entity. Both extras slots
+    // matter too: these lists decide what a snapshot walks and re-reads.
+    const baseCache = queryClient.shapeKeyCache;
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;
-    if (keys === undefined || base !== cachedBase || methodsNow !== cachedMethods || gettersNow !== cachedGetters) {
-      cachedBase = base;
+    if (
+      keys === undefined ||
+      baseCache !== cachedBaseCache ||
+      methodsNow !== cachedMethods ||
+      gettersNow !== cachedGetters
+    ) {
+      const base = shapeKeys(validatorDef, shapeFields, methods, queryClient);
+      cachedBaseCache = baseCache;
       cachedMethods = methodsNow;
       cachedGetters = gettersNow;
       keys = methodsNow === undefined && gettersNow === undefined ? base : withExtraKeys(base, methodsNow, gettersNow);
