@@ -147,7 +147,6 @@ function applyEntity(
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
 
-  // A refetch or poll that returns identical data neither notifies nor writes.
   let changed = true;
   // A write reaching this instance from inside its own subtree is deferred.
   entityInstance._applying = true;
@@ -282,9 +281,7 @@ function mergeFields(
       // payload fails validation, so every update carries the full variant.
       const isUnion = propShape instanceof ValidatorDef && (propShape.mask & Mask.UNION) !== 0;
       if (!isUnion && isPlainObject(newVal) && isPlainObject(oldVal)) {
-        // Only object/entity defs have a record of field defs as their shape.
-        // A record def's shape is its value type (a bare `Mask` for
-        // `t.record(t.string)`), which must not be recursed into as fields.
+        // A record def's shape is its value type, not field defs, so don't recurse into it.
         const nestedShape =
           propShape instanceof ValidatorDef &&
           propShape.shape !== undefined &&
@@ -330,13 +327,11 @@ function mergeFields(
           if (merged) changed = true;
           existingData[fieldKey] = merged ? target : oldVal;
         } else {
-          // A key was added or removed. Replace wholesale, since copying field
-          // by field can't apply a removal.
+          // Copying field by field can't apply a key removal.
           existingData[fieldKey] = newVal;
           changed = true;
         }
       } else if (!sameValue(oldVal, newVal)) {
-        // An equal value keeps the existing reference.
         existingData[fieldKey] = newVal;
         changed = true;
       }
@@ -345,7 +340,6 @@ function mergeFields(
   return changed;
 }
 
-/** Whether both records have the same set of own keys. */
 export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const aKeys = Object.keys(a);
   if (aKeys.length !== Object.keys(b).length) return false;
@@ -355,19 +349,14 @@ export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>)
   return true;
 }
 
-/**
- * Structural equality for parsed field values. Entity proxies compare by
- * identity (one proxy per entity and shape), formatted values by the raw input
- * they were built from, arrays and plain objects element by element.
- */
+/** Structural equality. Proxies compare by identity, formatted values by raw input. */
 export function sameValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (a instanceof FormattedValue || b instanceof FormattedValue) {
     return a instanceof FormattedValue && b instanceof FormattedValue && a._raw === b._raw;
   }
-  // Distinct proxies are distinct entities. Other exotic objects (a Date, a
-  // live collection binding, a class instance) fail the prototype check below.
+  // Distinct proxies are distinct entities.
   if (PROXY_ID.has(a) || PROXY_ID.has(b)) return false;
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
@@ -381,20 +370,14 @@ export function sameValue(a: unknown, b: unknown): boolean {
   if (aKeys.length !== Object.keys(b).length) return false;
   for (let i = 0; i < aKeys.length; i++) {
     const key = aKeys[i];
-    // `hasOwn`, not `in`: `in` would let `Object.prototype` answer for a key
-    // missing from `b`.
+    // Not `in`, which lets `Object.prototype` answer for a missing key.
     if (!Object.hasOwn(b, key)) return false;
     if (!sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
   }
   return true;
 }
 
-/**
- * Compares the ref *key set*, which is what a write would change: the store
- * persists `refKeys` with no counts, and `setChildRefs` retains and releases on
- * a key appearing or disappearing. Comparing counts would force a write of
- * identical bytes.
- */
+/** Compares key sets only. The store persists ref keys without counts. */
 export function sameRefs(
   a: Map<EntityInstance, number> | undefined,
   b: Map<EntityInstance, number> | undefined,
@@ -446,9 +429,7 @@ function initFields(
     } else {
       const val = data[fieldKey];
       if (isPlainObject(val)) {
-        // Only object/entity defs have a record of field defs as their shape.
-        // A record def's shape is its value type (a bare `Mask` for
-        // `t.record(t.string)`), which must not be recursed into as fields.
+        // A record def's shape is its value type, not field defs, so don't recurse into it.
         const nestedShape =
           propShape instanceof ValidatorDef &&
           propShape.shape !== undefined &&

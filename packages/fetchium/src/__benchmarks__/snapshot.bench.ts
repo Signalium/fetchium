@@ -9,14 +9,8 @@ import { Entity } from '../proxy.js';
 import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 
-/**
- * What `useQuery` costs per render: `useReactive` deep-snapshots the query
- * result on every dependency change, so this is the price of one re-render of
- * a list consumer, without React's own reconciliation.
- *
- * Run with `npm run bench`. Benchmarks build with `IS_DEV: false` so the
- * dev-only snapshot invariant check doesn't skew the numbers.
- */
+// Cost of the deep snapshot `useQuery` takes per render, excluding React itself.
+// Run with `npm run bench`.
 
 class Token extends Entity {
   __typename = t.typename('Token');
@@ -73,8 +67,7 @@ async function setup(count: number) {
     ],
   });
 
-  // The listener is what activates the relay, exactly as a mounted consumer
-  // does; an unwatched signal never fetches and `await query` never settles.
+  // Without a listener the relay never activates and `await query` never settles.
   const { query, pull } = withContexts([[QueryClientContext, client]], () => {
     const q = fetchQuery(GetPortfolio, { count });
     let prev: unknown;
@@ -88,11 +81,6 @@ async function setup(count: number) {
   return { client, pull };
 }
 
-/**
- * One fixture per size, built once. The measured body is only the work a
- * streamed event triggers: apply the event, then pull the snapshot the way a
- * mounted consumer would.
- */
 const fixtures = await Promise.all([100, 1000].map(async count => ({ count, ...(await setup(count)) })));
 
 for (const { count, client, pull } of fixtures) {
@@ -118,9 +106,7 @@ for (const { count, client, pull } of fixtures) {
   });
 }
 
-// Whole cold path: client construction, fetch, parse, apply, first snapshot.
-// The snapshot is a small part of it and samples are noisy (±10-20% rme), so
-// don't read a snapshot change off this.
+// Noisy, and the snapshot is a small part of it.
 describe('cold query, first snapshot included', () => {
   for (const count of [100, 1000]) {
     bench(`${count} entities`, async () => {

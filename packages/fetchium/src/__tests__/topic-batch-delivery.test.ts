@@ -9,11 +9,7 @@ import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 import { sleep } from './utils.js';
 
-/**
- * Topic snapshots delivered in one task (for example one multi-topic snapshot
- * response) settle their queries in a single reactive flush. Snapshots from
- * separate tasks flush separately. Batching those is the adapter's job.
- */
+// Snapshots from separate tasks flush separately. Batching those is the adapter's job.
 
 class SnapshotAdapter extends TopicQueryAdapter {
   subscribe(_topic: string): void {}
@@ -57,8 +53,7 @@ describe('batched topic snapshot delivery', () => {
       adapters: [adapter],
     });
 
-    // One watcher per query; a flush runs every dirty watcher's listener, so
-    // count distinct flushes by the task they ran in.
+    // A flush runs every dirty watcher's listener, so count flushes by task.
     let flushes = 0;
     let flushScheduled = false;
     const latest: unknown[] = QUERIES.map(() => undefined);

@@ -68,10 +68,8 @@ export interface RetryConfig {
    */
   retryDelay?: (attemptIndex: number) => number;
   /**
-   * Decides whether a failed attempt is retried, from the error, the attempt
-   * index (starting at 0) and the attempt's HTTP status when known. Overrides
-   * `QueryClientConfig.shouldRetry`. Without either, every failed attempt is
-   * retried.
+   * Decides whether a failed attempt is retried. Overrides
+   * `QueryClientConfig.shouldRetry`. Default: every failed attempt is retried.
    */
   shouldRetry?: (error: unknown, attempt: number, status: number | undefined) => boolean;
 }

@@ -39,7 +39,6 @@ export class NetworkManager {
     return this.onlineSignal.value;
   }
 
-  /** Offline-to-online transitions so far. */
   reconnects = 0;
   /** Untracked copy of the signal's value, so writes don't consume it. */
   private lastOnline: boolean;
