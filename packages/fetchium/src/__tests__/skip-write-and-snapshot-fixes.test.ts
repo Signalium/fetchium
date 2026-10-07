@@ -14,8 +14,8 @@ import { valueKeyFor, refIdsKeyFor, queueKeyFor, DEFAULT_MAX_COUNT } from '../st
 import { createMockFetch, setupTestClient, testWithClient, sleep } from './utils.js';
 
 /**
- * Invariants the snapshot fast path (#59), unchanged-apply skipping (#60),
- * single-write events (#61) and store deletion reporting (#64) must keep.
+ * Invariants the snapshot fast path, unchanged-apply skipping, single-write
+ * events and store deletion reporting must keep.
  */
 
 function getDoc(kv: MemoryPersistentStore, key: number): Record<string, unknown> | undefined {
