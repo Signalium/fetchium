@@ -262,6 +262,36 @@ describe('Invalidation before the first fetch', () => {
     });
   }
 
+  it('fetches once when a stale cached query is invalidated right after synchronous hydration', async () => {
+    class GetItem extends RESTQuery {
+      path = '/item';
+      result = { value: t.string };
+      config = { staleTime: 0 };
+    }
+
+    const kv = new MemoryPersistentStore();
+    await seedCache(kv, GetItem, { value: 'cached' });
+
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { value: 'fresh' }, { delay: 20 });
+    const client = makeClient(new SyncQueryStore(kv), mockFetch);
+
+    let relay: ReturnType<typeof fetchQuery<GetItem>> | undefined;
+    const { dispose } = activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+    client.invalidateQueries([GetItem]);
+
+    await flushMicrotasks();
+    expect(relay!.isPending).toBe(true);
+    await relay;
+    await sleep(30);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(mockFetch.calls[0].options.signal!.aborted).toBe(false);
+    expect(relay!.value!.value).toBe('fresh');
+
+    dispose();
+    client.destroy();
+  });
+
   it('refetches a cached query invalidated before its cache loads', async () => {
     const kv = new MemoryPersistentStore();
     await seedCache(kv, GetForever, { value: 'cached' });
