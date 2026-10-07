@@ -327,9 +327,8 @@ describe('records a streamed event writes', () => {
 
     expect(warn).toHaveBeenCalledWith('Failed to apply mutation event', expect.any(Error));
     // Memory and the store agree: the comment is in neither, and no record
-    // references it. (The author written before the failing write stays
-    // behind as an unreferenced record, as any write that fails mid-walk has
-    // always left its predecessors.)
+    // references it. The author written before the failing write stays behind
+    // unreferenced, as with any write that fails mid-walk.
     expect((postQ.value as any).post.comments).toEqual([]);
     expect((postQ.value as any).post.commentCount).toBe(0);
     expect(client.entityMap.getEntity(K('Comment', 'c9'))).toBeUndefined();
@@ -1018,9 +1017,8 @@ describe('records a streamed event writes when released entities linger (gcTime)
     });
     await sleep(5);
 
-    // Nothing references what the event created; had the author lingered
-    // until its gcTime, a later event could have written it as a record
-    // nothing references.
+    // Nothing references what the event created. Had the author lingered
+    // until its gcTime, a later event could have written it as an orphan.
     expect(client.entityMap.getEntity(K('Comment', 'c9'))).toBeUndefined();
     expect(client.entityMap.getEntity(K('User', 'u7'))).toBeUndefined();
     expect(client.entityMap.getEntity(K('Badge', 'b7'))).toBeUndefined();
@@ -1427,8 +1425,8 @@ describe('AsyncQueryStore writer', () => {
       data: { __typename: 'User', id: 'u1', name: 'Alicia', karma: 10 },
     });
     await sleep(5);
-    // Written whole (the badge the event did not carry is gone, as before
-    // 0.6), never as a record holding only the event's fields.
+    // Written whole, dropping the badge the event did not carry, never as a
+    // record holding only the event's fields.
     expect(getDoc(kv, K('User', 'u1'))).toMatchObject({ __typename: 'User', id: 'u1', name: 'Alicia', karma: 10 });
     expect(getDoc(kv, K('User', 'u1'))!.badge).toBeUndefined();
   });
@@ -1803,7 +1801,7 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
     await drain(store);
     await scanned(store);
 
-    // The deck's write drops its reference to c1, the only one on disk; before
+    // The deck's write drops its reference to c1, the only one on disk. Before
     // it is processed, the same card is created again with identical data.
     client.applyMutationEvent({ type: 'delete', typename: 'Card', data: 'c1' });
     client.applyMutationEvent({ type: 'create', typename: 'Card', data: card });

@@ -823,10 +823,10 @@ export class QueryClient {
       return;
     }
 
-    // Entities the event creates are not written by the apply; entities it
-    // merely updates are. A created entity is written once a written record
-    // references it, or below, once the root is known to be retained. Only an
-    // event whose root is new can create entities that need collecting here.
+    // The apply writes entities the event updates, not ones it creates. A
+    // created entity is written once a written record references it, or below
+    // once the root is known to be retained. Only an event with a new root can
+    // create entities that need collecting here.
     const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
@@ -858,19 +858,13 @@ export class QueryClient {
       return;
     }
 
-    // The root the event created is written, with the entities it created
-    // under it, when a live array is about to retain it (the array's owner
-    // is written with the reference) or when the store already holds a record
-    // of it: a query that was collected from memory can still hold this
-    // entity in its cache, and the event is that record's only chance to stay
-    // fresh. That write merges the event's fields over the record, since an
-    // event is a partial update and the fields it leaves out are not known
-    // here. The write comes before the routing: if it fails, nothing is
-    // routed, the failure is logged, and memory stays as it was, as a failed
-    // event always did. A store that cannot say what it holds (no
-    // `hasEntity`, or not yet) is not written, so it never accumulates
-    // records nothing references. Anything else the event created was only
-    // ever referenced by an unwritten root and stays unwritten.
+    // The created root (and what it created) is written when a live array is
+    // about to retain it, or when the store already holds a record of it: a
+    // collected query's cache can still hold this entity, and the event is
+    // that record's only chance to stay fresh. An event is partial, so the
+    // write merges over the record. It comes before routing so that a failed
+    // write routes nothing. A store that can't say what it holds (no
+    // `hasEntity`) is not written, so it never accumulates unreferenced records.
     let matched = false;
     let retains = false;
     this.routeEvent(
@@ -909,10 +903,9 @@ export class QueryClient {
   }
 
   /**
-   * Evicts the root an event created unless an entity that existed before
-   * the event now references it (its owner's data holds the proxy, so it is
-   * live). References from entities the same event created, the root itself
-   * included, do not count: they were only ever reachable through the root.
+   * Evicts the root an event created unless an entity that existed before the
+   * event now references it. References from entities the same event created
+   * (the root included) don't count: they were only reachable through the root.
    */
   private evictUnlessAdopted(root: EntityInstance, created: Set<EntityInstance>): void {
     let createdHolders = 0;
@@ -921,10 +914,9 @@ export class QueryClient {
   }
 
   /**
-   * Evicts the root an event created, and with it every entity the event
-   * created that nothing references any more: they were never written, so
-   * lingering until a `gcTime` runs out would let a later event write them
-   * as records nothing references.
+   * Evicts the root an event created, along with every entity the event
+   * created that is no longer referenced. They were never written, and
+   * lingering until `gcTime` would let a later event write them as orphans.
    */
   private evictCreated(root: EntityInstance, created: Set<EntityInstance>): void {
     root.evict();
@@ -954,8 +946,8 @@ export class QueryClient {
 
   /**
    * Writes the deferred entities in the order they were deferred: children
-   * before their parents. A write that fails leaves the rest unwritten, and
-   * marked so that the next apply writes them.
+   * before their parents. If a write fails, the rest are marked so the next
+   * apply writes them.
    */
   /** @internal */
   flushDeferredWrites(): void {
@@ -978,9 +970,8 @@ export class QueryClient {
   }
 
   /**
-   * An apply that failed leaves nothing to write: what it deferred may be half
-   * reified. The records that were waiting are stale, so the next apply
-   * writes them.
+   * After a failed apply, what it deferred may be half reified, so nothing is
+   * written. Those records are stale and the next apply writes them.
    */
   /** @internal */
   discardDeferredWrites(): void {

@@ -75,9 +75,9 @@ export interface AsyncQueryStoreConfig {
 }
 
 /**
- * Writer-internal work that runs through the same serial queue as the wire
- * messages, so it is ordered with respect to the writes and deletions around
- * it. Never sent over the wire, and distinguishable from anything that is.
+ * Writer-internal work run through the same serial queue as wire messages, so
+ * it is ordered with the writes and deletions around it. Never sent over the
+ * wire.
  */
 class InternalWork {
   constructor(
@@ -124,21 +124,19 @@ export class AsyncQueryStore implements QueryStore {
   private deleteListeners: Array<(key: number) => void> = [];
   private persistedListeners: Array<(key: number) => void> = [];
   private processing = false;
-  // Queued work that can delete a record: everything except the entity
-  // writes of this writer's own client, which tracks the references those
-  // drop (see `hasQueuedDeletes`).
+  // Queued work that can delete a record: everything except this writer's
+  // own client's entity writes, whose dropped references the client tracks.
   private queuedDeletes = 0;
   private readonly ownEntityWrites = new WeakSet<QueuedWork>();
-  // The ids whose value the delegate holds (or is about to: a queued write
-  // counts), mirrored by the writer so that `hasEntity` can answer
-  // synchronously. Read from the delegate once at start, without holding up
-  // the queue; until that read lands, writes and deletions are noted aside
-  // and folded in.
+  // Ids whose value the delegate holds (queued writes included), mirrored so
+  // `hasEntity` can answer synchronously. Read from the delegate once at
+  // start without blocking the queue. Writes and deletions before that read
+  // lands are noted aside and folded in.
   private heldKeys: Set<number> | undefined;
   private heldSinceScan: Set<number> | undefined = new Set();
   private droppedSinceScan: Set<number> | undefined = new Set();
-  // Only the writer sees deletions and completed writes; a reader offers no
-  // hook, so the client writes every apply.
+  // Only the writer sees deletions and completed writes. A reader offers no
+  // hooks, so the client writes every apply.
   onDelete?: (listener: (key: number) => void) => () => void;
   onPersisted?: (listener: (key: number) => void) => () => void;
   hasEntity?: (key: number) => boolean | undefined;
@@ -257,9 +255,8 @@ export class AsyncQueryStore implements QueryStore {
         }
       } catch (error) {
         console.error('Error processing message:', error);
-        // A failed entity write leaves the record missing or stale, which to
-        // the client is the same as the store having dropped it: it must
-        // write the entity again on its next apply.
+        // A failed entity write leaves the record missing or stale. Report it
+        // as dropped so the client writes the entity again on its next apply.
         if (!(msg instanceof InternalWork) && msg.type === StoreMessageType.SaveEntity) {
           this.noteDropped(msg.entityKey);
           for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](msg.entityKey);
@@ -274,8 +271,8 @@ export class AsyncQueryStore implements QueryStore {
   /**
    * Reads which records the delegate holds, alongside the queue rather than
    * ahead of it. Writes and deletions processed meanwhile are folded in.
-   * A read that fails is retried; if it keeps failing, nothing is assumed
-   * held (an event for an entity not in memory is then not written).
+   * A failed read is retried. If it keeps failing nothing is assumed held, so
+   * an event for an entity not in memory is not written.
    */
   private async scanHeldKeys(): Promise<void> {
     const held = new Set<number>();
@@ -312,8 +309,6 @@ export class AsyncQueryStore implements QueryStore {
 
   private async processMessage(msg: StoreMessage): Promise<void> {
     switch (msg.type) {
-      // `maxCount` is absent from messages sent by readers built before it
-      // was added; the writer then keeps whatever size the queue has.
       case StoreMessageType.SaveQuery:
         await this.writerSaveQuery(
           msg.queryDefId,
@@ -515,12 +510,11 @@ export class AsyncQueryStore implements QueryStore {
         queue = new Uint32Array(maxCount ?? DEFAULT_MAX_COUNT);
         await this.delegate!.setBuffer(queueKey, queue);
       } else if (maxCount !== undefined && queue.length !== maxCount) {
-        // `maxCount` changed since the queue was written (until 0.6 the writer
-        // always used the default, so every older install has a 50-slot queue).
-        // A view over the old buffer cannot grow past it, and a shorter view
-        // would silently strand the keys it drops: copy what fits and evict
-        // the rest properly. The key being activated is about to move to the
-        // front, so it is kept whichever slot it sits in.
+        // `maxCount` changed since the queue was written (writers before 0.6
+        // always used the default of 50). A view over the old buffer can't
+        // grow, and a shorter one would strand the keys it drops: copy what
+        // fits and evict the rest. The key being activated moves to the
+        // front, so it is kept wherever it sits.
         const resized = new Uint32Array(maxCount);
         resized.set(queue.subarray(0, Math.min(queue.length, maxCount)));
         for (let i = maxCount; i < queue.length; i++) {
@@ -562,10 +556,9 @@ export class AsyncQueryStore implements QueryStore {
   }
 
   /**
-   * Drops every query definition's cached queries once the definition has not
-   * been used for its `cacheTime`. Runs through the writer's serial queue, so
-   * its deletions are ordered with the writes and acknowledgements around
-   * them: a record it drops cannot be reported as written afterwards.
+   * Drops every query definition's cached queries once the definition has
+   * gone unused for its `cacheTime`. Runs through the writer's serial queue,
+   * so a record it drops cannot be reported as written afterwards.
    */
   purgeStaleQueries(): Promise<void> {
     if (!this.delegate) return Promise.resolve();

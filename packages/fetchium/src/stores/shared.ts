@@ -32,8 +32,8 @@ export function mergeStoredRecord(
   } catch {
     return undefined;
   }
-  // A record that is not an object is not one to merge into; the caller
-  // writes the fields as the record, which heals it.
+  // A non-object record can't be merged into. The caller writes the fields as
+  // the record instead, which heals it.
   if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
   const value = {
     ...(record as Record<string, unknown>),

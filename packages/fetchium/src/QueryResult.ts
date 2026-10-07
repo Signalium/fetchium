@@ -278,13 +278,11 @@ export class QueryInstance<T extends Query> {
         __hasNext: () => this.hasNext,
         __isFetchingNext: () => this._fetchNextPromise !== undefined,
       };
-      // The entity's key set just changed, but its consumers are not
-      // notified: this query's own consumers get the proxy through the relay
-      // and snapshot it afresh, and an existing consumer of a shared entity
-      // (a list showing the entity this query returns) has no use for another
-      // query's extras. Notifying would re-run every one of them, and give
-      // their snapshots a new identity, for data that did not change. They
-      // see the extras on their next recompute, as before.
+      // The entity's key set changed, but consumers are deliberately not
+      // notified. This query's consumers get the proxy through the relay and
+      // snapshot it fresh, and other consumers of a shared entity have no use
+      // for this query's extras. Notifying would re-run them all and change
+      // their snapshot identity for unchanged data.
     }
 
     return this.rootEntity.getProxy(def.statics.shape as unknown as EntityDef) as QueryResult<T>;

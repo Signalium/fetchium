@@ -687,10 +687,8 @@ describe('Entity Snapshots', () => {
     try {
       client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 5 } });
 
-      // The guard must not throw from inside the snapshot: that escapes
-      // Signalium's watcher flush and stalls every consumer on the page. It
-      // raises the error out of band (by default as an uncaught error, through
-      // the client's logger) and hands out what a full walk would have produced.
+      // The guard reports out of band instead of throwing inside the snapshot,
+      // and hands out what a full walk would have produced.
       const snap = read() as unknown as { tokens: { symbol: string }[] };
       expect(snap.tokens[0].symbol).toBe('MUTATED');
       expect(raised).toHaveLength(1);
