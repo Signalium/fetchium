@@ -354,7 +354,11 @@ export class QueryClient {
   /** The store's remembered field names cover every class that wrote a record it holds. */
   readonly storeKnowsTypenameFields: boolean;
 
-  /** Registers the def first, since a hydration parse runs before the apply registers it. @internal */
+  /**
+   * Whether a stored record of this def's typename may hold fields the def
+   * lacks. Registers the def first: a hydration parse can run before the apply
+   * does. @internal
+   */
   mayMissForeignFields(def: ValidatorDef<any>): boolean {
     let verdict = this.foreignFieldDefs.get(def);
     if (verdict === undefined) {
