@@ -856,6 +856,41 @@ describe('AsyncQueryStore writer used in-process', () => {
     }
   });
 
+  it('a rejected SaveEntity over an existing record still treats the record as held', async () => {
+    const delegate = new AsyncDelegate();
+    const store = writerStore(delegate);
+    const mockFetch = createMockFetch();
+    mockFetch.get('/user/profile/1', { user: { __typename: 'User', id: '1', name: 'Alice' } });
+    const { client } = makeClient(store, mockFetch);
+    clients.push(client);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const name = () => JSON.parse(delegate.kv[valueKeyFor(userKey('1'))] as string).name;
+    const update = (newName: string) =>
+      client.applyMutationEvent({
+        type: 'update',
+        typename: 'User',
+        data: { __typename: 'User', id: '1', name: newName },
+      });
+    try {
+      await holdQuery(client, () => fetchQuery(GetProfile, { id: '1' }));
+      await drain(store);
+
+      delegate.failNextSetString = valueKeyFor(userKey('1'));
+      update('Bob');
+      await drain(store);
+      expect(name()).toBe('Alice');
+      expect(store.hasEntity!(userKey('1'))).toBe(true);
+
+      // With the entity out of memory, the next update must still reach the record.
+      client.entityMap.getEntity(userKey('1'))!.evict();
+      update('Carol');
+      await drain(store);
+      expect(name()).toBe('Carol');
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('resizes a persisted LRU queue in both directions and defaults a missing maxCount', async () => {
     const delegate = new AsyncDelegate();
     const store = writerStore(delegate);

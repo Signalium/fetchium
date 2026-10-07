@@ -101,6 +101,7 @@ function isStoreMessage(msg: unknown): msg is StoreMessage {
   );
 }
 
+/** Callers notify over a copy, since a listener may unsubscribe while being notified. */
 function subscribe(listeners: Array<(key: number) => void>, listener: (key: number) => void): () => void {
   listeners.push(listener);
   return () => {
@@ -225,6 +226,18 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
+  /** The previous record may have survived a failed write, so ask the delegate. */
+  private async recheckHeld(id: number): Promise<void> {
+    let held = false;
+    try {
+      held = await this.delegate!.has(valueKeyFor(id));
+    } catch {
+      // Unknown: treat it as missing.
+    }
+    if (held) this.noteHeld(id);
+    else this.noteDropped(id);
+  }
+
   private startQueueProcessor(): void {
     this.queueProcessorPromise = this.processQueue();
   }
@@ -258,8 +271,8 @@ export class AsyncQueryStore implements QueryStore {
         // A failed entity write leaves the record missing or stale. Report it
         // as dropped so the client writes the entity again on its next apply.
         if (!(msg instanceof InternalWork) && msg.type === StoreMessageType.SaveEntity) {
-          this.noteDropped(msg.entityKey);
-          for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](msg.entityKey);
+          await this.recheckHeld(msg.entityKey);
+          for (const listener of this.deleteListeners.slice()) listener(msg.entityKey);
         }
       } finally {
         this.processing = false;
@@ -322,7 +335,7 @@ export class AsyncQueryStore implements QueryStore {
         break;
       case StoreMessageType.SaveEntity:
         await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true);
-        for (let i = 0; i < this.persistedListeners.length; i++) this.persistedListeners[i](msg.entityKey);
+        for (const listener of this.persistedListeners.slice()) listener(msg.entityKey);
         break;
       case StoreMessageType.ActivateQuery:
         await this.writerActivateQuery(msg.queryDefId, msg.queryKey, msg.cacheTime, msg.maxCount);
@@ -656,7 +669,7 @@ export class AsyncQueryStore implements QueryStore {
     await delegate.delete(valueKeyFor(id));
     this.noteDropped(id);
     await delegate.delete(refCountKeyFor(id));
-    for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](id);
+    for (const listener of this.deleteListeners.slice()) listener(id);
 
     const refIds = await delegate.getBuffer(refIdsKey);
     await delegate.delete(refIdsKey); // Clean up the refIds key

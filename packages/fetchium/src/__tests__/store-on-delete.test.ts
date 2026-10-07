@@ -112,6 +112,35 @@ describe('QueryStore.onDelete', () => {
     await sleep(20);
     expect(deleted).toEqual([q1]);
   });
+
+  it('SyncQueryStore still notifies the next listener when one unsubscribes during a deletion', () => {
+    const store = new SyncQueryStore(new MemoryPersistentStore());
+    const deleted: number[] = [];
+    const unsubscribe = store.onDelete(() => unsubscribe());
+    store.onDelete(key => deleted.push(key));
+
+    const q1 = hashValue(['GET:/u', { id: '1' }]);
+    store.saveQuery(queryDef('GET:/u', 10), q1, { __entityRef: 0 }, Date.now(), new Set());
+    store.deleteQuery(q1);
+    expect(deleted).toEqual([q1]);
+  });
+
+  it('AsyncQueryStore writer still notifies the next listener when one unsubscribes during a deletion', async () => {
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate: new MockAsyncPersistentStore(),
+      connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
+    });
+    const deleted: number[] = [];
+    const unsubscribe = writer.onDelete!(() => unsubscribe());
+    writer.onDelete!(key => deleted.push(key));
+
+    const q1 = hashValue(['GET:/v', { id: '1' }]);
+    writer.saveQuery(queryDef('GET:/v', 10), q1, { __entityRef: 0 }, Date.now(), new Set());
+    writer.deleteQuery(q1);
+    await sleep(20);
+    expect(deleted).toEqual([q1]);
+  });
 });
 
 describe('stores without onDelete', () => {
