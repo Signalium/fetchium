@@ -98,13 +98,11 @@ const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
 // Without this, the snapshot encounters the entity proxy (whose prototype is
 // the user-defined entity class), doesn't recognize it, and returns it as-is.
 // React then never re-renders on data changes because the proxy reference is
-// stable. Reading the entity's fields establishes reactive dependencies on the
-// entity's notifier and produces a plain-object snapshot whose unchanged
-// subtrees keep stable references. Fields are read through each proxy's
-// `EntitySnapshotSource`, since walking the proxy reads every field twice.
+// stable. Reading the fields consumes the entity's notifier and yields a plain
+// snapshot whose unchanged subtrees keep stable references.
 // ======================================================
 
-/** Trap-free access to one entity proxy's fields, registered by `createProxy`. */
+/** Trap-free access to one entity proxy's fields. */
 interface EntitySnapshotSource {
   /** Identifies this proxy without retaining it. */
   readonly id: number;
@@ -120,11 +118,7 @@ const snapshotSources = new WeakMap<object, EntitySnapshotSource>();
 
 let nextSnapshotSourceId = 1;
 
-/**
- * What a snapshot was produced from, so the next one can skip work. Holds the
- * source's id, not the proxy: a snapshot outlives the entity it came from, and
- * a strong reference here would make the entity graph reachable from it.
- */
+/** Holds the source id, not the proxy, so a snapshot never retains the entity graph. */
 interface SnapshotOrigin {
   sourceId: number;
   version: number;
@@ -165,12 +159,7 @@ function asPrevObject(prev: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-/**
- * Snapshot a raw field value. Nested entity proxies go back to Signalium so
- * they consume their own notifier. The array and object walks mirror
- * `snapshotArray`/`snapshotPlainObject`, which `signalium/utils` does not
- * export; a test asserts they stay equal.
- */
+/** Mirrors Signalium's unexported array and object walks. A test asserts they match. */
 function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (WRAPPED_VALUE.has(value)) return snapshotRawValue((value as { getValue(): unknown }).getValue(), prev, snap);
@@ -189,9 +178,7 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
         if (prevBySource !== undefined) {
           prevItem = prevBySource.get(itemSource.id);
         } else if (i < prevArr.length && !snapshotCameFrom(prevItem, itemSource.id)) {
-          // Positions shifted (an insert or re-sort), so pair by identity
-          // rather than handing each entity its neighbour's snapshot. Indices
-          // past the old length are appends and skip the index entirely.
+          // Positions shifted, so pair by identity rather than by index.
           prevBySource = indexSnapshotsBySource(prevArr);
           prevItem = prevBySource.get(itemSource.id);
         }
@@ -221,7 +208,7 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
   return snap(value, prev);
 }
 
-/** Dev-only counters: losing the fast path is invisible to behavioral tests. */
+/** Dev-only: losing the fast path is invisible to behavioral tests. */
 export let __debug_snapshotFieldReads = 0;
 export let __debug_snapshotFullWalks = 0;
 export function __debug_resetSnapshotCounters(): void {
@@ -240,16 +227,14 @@ function walkFields(
     const key = fields[i];
     const value = source.readField(key);
     if (IS_DEV) __debug_snapshotFieldReads++;
-    // Methods are bound to the proxy and cached on it, so identity is stable.
+    // Bound methods are cached, so their identity is stable.
     into[key] = typeof value === 'function' ? value : snapshotRawValue(value, prevObj?.[key], snap);
   }
 }
 
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
   const source = snapshotSources.get(current);
-  // An `Entity` not built by `createProxy` has no fields to read (its own
-  // properties are the shape's type defs). Return it as-is, as Signalium does
-  // for any class it has no handler for.
+  // Not built by `createProxy`, so there are no fields to read.
   if (source === undefined) return current;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
@@ -303,17 +288,7 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   return rememberSnapshot(source.id, changed ? result : prevObj!, version, keys);
 };
 
-/**
- * Checks the fast path's assumptions: `data` only changes through a `notify()`
- * that bumps `version`, and every field outside `keys.dynamic` is a pure
- * function of `data`. A violation leaves a snapshot permanently stale, which no
- * behavioral test catches. Only static fields are checked: re-reading a dynamic
- * field isn't identity-stable, because snapshotting a child updates the state
- * it pairs on.
- *
- * The re-read cancels the fast path's savings, so the speedup only shows in
- * production builds.
- */
+/** Dev check: a static field must not change while `version` stays put. */
 function assertStaticFieldsUnchanged(
   source: EntitySnapshotSource,
   keys: EntityKeys,
@@ -323,7 +298,6 @@ function assertStaticFieldsUnchanged(
   const verified: Record<string, unknown> = {};
   const readsBefore = __debug_snapshotFieldReads;
   walkFields(source, keys.static, before, snap, verified);
-  // Verification reads don't count against the fast path.
   __debug_snapshotFieldReads = readsBefore;
   for (const key of keys.static) {
     if (verified[key] !== before[key]) {
@@ -360,13 +334,12 @@ export class EntityInstance {
   idField: string | symbol;
   data: Record<string, unknown>;
   refCount: number = 0;
-  /** Whether this instance has been written to the store. */
   _persisted: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
   satisfiedDefs: WeakSet<ValidatorDef<unknown>> = new WeakSet();
   parseId: number = -1;
-  /** Bumped on `notify()`; see `assertStaticFieldsUnchanged` for the invariant. */
+  /** Snapshots trust this to move whenever `data` changes. */
   version: number = 0;
   _entityCache: { gcTime?: number } | undefined;
   _extraMethods: Record<string, (...args: unknown[]) => unknown> | undefined;
@@ -513,34 +486,14 @@ function filterEntityArray(array: unknown[], innerDef: ValidatorDef<unknown>, qu
   return result;
 }
 
-// ======================================================
-// Static-field analysis (which fields a version check covers)
-// ======================================================
-
-/**
- * Masks for a field that can change without its owning entity notifying.
- *
- * `defineUnion` ORs only its members' top-level masks, so
- * `t.union(t.object({ child: t.entity(A) }), …)` carries no `ENTITY` bit.
- * `computeIsStaticFieldDef` catches that by recursing into member defs. Never
- * short-circuit a union on its mask alone.
- *
- * `HAS_FORMAT` because a formatted value's snapshot can go through a custom
- * snapshot handler that reads other signals (a locale, say).
- */
+// Fields that can change without the entity notifying (formats may read other signals).
+// A union's mask omits its members' nested bits, so never trust a union's mask alone.
 const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE | Mask.HAS_FORMAT;
 
 const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 
-/**
- * Whether a field's snapshot is a pure function of its entity's own `data`.
- * Only the shapes recognised here (the allowlist `getEntityDef` validates
- * against) answer `true`, so an unfamiliar def costs a re-read, never a stale
- * value.
- */
+/** Unrecognised defs answer false, which costs a re-read but never a stale value. */
 function isStaticFieldDef(def: unknown): boolean {
-  // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
-  // `t.enum`/`t.const` a `Set` of allowed values.
   if (typeof def === 'number') return (def & DYNAMIC_MASKS) === 0;
   if (typeof def === 'string') return true;
   if (def instanceof Set) return true;
@@ -548,8 +501,7 @@ function isStaticFieldDef(def: unknown): boolean {
 
   const cached = staticFieldDefs.get(def);
   if (cached !== undefined) return cached;
-  // Treat cycles as dynamic. A def reached only through one keeps that answer,
-  // which costs a read but never goes stale.
+  // Cycles resolve as dynamic.
   staticFieldDefs.set(def, false);
 
   const isStatic = computeIsStaticFieldDef(def);
@@ -561,8 +513,6 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
   if (def._liveConfig !== undefined) return false;
   if ((def.mask & DYNAMIC_MASKS) !== 0) return false;
 
-  // No shape: primitive or union of literals. One inner def: array,
-  // record, parse result, optional/nullable clone. A record of defs: object.
   const shape = def.shape;
   if (shape === undefined || shape === null) return true;
   if (shape instanceof ValidatorDef) return isStaticFieldDef(shape);
@@ -571,19 +521,11 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
   return Object.values(shape as Record<string, unknown>).every(isStaticFieldDef);
 }
 
-// ======================================================
-// Per-shape key metadata
-// ======================================================
-
-/**
- * The key lists a proxy reports, shared per shape. `own` is `ownKeys`;
- * `enumerable` drops the non-enumerable entity methods.
- */
+/** Key lists a proxy reports, shared per shape. */
 interface EntityKeys {
   own: string[];
   enumerable: string[];
   dynamic: string[];
-  /** `enumerable` minus `dynamic` — the fields a version check covers. */
   static: string[];
   enumerableSet: Set<string>;
 }
@@ -620,7 +562,7 @@ function shapeKeys(
   return keys;
 }
 
-/** Adds a query's late-attached methods and getters, which are always dynamic. */
+/** A query's late-attached methods and getters are always dynamic. */
 function withExtraKeys(
   base: EntityKeys,
   extraMethods: Record<string, unknown> | undefined,
@@ -647,10 +589,6 @@ function withExtraKeys(
   };
 }
 
-// ======================================================
-// Field readers (module level so proxies share them, not per-proxy closures)
-// ======================================================
-
 function bindMethod(
   prop: string,
   source: Record<string, (...args: unknown[]) => unknown>,
@@ -667,7 +605,7 @@ function bindMethod(
   return bound;
 }
 
-/** Narrow a shared-typename array to this field's def, cached on array identity. */
+/** Narrows a shared-typename array to this field's def. */
 function narrowEntityArray(
   prop: string,
   value: unknown[],
@@ -743,14 +681,12 @@ function createProxy(
     throw new Error(`typenameField "${typenameField}" must be declared in the entity shape`);
   }
 
-  // Shared per shape; only a query's root entity allocates its own lists.
   const baseKeys = shapeKeys(validatorDef, shapeFields, methods);
   let cachedMethods: Record<string, unknown> | undefined;
   let cachedGetters: Record<string, unknown> | undefined;
   let keys = baseKeys;
 
   function entityKeys(): EntityKeys {
-    // Track both slots, since these lists decide what a snapshot walks and re-reads.
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;
     if (methodsNow !== cachedMethods || gettersNow !== cachedGetters) {
@@ -764,8 +700,7 @@ function createProxy(
     return keys;
   }
 
-  // The `get` trap's value half, minus reactive bookkeeping and wrapping.
-  // Symbols, `toJSON` and `__context` never reach here.
+  // The `get` trap's value path, without tracking or wrapping.
   function readField(prop: string): unknown {
     if (prop === '__typename') return instance.typename;
 
@@ -835,7 +770,7 @@ function createProxy(
     },
 
     getOwnPropertyDescriptor(target, prop) {
-      // Same list the snapshot walks, so the two agree by construction.
+      // Same list the snapshot walks.
       if (typeof prop !== 'string') return undefined;
       if (entityKeys().enumerableSet.has(prop)) {
         return { enumerable: true, configurable: true, value: handler.get!(target, prop, proxy), writable: false };
