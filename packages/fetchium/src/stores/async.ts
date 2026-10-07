@@ -62,11 +62,7 @@ export type StoreMessage =
       refIds?: number[];
       /** `value` holds only some fields; the writer merges them over the stored record, if any. */
       merge?: boolean;
-      /**
-       * Fields of the stored record to keep alongside `value`, as a JSON
-       * object body (see `QueryStore.saveEntity`). An older writer ignores it
-       * and writes `value` alone.
-       */
+      /** See `QueryStore.saveEntity`. */
       rest?: string;
     }
   | { type: StoreMessageType.ActivateQuery; queryDefId: string; queryKey: number; cacheTime: number; maxCount?: number }
@@ -622,7 +618,6 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  /** `rest`: fields of the stored record to keep, written ahead of `value`'s (see `QueryStore.saveEntity`). */
   private async setValue(id: number, value: unknown, refIds?: Set<number>, rest?: string): Promise<void> {
     const delegate = this.delegate!;
 

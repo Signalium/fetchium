@@ -13,17 +13,11 @@ import type { LiveCollectionBinding } from './LiveCollection.js';
 import { entitySatisfiesShape } from './parseEntities.js';
 import { recordRestOutside } from './stores/shared.js';
 
-/**
- * Fields of an entity's stored record that no class applied to the instance
- * declares, written by another class sharing the typename. Kept as raw JSON so
- * the instance's writes don't drop them.
- */
+/** Stored record fields written by another class of the typename, kept so writes don't drop them. */
 export interface RecordRest {
-  /** The fields kept. */
   keys: string[];
-  /** Their raw values as a JSON object body (`"a":1,"b":{…}`), written as is. */
+  /** Raw JSON object body (`"a":1,"b":{…}`), written as is. */
   json: string;
-  /** The `{ __entityRef }` keys inside them, which the record still references. */
   refIds: number[];
 }
 
@@ -641,23 +635,12 @@ export class EntityInstance {
   _deferredWrite: boolean = false;
   /** The store is known to hold a record of this entity (hydrated from it, or written to it). */
   _recorded: boolean = false;
-  /** The stored record's fields this instance does not hold; its writes carry them. */
   _recordRest: RecordRest | undefined = undefined;
-  /**
-   * The stored record, held until `_recordRest` is taken from it at the first
-   * write so a cold start pays nothing. Kept from hydration only for stores
-   * that can't re-read it synchronously.
-   */
+  /** Raw stored record, turned into `_recordRest` lazily at the first write. */
   private _storedRecord: Record<string, unknown> | undefined = undefined;
-  /**
-   * The stored record may hold another class's fields, so the first write
-   * reads it (synchronous stores) and keeps them.
-   */
+  /** The first write must re-read the stored record (synchronous stores only). */
   _checkStoredRecord: boolean = false;
-  /**
-   * `entityRefs` were counted from the whole data by a full payload, and not
-   * since changed by a partial update or a live collection.
-   */
+  /** `entityRefs` came from a full payload, untouched since by partial updates. */
   _refsCounted: boolean = false;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
@@ -881,7 +864,6 @@ export class EntityInstance {
     this.markUnwritten();
   }
 
-  /** The store deleted this entity's record: drop the fields kept from it. */
   recordDeleted(): void {
     this._recordRest = undefined;
     this._storedRecord = undefined;
@@ -889,16 +871,11 @@ export class EntityInstance {
     this.recordDropped();
   }
 
-  /** Whether this instance keeps, or will read, fields of its stored record. */
   keepsRecordFields(): boolean {
     return this._recordRest !== undefined || this._storedRecord !== undefined || this._checkStoredRecord;
   }
 
-  /**
-   * The stored record holds fields the data does not: keep them. A rereadable
-   * (synchronous) store's record is read again at the first write instead of
-   * held in memory.
-   */
+  /** A rereadable store's record is read again at the first write instead of held in memory. */
   recordHoldsOtherFields(record: Record<string, unknown>, rereadable: boolean): void {
     if (rereadable) {
       this._storedRecord = undefined;
@@ -909,20 +886,13 @@ export class EntityInstance {
     }
   }
 
-  /**
-   * Keeps the stored record (raw, as parsed) so the instance's writes carry
-   * the fields its data lacks. They are taken from it at the first write. A
-   * field the data holds, even as `undefined`, is the instance's to write.
-   */
+  /** A field the data holds, even as `undefined`, is the instance's to write. */
   noteRecord(record: Record<string, unknown>): void {
     this._storedRecord = record;
     this._recordRest = undefined;
   }
 
-  /**
-   * The kept record fields to write with the data, minus any an applied class
-   * now declares (the data holds those itself).
-   */
+  /** Drops kept fields that an applied class now declares. */
   recordRestForWrite(): RecordRest | undefined {
     const data = this.data;
     const record = this._storedRecord;

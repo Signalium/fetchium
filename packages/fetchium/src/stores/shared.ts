@@ -1,4 +1,3 @@
-// Every key of cached data starts with this
 export const DOC_PREFIX = 'sq:doc:';
 // Query Instance keys
 export const VALUE_PREFIX = 'sq:doc:value:';
@@ -13,9 +12,8 @@ export const lastUsedKeyFor = (queryDefId: string) => `sq:doc:lastUsed:${queryDe
 export const cacheTimeKeyFor = (queryDefId: string) => `sq:doc:cacheTime:${queryDefId}`;
 
 export const LAST_USED_PREFIX = 'sq:doc:lastUsed:';
-// Per typename: the top-level fields its entity classes have declared
 export const fieldNamesKeyFor = (typename: string) => `sq:meta:fields:${typename}`;
-// Since when the field names cover every record (0: since the store held no cached data)
+// 0: field names have covered every record since the store was emptied
 export const FIELD_NAMES_SINCE_KEY = 'sq:meta:fieldsSince';
 
 // Default values
@@ -83,11 +81,7 @@ export function storedRecordRest(
   return { json: JSON.stringify(rest).slice(1, -1), refIds: [...refIds] };
 }
 
-/**
- * The fields of a parsed stored record that `data` does not hold as its own
- * keys: their names, the fields as a JSON object body (`"a":1,"b":{…}`), and
- * the references inside them. `undefined` when there are none.
- */
+/** The fields of a parsed stored record that `data` does not hold as own keys. */
 export function recordRestOutside(
   record: Record<string, unknown>,
   data: Record<string, unknown>,
@@ -107,7 +101,7 @@ export function recordRestOutside(
   return { keys: keys!, json: JSON.stringify(values).slice(1, -1), refIds: [...refIds] };
 }
 
-/** The `{ __entityRef }` markers in a record's JSON, as `collectEntityRefs` finds them in the parsed record. */
+/** Adds the `__entityRef` ids in a record's JSON to `into`, as `collectEntityRefs` would for the parsed record. */
 export function entityRefsInJson(json: string, into: Set<number>): void {
   if (json.indexOf('"__entityRef":') === -1) return;
   const re = /"__entityRef":(\d+)/g;

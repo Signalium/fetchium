@@ -12,11 +12,8 @@ import { fetchQuery } from '../../query.js';
 import { sleep } from '../../__tests__/utils.js';
 import { useQuery } from '../index.js';
 
-/**
- * With a synchronous store, a screen whose cached query shares an entity with
- * a query already in memory paints the cached value on its first commit, not a
- * loading frame.
- */
+// Sync store: a cached query sharing an entity with an in-memory query paints
+// its cached value on the first commit, not a loading frame.
 
 let clients: QueryClient[] = [];
 afterEach(() => {

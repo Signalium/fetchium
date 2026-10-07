@@ -8,14 +8,8 @@ import { Entity } from '../proxy.js';
 import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 
-/**
- * Streamed full-payload updates of in-memory entities whose typename two
- * classes share: a list class and a detail class with extra fields. The detail
- * class wrote the records in an earlier session, so every list-entity write
- * must keep the detail's fields. A single-class typename is the control.
- *
- * Run with `npm run bench`.
- */
+// Streamed full updates where list and detail classes share a typename.
+// Each list write must keep the detail's fields. Run with `npm run bench`.
 
 const meta = { logo: t.string, website: t.string, tags: t.array(t.string) };
 
@@ -130,12 +124,10 @@ async function hold(c: QueryClient, start: () => unknown): Promise<void> {
 const N = 100;
 const kv = new MemoryPersistentStore();
 
-// Session 1: the detail class writes every record.
 const first = client(kv, N);
 for (let i = 0; i < N; i++) await hold(first, () => fetchQuery(GetMarket, { id: `m-${i}` }));
 first.destroy();
 
-// Session 2: the list class holds the same entities in memory.
 const c = client(kv, N);
 await hold(c, () => fetchQuery(GetMarkets, { n: N }));
 await hold(c, () => fetchQuery(GetPlain, { n: N }));

@@ -140,8 +140,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
           id = t.id;
           title = t.string;
         }
-        // Declares `body` optional, so a response without it says, more
-        // recently than the cache, that there is none.
+        // A response without the optional `body` is fresher than the cache.
         class NarrowWithBody extends Entity {
           __typename = t.typename('Doc');
           id = t.id;
@@ -181,13 +180,9 @@ describe('hydration of a cached query whose entity is already in memory', () => 
         const wide = holdQuery(client, () => fetchQuery(GetWide));
         await wide;
         if (absent) {
-          // The narrow write removed `body` from the record and the fresher
-          // absence contradicts the cache: dropped with a warning and fetched.
           expect(warn).toHaveBeenCalledWith(expect.stringContaining('query cache may be corrupted'), expect.anything());
           expect((wide.value as any).doc.body.text).toBe('B2');
         } else {
-          // The narrow write kept the record's `body`. Served within staleTime
-          // without a refetch: the in-memory title, the record's body.
           expect(warn).not.toHaveBeenCalled();
           expect(mockFetch.calls.filter(c => c.url.endsWith('/wide'))).toHaveLength(1);
           expect((wide.value as any).doc.title).toBe('T2');

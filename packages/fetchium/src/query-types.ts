@@ -110,11 +110,8 @@ export interface QueryStore {
   ): void;
 
   /**
-   * Writes an entity's record. `rest`, when given, is a JSON object body
-   * (`"a":1,"b":{…}`) of fields the record already held that the instance's
-   * classes don't declare (another class of the typename wrote them). Write
-   * them ahead of `value`'s fields so they are kept. `refIds` already includes
-   * the references inside them. A store that ignores `rest` drops them.
+   * `rest`: JSON object body (`"a":1,"b":{…}`) of fields another class of the
+   * typename wrote. Write it ahead of `value`'s fields. `refIds` covers it.
    */
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void;
 
@@ -174,34 +171,24 @@ export interface QueryStore {
   hasEntity?(key: number): boolean | undefined;
 
   /**
-   * Synchronous stores: the stored record of an entity, parsed, or
-   * `undefined` when there is none. Read once, before the first write of an
-   * entity whose record may hold fields of another class sharing its
-   * typename (see `getEntityFieldNames`), so that write keeps them.
+   * Synchronous stores only: the parsed stored record, or `undefined`. Read
+   * before an entity's first write when its record may hold another class's fields.
    */
   readEntity?(entityKey: number): Record<string, unknown> | undefined;
 
   /**
-   * The top-level field names `typename`'s entity classes have declared, as
-   * `addEntityFieldNames` recorded them in this or an earlier session. Lets
-   * the client tell, without reading records, which classes may get a record
-   * holding fields they don't declare. Without these methods the client only
-   * knows this session's classes.
+   * Top-level field names `typename`'s classes declared, as recorded by
+   * `addEntityFieldNames` in this or an earlier session.
    */
   getEntityFieldNames?(typename: string): readonly string[] | undefined;
   /**
-   * Called once per entity class and client with every top-level field the
-   * class declares. A store may forget names no class has declared for a
-   * while (`SyncQueryStore`: 30 days), so a field an app update removed stops
-   * being kept in records.
+   * Called once per entity class and client with its top-level fields. A store
+   * may forget names undeclared for a while, so removed fields stop being kept.
    */
   addEntityFieldNames?(typename: string, fields: readonly string[]): void;
   /**
-   * Whether the names `getEntityFieldNames` returns cover every class that
-   * wrote a record the store holds. Asked once, when the client is created.
-   * Only then can an entity built from streamed events be written whole
-   * instead of merged into its record. A store holding records written before
-   * it remembered field names answers `false` until they cannot matter.
+   * Whether `getEntityFieldNames` covers every class that wrote a held record.
+   * Asked once at client creation. Only then are streamed entities written whole.
    */
   entityFieldNamesComplete?(): boolean;
 }

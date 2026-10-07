@@ -156,8 +156,7 @@ function applyEntity(
     isUpdate && rawKeys !== undefined && entityInstance.entityRefs !== undefined
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
-  // A refetch or a poll that returns identical data is a no-op: nothing to
-  // notify consumers about, and nothing new to write to the store.
+  // A refetch or poll that returns identical data neither notifies nor writes.
   let changed = true;
   // Until the fields are reified the data is not a record yet: a write that
   // reaches this instance through a reference from inside its own subtree is
@@ -204,8 +203,6 @@ function applyEntity(
         // event did (the parser fills the literal in).
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
-        // Events that carried every field built a whole record, unless the
-        // record may hold fields another class of the typename declares.
         if (eventsBuiltWholeRecord(entityInstance._partialKeys, entityShape, queryClient)) {
           entityInstance._partial = false;
           entityInstance._partialKeys = undefined;
@@ -221,11 +218,8 @@ function applyEntity(
   } finally {
     entityInstance._applying = false;
   }
-  // A full payload of a class lacking fields another class of the typename
-  // declares leaves those fields in the data. Count the references they hold,
-  // or they would be released while the other class's consumers still show
-  // them. An unchanged payload skips the walk if the last full payload already
-  // counted them.
+  // Fields only another class declares stay in the data. Count their refs or
+  // they get released while that class's consumers still show them.
   const heldRefs = entityInstance.entityRefs;
   let keepsHeldRefs = false;
   if (
@@ -242,11 +236,8 @@ function applyEntity(
       for (let i = 0; i < fields.length; i++) countHeldRefs(existingData[fields[i]], heldRefs, childRefs, queryClient);
     }
   }
-  // Partial updates keep the references they did not replace, so only a full
-  // payload counts every reference the data holds.
   entityInstance._refsCounted = rawKeys === undefined && !appendMode;
   if (isUpdate && changed) entityInstance.notify();
-  // Hydration handed over the record: it holds fields the data does not.
   if (record !== undefined) {
     entityInstance.recordHoldsOtherFields(record, queryClient.entityMap.readEntity !== undefined);
   }
@@ -289,10 +280,6 @@ function applyEntity(
   return proxy;
 }
 
-/**
- * Counts, into `childRefs`, the references to children the entity already
- * holds (`held`) found in `value`.
- */
 function countHeldRefs(
   value: unknown,
   held: Map<EntityInstance, number>,
@@ -316,12 +303,7 @@ function countHeldRefs(
   }
 }
 
-/**
- * A fetch's data is about to replace the whole record. If the class lacks
- * fields another class of its typename declares, the record may hold them, so
- * the first write reads it to keep them. With one class per typename this
- * costs a field read.
- */
+/** The fetch replaces the whole record, so the first write must read it to keep other classes' fields. */
 function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClient: QueryClient): void {
   if (
     queryClient.hasForeignFieldDefs &&
@@ -333,13 +315,9 @@ function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClie
 }
 
 /**
- * Whether the fields streamed events carried (`keys`) make up the entity's
- * whole record, so it can be written whole instead of merged. They must cover
- * its class, and no other class of the typename may declare a field this one
- * lacks, since the record could hold it. That needs a store whose remembered
- * field names cover every record it holds (`storeKnowsTypenameFields`).
- * Otherwise a class not registered this session may be unknown, so the
- * entity stays partial and is merged.
+ * Whether streamed fields make a whole record that can be written instead of
+ * merged. Without `storeKnowsTypenameFields` an unregistered class may own
+ * fields in the record, so it stays partial.
  */
 function eventsBuiltWholeRecord(keys: Set<string>, entityShape: EntityDef, queryClient: QueryClient): boolean {
   for (const k in entityShape.shape) if (!keys.has(k)) return false;

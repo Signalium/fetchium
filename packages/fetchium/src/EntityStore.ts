@@ -8,7 +8,7 @@ export class EntityStore {
   private persistEntity: PersistEntity;
   /** Whether the store can merge fields over a record it holds. */
   mergesEntities: boolean = false;
-  /** A synchronous store's read of an entity's stored record, if it offers one (see `QueryStore.readEntity`). */
+  /** Synchronous stores only. */
   readEntity: ((key: number) => Record<string, unknown> | undefined) | undefined = undefined;
 
   constructor(persistEntity: PersistEntity) {
@@ -83,8 +83,7 @@ export class EntityStore {
       return;
     }
     if (instance._checkStoredRecord) {
-      // The class may lack fields the record holds: read it once, on the
-      // first write. Cleared after the read, so a failed read is retried.
+      // Cleared after the read so a read that throws is retried.
       const stored = this.readEntity?.(instance.key);
       instance._checkStoredRecord = false;
       if (stored !== undefined) instance.noteRecord(stored);

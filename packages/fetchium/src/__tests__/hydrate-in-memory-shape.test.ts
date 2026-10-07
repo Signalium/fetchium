@@ -12,17 +12,8 @@ import { valueKeyFor, refIdsKeyFor, refCountKeyFor } from '../stores/shared.js';
 import { hashValue } from 'signalium/utils';
 import { sleep } from './utils.js';
 
-/**
- * A persisted query is served from the cache when one of its entities is in
- * memory with data that doesn't fit the query's shape by itself, as long as
- * the cache can fill the gap without serving data older than memory:
- *   A. a required top-level `t.format` field, already parsed in memory;
- *   B. two classes share a typename and the in-memory class lacks a field the
- *      cached query's class requires. The in-memory class's writes must keep
- *      the other class's fields, or even a cold start cannot serve the cache.
- * The negative cases (C) fall back to the network: the cache must never
- * resurrect a value the fresher in-memory entity contradicts.
- */
+// A cached query is served when an in-memory entity lacks fields the cache can
+// fill, but never with values the fresher in-memory entity contradicts.
 
 let clients: QueryClient[] = [];
 afterEach(() => {
@@ -102,7 +93,7 @@ function recordOf(kv: MemoryPersistentStore, typename: string, id: string): Reco
   return raw === undefined ? undefined : JSON.parse(raw);
 }
 
-/** Session boundary: a fresh client over the same kv (an app restart). */
+/** A fresh client over the same kv (an app restart). */
 async function session(
   kv: MemoryPersistentStore,
   f: ReturnType<typeof makeFetch>,
@@ -114,9 +105,7 @@ async function session(
   clients = clients.filter(x => x !== c);
 }
 
-// ---------------------------------------------------------------------------
 // A. Required top-level format field
-// ---------------------------------------------------------------------------
 
 class Reading extends Entity {
   __typename = t.typename('Reading');
@@ -166,11 +155,10 @@ describe('A. required top-level t.format on an in-memory entity', () => {
       expect(logs).toEqual([]);
       expect(early.isReady).toBe(true);
       expect(early.label).toBe('cached');
-      // In memory is fresher than the record: its value wins.
+      // Memory is fresher than the record.
       expect(early.value).toBe(inMemory ? 2 : 1);
       expect(early.takenAt).toBe('2026-01-01T00:00:00.000Z');
       if (latest !== undefined) expect(latestEarly).toBe('2026-01-01T00:00:00.000Z');
-      // The network fetch still happens and wins.
       expect(f.count('/reading/page')).toBe(2);
       expect(page.value.label).toBe('net');
       expect(page.value.reading.value).toBe(3);
@@ -178,9 +166,7 @@ describe('A. required top-level t.format on an in-memory entity', () => {
   }
 });
 
-// ---------------------------------------------------------------------------
 // B. Two classes share a typename; the summary class lacks `details`
-// ---------------------------------------------------------------------------
 
 class ProductSummary extends Entity {
   __typename = t.typename('Product');
@@ -223,11 +209,7 @@ type DetailOutcome = {
   recordAfterFetch: Record<string, unknown> | undefined;
 };
 
-/**
- * Session 1 caches the detail. `before(c, kv)` sets up session 2 up to the
- * moment the detail activates; the detail's network response is delayed so the
- * first read shows whether the cache was served.
- */
+/** The detail's response is delayed so the first read shows whether the cache was served. */
 async function runDetail(
   kv: MemoryPersistentStore,
   f: ReturnType<typeof makeFetch>,
@@ -235,7 +217,7 @@ async function runDetail(
 ): Promise<DetailOutcome> {
   const logs: string[] = [];
   const c = makeClient(kv, f, logs);
-  // `before` wraps the list: a QueryPromise is thenable, so an async function returning it bare would unwrap it.
+  // Wrapped: an async function returning a bare (thenable) QueryPromise would unwrap it.
   const list = (await before(c))?.list;
   f.set('/product', detailBody(6, 'net', 'P-net'), 200);
   const requestsBefore = f.count('/product');
@@ -270,9 +252,8 @@ async function seedDetail(kv: MemoryPersistentStore, f: ReturnType<typeof makeFe
   });
 }
 
-/** Seeds the list's cache without disturbing the product record. */
 async function seedListCache(kv: MemoryPersistentStore, f: ReturnType<typeof makeFetch>) {
-  // Cache the list first, then the detail, so the record on disk is the detail's.
+  // Detail last, so the record on disk is the detail's.
   f.set('/products', listBody());
   await session(kv, f, async c => {
     await start(c, () => fetchQuery(GetProductList));
@@ -286,7 +267,6 @@ function expectServed(o: DetailOutcome, name = 'P') {
   expect(o.label).toBe('cached');
   expect(o.name).toBe(name);
   expect(o.rating).toBe(5);
-  // The network fetch still happens and wins.
   expect(o.detailRequests).toBe(1);
   expect(o.finalLabel).toBe('net');
   expect(o.finalRating).toBe(6);
@@ -314,10 +294,8 @@ describe('B. shared typename, the in-memory class lacks a field the cached query
       return { list };
     });
     expectServed(o);
-    // The list's value is untouched: same name, and the detail-only field does not leak into its shape.
     expect(o.listName).toBe('P');
     expect(o.listKeys).toBe('__typename,id,name');
-    // Hydration never writes; the record still has the detail's fields.
     expect(o.recordAfterHydrate).toMatchObject({ name: 'P', details: { rating: 5 } });
   });
 
@@ -333,7 +311,6 @@ describe('B. shared typename, the in-memory class lacks a field the cached query
     });
     expectServed(o);
     expect(o.listName).toBe('P');
-    // The summary's write kept the detail's fields on disk.
     expect(o.recordAfterHydrate).toMatchObject({ name: 'P', details: { rating: 5, tags: ['a'] } });
   });
 
@@ -347,7 +324,6 @@ describe('B. shared typename, the in-memory class lacks a field the cached query
     });
     expect(recordOf(kv, 'Product', 'p1')).toMatchObject({ name: 'P2', details: { rating: 5 } });
     const o = await runDetail(kv, f, async () => undefined);
-    // The summary's newer name, the detail's own fields.
     expectServed(o, 'P2');
   });
 
@@ -367,9 +343,7 @@ describe('B. shared typename, the in-memory class lacks a field the cached query
   });
 });
 
-// ---------------------------------------------------------------------------
 // C. Negative controls: the cache must not be served
-// ---------------------------------------------------------------------------
 
 class ProductSummaryOptional extends Entity {
   __typename = t.typename('Product');
@@ -405,7 +379,6 @@ class GetProductListNested extends RESTQuery {
 }
 
 function expectNotServed(o: DetailOutcome) {
-  // Never shows the cached detail fields; waits for the network, which then wins.
   expect(o.isReady).toBe(false);
   expect(o.rating === 5).toBe(false);
   expect(o.detailRequests).toBe(1);
@@ -457,14 +430,10 @@ describe('C. negative controls: a fresher in-memory value contradicts the cache'
   });
 });
 
-// ---------------------------------------------------------------------------
 // D. Writes keep the fields another class declared, without a per-write cost
-// ---------------------------------------------------------------------------
 
-/** A SyncQueryStore that counts the record reads made for the kept fields. */
 class CountingStore extends SyncQueryStore {
   reads = 0;
-  /** Reads that found a record worth parsing. */
   parsed = 0;
   readEntity(entityKey: number) {
     this.reads++;
@@ -551,8 +520,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
       await start(c, () => fetchQuery(GetItem));
     });
 
-    // The summary fetches in a later session and writes Item:i1: the record
-    // keeps `details` and the reference to Vendor:v1, whose record survives.
     f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
     await session(kv, f, async c => {
       await start(c, () => fetchQuery(GetItems));
@@ -566,8 +533,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     });
     expect(kv.getString(valueKeyFor(vendorKey('v1')))).toBeDefined();
 
-    // A cold start serves the detail from the cache, vendor included; its
-    // fetch then replaces the vendor, and the old vendor's record goes.
     f.set('/item', itemDetail('v2', 6), 100);
     const c = makeClient(kv, f);
     const item: any = start(c, () => fetchQuery(GetItem));
@@ -597,7 +562,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     });
     const record = recordOf(kv, 'Item', 'i1')!;
     expect(record.details).toBeUndefined();
-    // `vendor` is declared by the detail class only: kept.
     expect(record.vendor).toEqual({ __entityRef: vendorKey('v1') });
   });
 
@@ -690,7 +654,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     });
     const kv = new MemoryPersistentStore();
     const f = makeFetch();
-    // The list is cached with Item:i1, then the detail writes the record.
     f.set('/items', { items: [summary('i1', 'I')] });
     f.set('/item', itemDetail('v1'));
     await session(kv, f, async c => {
@@ -701,7 +664,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     const c = makeClient(kv, f);
     f.set('/shelf', { shelf: { __typename: 'Shelf', id: 's1', top: summary('i2', 'J') } });
     await start(c, () => fetchQuery(GetShelf));
-    // Item:i1 enters memory from a streamed event, then the cached list fills it in.
     c.applyMutationEvent(shelfEvent('E1'));
     f.set('/items', { items: [summary('i1', 'L')] }, 50);
     const list: any = start(c, () => fetchQuery(GetItems));
@@ -783,7 +745,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     f.set('/item', itemDetail('v1'));
     f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
 
-    // Both classes write i1 in the first session, so the record holds the detail fields.
     const first = writerStore();
     const c1 = makeCountingClient(first as any, f);
     await start(c1, () => fetchQuery(GetItem));
@@ -791,7 +752,6 @@ describe('D. writes keep the fields another class sharing the typename declared'
     await drain(first);
     c1.destroy();
 
-    // Next session: only the summary class, hydrated from its cache over that record.
     const second = writerStore();
     const c2 = makeCountingClient(second as any, f);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -886,7 +846,6 @@ const row = (name: string) => ({ __typename: 'Gizmo', id: 'g1', name, maker: par
 const partKey = (id: string) => hashValue(['Part', id]);
 
 describe('F. references and records the other class holds', () => {
-  /** The summary in memory from the network, then the detail fetched over the same entity. */
   async function listThenDetail(kv: MemoryPersistentStore, f: ReturnType<typeof makeFetch>) {
     const c = makeClient(kv, f);
     f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
@@ -942,7 +901,6 @@ describe('F. references and records the other class holds', () => {
   it('F3 a summary fetched over records without detail fields reads each record once and writes the fetched fields', async () => {
     const kv = new MemoryPersistentStore();
     const f = makeFetch();
-    // The detail class registered and wrote i1; i2 and i3 hold summary fields only.
     f.set('/item', itemDetail('v1'));
     f.set('/items', {
       items: [
@@ -966,13 +924,11 @@ describe('F. references and records the other class holds', () => {
       ],
     });
     const before = { reads: store.reads, parsed: store.parsed };
-    // A query with no cache, so i2 and i3 are new in memory; i1 is the detail's.
     class GetOtherItems extends RESTQuery {
       path = '/other-items';
       result = { items: t.array(t.entity(ItemSummary)) };
     }
     await start(c, () => fetchQuery(GetOtherItems));
-    // One read per entity new in memory (i2, i3), at its first write.
     expect({ reads: store.reads - before.reads, parsed: store.parsed - before.parsed }).toEqual({
       reads: 2,
       parsed: 2,
@@ -985,13 +941,11 @@ describe('F. references and records the other class holds', () => {
     const kv = new MemoryPersistentStore();
     const f = makeFetch();
     f.set('/gizmo', { item: { ...row('G'), parts: [part('p1'), part('p2')] } });
-    // Session 1 remembers the detail's field names.
     await session(kv, f, async c => {
       await start(c, () => fetchQuery(GetGizmo));
     });
 
-    // Session 2: the summary refetches before the detail class registers, so
-    // the detail adds no field name the store did not already know.
+    // The detail registers after the summary refetch and adds no new field name.
     const c = makeClient(kv, f);
     f.set('/gizmos', { items: [row('A')] });
     const list: any = start(c, () => fetchQuery(GetGizmos));
@@ -1023,7 +977,6 @@ describe('F. references and records the other class holds', () => {
     f.set('/gizmo', { item: { ...row('A'), parts: [part('p1')] } });
     const item: any = start(c, () => fetchQuery(GetGizmo));
     await item;
-    // Two full payloads count every reference, then an update replaces the maker.
     await list.value.__refetch();
     c.applyMutationEvent({
       type: 'update',
@@ -1082,7 +1035,7 @@ describe('F. references and records the other class holds', () => {
       await start(c, () => fetchQuery(GetItem));
       await start(c, () => fetchQuery(GetItems));
     });
-    // Reopened without the field names, as a release that did not remember them left it.
+    // Strip the field names, as an earlier release left the store.
     const copy = new MemoryPersistentStore();
     for (const k of kv.getAllKeys()) {
       if (k.startsWith('sq:meta:')) continue;
@@ -1122,8 +1075,6 @@ describe('E. what the store remembers about the other class, and for how long', 
       await start(c, () => fetchQuery(GetItem));
     });
 
-    // The summary keeps the detail's fields of Item:i1 in memory; then the
-    // app wipes the cache (an account switch) and the summary refetches.
     const store = new SyncQueryStore(kv);
     const c = makeCountingClient(store, f);
     f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
@@ -1154,7 +1105,6 @@ describe('E. what the store remembers about the other class, and for how long', 
       await start(c, () => fetchQuery(GetItem));
     });
 
-    /** A list session at `at`, in a new app process (a store over a copy of the kv knows nothing yet). */
     const listSession = async (at: number): Promise<number> => {
       now.mockReturnValue(at);
       const copy = new MemoryPersistentStore();
@@ -1172,16 +1122,13 @@ describe('E. what the store remembers about the other class, and for how long', 
       return store.reads;
     };
 
-    // Within 30 days the detail's names are known: the summary's first write keeps its fields.
     expect(await listSession(t0 + 29 * day)).toBe(1);
-    // Past 30 days the names are forgotten: the summary writes without reading.
     expect(await listSession(t0 + 31 * day)).toBe(0);
   });
 
   it('E3 a typename with one class: an event carrying every field writes the record whole, without a merge', async () => {
     const kv = new MemoryPersistentStore();
-    // clear() makes the field names cover every record (otherwise that takes
-    // 30 days; see E5).
+    // Otherwise the field names take 30 days to cover every record.
     new SyncQueryStore(kv).clear();
     const f = makeFetch();
     f.set('/reading/latest', { reading: readingPayload });
@@ -1211,7 +1158,7 @@ describe('E. what the store remembers about the other class, and for how long', 
     await session(kv, f, async c => {
       await start(c, () => fetchQuery(GetItem));
     });
-    /** The kv reopened by a new app process. `stripMeta` drops `sq:meta:` keys, as a release without field names left it. */
+    /** `stripMeta` mimics a store an earlier release left. */
     const reopen = (stripMeta: boolean) => {
       const copy = new MemoryPersistentStore();
       for (const k of kv.getAllKeys()) {
@@ -1223,7 +1170,6 @@ describe('E. what the store remembers about the other class, and for how long', 
       }
       kv = copy;
     };
-    /** A session that registers the summary only, then streams an update carrying every summary field of Item:i1. */
     const listSession = async (at: number, name: string) => {
       now.mockReturnValue(at);
       const store = new SyncQueryStore(kv);
@@ -1242,7 +1188,6 @@ describe('E. what the store remembers about the other class, and for how long', 
     };
     const kept = { details: { rating: 5 }, vendor: { __entityRef: vendorKey('v1') } };
 
-    // The first session after the upgrade, and the next one (whose names are the summary's only), merge.
     const hour = 60 * 60 * 1000;
     reopen(true);
     expect(await listSession(t0 + hour, 'U1')).toEqual({ merged: 1, savedWhole: false });
@@ -1250,13 +1195,10 @@ describe('E. what the store remembers about the other class, and for how long', 
     reopen(false);
     expect(await listSession(t0 + 2 * hour, 'U2')).toEqual({ merged: 1, savedWhole: false });
     expect(recordOf(kv, 'Item', 'i1')).toEqual({ __typename: 'Item', id: 'i1', name: 'U2', ...kept });
-    // 30 days after the store started remembering names: written whole.
     reopen(false);
     kv.setNumber('sq:meta:fieldsSince', t0 + 3 * hour - 30 * day);
     expect(await listSession(t0 + 3 * hour, 'U3')).toEqual({ merged: 0, savedWhole: true });
 
-    // A store without `fieldsSince` counts from now, empty or not, rather than
-    // scan every key at startup.
     const fresh = new MemoryPersistentStore();
     const scans = vi.spyOn(fresh, 'getAllKeys');
     expect(new SyncQueryStore(fresh).entityFieldNamesComplete()).toBe(false);
@@ -1266,7 +1208,6 @@ describe('E. what the store remembers about the other class, and for how long', 
     const upgradedScans = vi.spyOn(upgraded, 'getAllKeys');
     expect(new SyncQueryStore(upgraded).entityFieldNamesComplete()).toBe(false);
     expect(upgradedScans).not.toHaveBeenCalled();
-    // One that clear() emptied writes such events whole.
     reopen(true);
     const store = new SyncQueryStore(kv);
     expect(store.entityFieldNamesComplete()).toBe(false);
