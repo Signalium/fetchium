@@ -3,14 +3,20 @@ import type { QueryClient } from './QueryClient.js';
 import { EntityInstance } from './EntityInstance.js';
 import { ValidatorDef } from './typeDefs.js';
 
+type PersistEntity = (
+  key: number,
+  data: Record<string, unknown>,
+  refKeys?: Set<number>,
+  merge?: boolean,
+  ifStored?: boolean,
+) => void;
+
 export class EntityStore {
   private instances = new Map<number, EntityInstance>();
-  private persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void;
+  private persistEntity: PersistEntity;
   mergesEntities: boolean = false;
 
-  constructor(
-    persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void,
-  ) {
+  constructor(persistEntity: PersistEntity) {
     this.persistEntity = persistEntity;
   }
 
@@ -62,7 +68,7 @@ export class EntityStore {
   }
 
   /** With `mergeKeys`, only those fields are sent, merged over the stored record. */
-  save(instance: EntityInstance, mergeKeys?: Set<string>): void {
+  save(instance: EntityInstance, mergeKeys?: Set<string>, ifStored?: boolean): void {
     let refKeys: Set<number> | undefined;
     if (instance.entityRefs) {
       refKeys = new Set<number>();
@@ -75,6 +81,6 @@ export class EntityStore {
       value = {};
       for (const k of mergeKeys) value[k] = instance.data[k];
     }
-    this.persistEntity(instance.key, value, refKeys, merge);
+    this.persistEntity(instance.key, value, refKeys, merge, ifStored);
   }
 }
