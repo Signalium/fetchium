@@ -12,12 +12,6 @@ import { GcManager, type GcKeyType } from '../GcManager.js';
 import { NetworkManager } from '../NetworkManager.js';
 import { createMockFetch, sleep } from './utils.js';
 
-/**
- * client.retain() and client.prefetch(): app-level leases that keep queries
- * active without a reader, so a reader that mounts inside the lease joins the
- * running query instead of starting its own.
- */
-
 async function flushMicrotasks(count = 30): Promise<void> {
   for (let i = 0; i < count; i++) await Promise.resolve();
 }
@@ -102,7 +96,6 @@ function setup(
   return { client, mockFetch, kv };
 }
 
-/** Mounts a reader: watches `read` and runs it now, like a React render. */
 function mountReader<T>(client: QueryClient, read: () => T): { w: { value: T }; unsub: () => void } {
   const w = withContexts([[QueryClientContext, client]], () => watcher(read));
   const unsub = w.addListener(() => {});
@@ -201,7 +194,7 @@ describe('client.prefetch()', () => {
     await sleep(10);
     expect(mockFetch.calls).toHaveLength(1);
 
-    // staleTime 0, yet the query is still active, so mounting is not a reactivation.
+    // Still active, so mounting is not a reactivation.
     const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
     expect(w.value).toMatchObject({ n: 1 });
     await sleep(10);
@@ -248,7 +241,6 @@ describe('client.prefetch()', () => {
 
     const { client, mockFetch } = setup(kv);
     client.prefetch(GetFreshUser, { id: 1 });
-    // Hydrated by the activation inside prefetch(), before it returned.
     expect(client.getQuery(QueryDefinition.for(GetFreshUser), { id: 1 }).value).toMatchObject({ n: 1 });
     expect(mockFetch.calls).toHaveLength(0);
     await sleep(10);
@@ -261,7 +253,6 @@ describe('client.prefetch()', () => {
     await sleep(60);
     expect(mockFetch.calls).toHaveLength(1);
 
-    // staleTime 0 and no grace: reactivating refetches.
     const { w, unsub } = mountReader(client, () => fetchQuery(GetItem).value);
     expect(w.value).toMatchObject({ n: 1 });
     await sleep(10);
@@ -275,7 +266,6 @@ describe('client.prefetch()', () => {
     mockFetch.get('/streamed', { n: 9 }, { delay: 40 });
     client.prefetch(GetStreamed, undefined, { ttl: 10 });
     await sleep(25);
-    // The ttl is an upper bound: past it, before the response, the lease is gone.
     expect(unsubscribed).toBe(1);
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
     await sleep(40);
@@ -361,7 +351,6 @@ describe('client.prefetch()', () => {
     const release = client.prefetch(GetItem);
     await sleep(5);
     release();
-    // Still before the response (30 ms): the request has been cancelled.
     await sleep(10);
     expect(mockFetch.calls).toHaveLength(1);
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
@@ -453,7 +442,6 @@ describe('client.retain()', () => {
     await sleep(10);
     expect(subscribed).toBe(1);
 
-    // A reader coming and going doesn't restart it.
     const reader = mountReader(client, () => fetchQuery(GetStreamed).value);
     reader.unsub();
     await sleep(10);
@@ -521,7 +509,7 @@ describe('client.retain()', () => {
 
     try {
       const { client } = setup();
-      // A real GcManager: the tests' window-less environment gets the no-op one.
+      // A window-less environment gets the no-op GcManager.
       (client as unknown as { gcManager: GcManager }).gcManager = new GcManager(
         (client as unknown as { handleEviction: (key: number, type: GcKeyType) => void }).handleEviction,
         1,
@@ -661,7 +649,6 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
       expect(retry).toMatchObject({ failed: true, promise: undefined });
       expect(mockFetch.calls).toHaveLength(1);
 
-      // An error-boundary reset after the claim makes a new attempt.
       await vi.advanceTimersByTimeAsync(5);
       expect(render().promise).toBeDefined();
       expect(mockFetch.calls).toHaveLength(2);
@@ -691,7 +678,6 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
       expect(render()).toMatchObject({ failed: true, promise: undefined });
       expect(mockFetch.calls).toHaveLength(2);
 
-      // A claimed error is let go on the next task, so a reset retries.
       await vi.advanceTimersByTimeAsync(5);
       expect(render().promise).toBeDefined();
       expect(mockFetch.calls).toHaveLength(3);

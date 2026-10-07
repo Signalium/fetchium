@@ -2,15 +2,9 @@ import type { ResolvedRetryConfig } from './query.js';
 
 /**
  * Decides whether a failed attempt is retried. Consulted only while retries
- * remain. Without one, every failed attempt is retried.
- *
- * @param error  What the attempt threw.
- * @param attempt  Index of the failed attempt, starting at 0 (the first request).
- * @param status  HTTP status of the failed attempt, when known: `status`,
- *   `statusCode` or `response.status` on the error, or else the status of the
- *   response the adapter received (`ctx.response.status`, for a REST error
- *   response whose body failed to parse or validate). Undefined for network
- *   errors.
+ * remain. `attempt` starts at 0. `status` comes from the error (`status`,
+ * `statusCode`, `response.status`) or the adapter's `ctx.response`, and is
+ * undefined for network errors.
  */
 export type ShouldRetry = (error: unknown, attempt: number, status: number | undefined) => boolean;
 
@@ -18,10 +12,7 @@ function asHttpStatus(value: unknown): number | undefined {
   return typeof value === 'number' && value >= 100 && value <= 599 ? value : undefined;
 }
 
-/**
- * The HTTP status an error carries, read from `status`, `statusCode`, or
- * `response.status`. Undefined when none holds an HTTP status code.
- */
+/** The HTTP status in an error's `status`, `statusCode` or `response.status`, if any. */
 export function getErrorStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
   const e = error as { status?: unknown; statusCode?: unknown; response?: { status?: unknown } | null };
@@ -36,12 +27,9 @@ export function getFailedResponseStatus(response: unknown): number | undefined {
 }
 
 export interface WithRetryOptions {
-  /** Used when the retry config has no `shouldRetry`. Without either, every failed attempt is retried. */
+  /** Fallback when the retry config has no `shouldRetry`. */
   shouldRetry?: ShouldRetry;
-  /**
-   * Called after an attempt fails. Returns the HTTP status the attempt
-   * received, for errors that don't carry one themselves.
-   */
+  /** Status of the failed attempt, for errors that carry none. */
   getAttemptStatus?: () => number | undefined;
 }
 

@@ -35,7 +35,6 @@ function resolveEventDef(
   return undefined;
 }
 
-/** Whether both lists hold the same entities in the same order. */
 function sameMembers(oldItems: unknown[], newItems: unknown[]): boolean {
   if (oldItems.length !== newItems.length) return false;
   for (let i = 0; i < newItems.length; i++) {
@@ -66,7 +65,7 @@ export interface LiveCollectionParent {
   addChildRef(child: EntityInstance, persist?: boolean): void;
   removeChildRef(child: EntityInstance, persist?: boolean): void;
   save(): void;
-  /** A live field's membership changed outside an apply (an event was routed into it). */
+  /** A live field's membership changed outside an apply. */
   liveFieldChanged?(fieldKey: string): void;
 }
 
@@ -75,7 +74,6 @@ export interface LiveCollectionParent {
 // ======================================================
 
 export interface LiveInstance {
-  /** Notified whenever the value or membership changes. */
   readonly _notifier: Notifier;
   getValue(): unknown;
   getRawValue(): unknown;
@@ -102,11 +100,7 @@ export class LiveCollectionBinding {
   _entityDefsByTypename: Map<string, ValidatorDef<any>[]>;
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
-  /**
-   * Consumed by reads of the value's contents. The value from `getValue()`
-   * can change in place without the parent entity changing, so its wrapper
-   * can't rely on the entity's notifier.
-   */
+  /** Consumed by reads of the value's contents, which can change in place. */
   readonly _valueOwner: Notifier;
 
   constructor(
@@ -330,7 +324,7 @@ export class LiveArrayInstance {
     if (this._fieldKey !== undefined) this._parent.liveFieldChanged?.(this._fieldKey);
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
-      // Only the parent's ref set changed. The child's record is already current.
+      // The child's record is already current.
       this._parent.addChildRef(child);
     }
 
@@ -470,8 +464,7 @@ export class LiveValueInstance {
         this._value = this._onDelete(this._value, entity ?? entityData);
         break;
     }
-    // Notify even when the reducer returns the same reference: it may have
-    // mutated the value in place.
+    // Notify even for the same reference: the reducer may mutate in place.
     this._notifier.notify();
   }
 
@@ -484,11 +477,7 @@ export class LiveValueInstance {
     return this._value;
   }
 
-  /**
-   * Unlike `LiveArrayInstance.reset`, this can't return early: the dedup sets
-   * must be cleared even when the value is unchanged, or a repeated `create`
-   * would apply its reducer twice. Only the notify is conditional.
-   */
+  /** Clears the dedup sets even when unchanged, or a repeated `create` reduces twice. */
   reset(value: unknown): boolean {
     const changed = this._value !== value;
     this._value = value;

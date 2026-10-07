@@ -82,9 +82,7 @@ describe('client.prefetch() with React', () => {
     mockFetch.get('/item', { name: 'prefetched' }, { delay: 20 });
     const client = makeClient(mockFetch);
 
-    // The tap.
     client.prefetch(GetItem, undefined, { ttl: 5_000 });
-    // The navigation animation.
     await sleep(60);
 
     const renders: Array<string | undefined> = [];
@@ -166,7 +164,6 @@ describe('useSuspenseQuery', () => {
     mockFetch.get('/item', () => ({ name: `v${++n}` }), { delay: 20 });
     const client = makeClient(mockFetch);
 
-    // Warm it, then let it go inactive.
     const release = client.prefetch(GetItem);
     await sleep(40);
     release();
@@ -193,7 +190,7 @@ describe('useSuspenseQuery', () => {
       </ContextProvider>,
     );
 
-    // staleTime 0: the reactivation refetches, and the refetch must not suspend.
+    // The stale reactivation refetches without suspending.
     await expect.element(getByText('v2')).toBeInTheDocument();
     expect(renders[0]).toBe('v1');
     expect(fallbacks).toBe(0);
@@ -317,8 +314,7 @@ describe('useSuspenseQuery', () => {
 
     client.prefetch(GetNoRetry);
     const relay = withContexts([[QueryClientContext, client]], () => fetchQuery(GetNoRetry));
-    // Something else (another reader's retry, a reconnect) refetches as soon
-    // as the first attempt fails.
+    // Another refetch starts as soon as the first attempt fails.
     relay.then(
       () => {},
       () => {
@@ -375,8 +371,8 @@ describe('useSuspenseQuery', () => {
 
     const screen = render(tree(true));
     await expect.element(screen.getByText('Suspended')).toBeInTheDocument();
-    // Navigated away while suspended; the fetch fails with no reader, and no
-    // render claims the error within the unclaimed-failure window (1 s).
+    // Navigated away while suspended. The fetch fails and no render claims the
+    // error within the 1 s window.
     screen.rerender(tree(false));
     await sleep(1_150);
     expect(mockFetch.calls).toHaveLength(1);

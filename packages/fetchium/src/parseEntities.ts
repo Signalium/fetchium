@@ -50,15 +50,15 @@ export interface ParsedEntity {
   data: Record<string, unknown>;
   /** Set for partial event updates — restricts mergeFields to only these keys. */
   rawKeys: Set<string> | undefined;
-  /** The keys a streamed event carried, whether or not the entity was in memory. */
+  /** The keys a streamed event carried. */
   eventKeys: Set<string> | undefined;
-  /** A cached record parsed to fill in the fields an entity built from events lacks. */
+  /** A cached record filling in fields an entity built from events lacks. */
   fillsPartial: boolean;
   /** Hydration only: the raw record, when it holds fields another class wrote. */
   record?: Record<string, unknown>;
 }
 
-/** Trust-memory verdicts: `true`/`false` once settled, `'pending'` while a check is in progress (a cycle). */
+/** `'pending'` while a check is in progress, so a cycle counts as satisfied. */
 export type TrustMemo = Map<EntityInstance, Map<ValidatorDef<unknown>, boolean | 'pending'>>;
 
 // ======================================================
@@ -74,13 +74,10 @@ export class ParseContext {
   isPartialEvent: boolean = false;
   seen: Map<Record<string, unknown>, ParsedEntity> | undefined = undefined;
   seenByKey: Map<number, ParsedEntity> | undefined = undefined;
-  /** Verdicts of the trust-memory check, per instance and def, for one parse. */
   trusted: TrustMemo | undefined = undefined;
   /**
-   * Whether nested objects and records always parse into a copy. On for input
-   * the client doesn't own and may see again (an event payload, mutation
-   * effects, a snapshot fed back). Off for a fetch result or cached record,
-   * which is copied only where a parsed value differs from it.
+   * On for input the client doesn't own and may see again (events, effects).
+   * Off for a fetch result or cached record, copied only where a value differs.
    */
   copyInput: boolean = true;
 
@@ -396,10 +393,7 @@ function parseUnionData(
 // ======================================================
 
 function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseContext, path: string): unknown[] {
-  // Without `ctx.copyInput`, an array whose items all parse to themselves is
-  // returned as is, and the copy starts at the first item that differs or
-  // fails. An empty array is always new, since a live array grows the one it
-  // holds.
+  // An empty array is always new, since a live array grows the one it holds.
   let result: unknown[] | undefined = ctx.copyInput || array.length === 0 ? [] : undefined;
 
   for (let i = 0; i < array.length; i++) {
@@ -422,10 +416,7 @@ function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseC
   return result ?? array;
 }
 
-// Neither walker writes into its input. With `ctx.copyInput` they parse into
-// a shallow copy. Without it, the copy is made only once a parsed value
-// differs, and input whose values all parse to themselves is returned as is.
-// The result keeps every key the input had.
+// Neither walker writes into its input.
 
 function parseRecordData(
   record: Record<string, unknown>,
@@ -460,7 +451,6 @@ function parseObjectData(
     const value = obj[key];
     const parsed = parseData(value, propShape as unknown as TypeDef, ctx, `${path}.${key}`);
     if (result !== undefined) result[key] = parsed;
-    // A shape key the input lacks is still set (to undefined), as a copy does.
     else if (parsed !== value || (value === undefined && !(key in obj))) (result = { ...obj })[key] = parsed;
   }
 
@@ -514,14 +504,11 @@ function parseEntityData(
   if (preloadedEntities !== undefined) {
     const existing = queryClient.entityMap.getEntity(key);
 
-    // For an entity built from events: the fields they carried. The record
-    // supplies the rest.
     let fillKeys: Set<string> | undefined;
     const preloaded = preloadedEntities.get(key);
 
     if (existing !== undefined && existing._partial && existing._partialKeys !== undefined && preloaded !== undefined) {
-      // Built from events, the in-memory data lacks what the record has:
-      // parse the record for those fields only and merge them in.
+      // Built from events: parse only the fields the record adds.
       fillKeys = existing._partialKeys;
       obj = preloaded;
       // Rare path, so check every record: older stores may not know the other class.
@@ -688,11 +675,8 @@ function hydrateFromMemory(
 // ======================================================
 
 /**
- * Whether already-parsed entity data can be handed to a query declaring `def`
- * without re-parsing. Unlike `entitySatisfiesShape` (a top-level presence
- * check for narrowing), this descends into nested values and child entities:
- * a cached query missing a required nested field is worse than a refetch.
- * Values that can't be judged are accepted, matching the parser's leniency.
+ * Whether parsed entity data satisfies `def` deeply, unlike the top-level
+ * `entitySatisfiesShape`. Values that can't be judged are accepted.
  */
 export function dataSatisfiesDef(
   data: Record<string, unknown>,
@@ -761,8 +745,6 @@ function valueSatisfiesDef(value: unknown, fieldDef: unknown, queryClient: Query
   }
 
   if ((mask & Mask.UNION) !== 0) {
-    // Resolve the member the value belongs to; an unrecognised value is left
-    // to the union's own leniency.
     const members = fieldDef.shape as Record<string | symbol, unknown> | undefined;
     if (members === undefined || members === null) return true;
     if (Array.isArray(value)) {
@@ -816,12 +798,7 @@ function valueSatisfiesDef(value: unknown, fieldDef: unknown, queryClient: Query
   return (mask & maskOf(value)) !== 0;
 }
 
-/**
- * An entity field holds a proxy. One whose instance has left memory is
- * accepted, since a re-parse would hand out its data too. A live one must
- * satisfy the def. Verdicts are shared across the parse, and a cycle counts as
- * satisfied.
- */
+/** An instance no longer in memory is accepted, since a re-parse would hand out its data too. */
 function entitySatisfies(
   value: object,
   def: ValidatorDef<unknown>,
@@ -842,11 +819,7 @@ function entitySatisfies(
   return verdict;
 }
 
-/**
- * When the item typename has several registered classes, the array is
- * narrowed on read to members that satisfy the def, so a member that doesn't
- * is not a mismatch.
- */
+/** A shared-typename array is narrowed on read, so a non-matching member is not a mismatch. */
 function arraySatisfies(value: unknown[], itemDef: unknown, queryClient: QueryClient, visiting: TrustMemo): boolean {
   let narrowed = false;
   if (itemDef instanceof ValidatorDef && (itemDef.mask & Mask.ENTITY) !== 0 && (itemDef.mask & Mask.UNION) === 0) {

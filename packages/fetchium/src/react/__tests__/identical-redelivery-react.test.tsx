@@ -13,12 +13,6 @@ import { TopicQueryAdapter } from '../../topic/TopicQueryAdapter.js';
 import type { MutationEvent } from '../../types.js';
 import { createRenderCounter } from './utils.js';
 
-/**
- * A stream reconnect re-delivers every on-screen entity with the data it
- * already holds. Readers of those entities must not re-render for it; a real
- * change re-renders them once.
- */
-
 class MockTopicAdapter extends TopicQueryAdapter {
   snapshots = new Map<string, unknown>();
 
@@ -125,7 +119,6 @@ describe('React readers on identical re-delivery', () => {
     const rowRendersBefore = Row.renderCount;
     const listRendersBefore = ListCounter.renderCount;
 
-    // Reconnect: every entity re-delivered with the data the store holds.
     for (let pass = 0; pass < 3; pass++) {
       adapter.emit({ type: 'update', typename: 'Wallet', data: { id: 'w-1' } });
       adapter.emit({ type: 'update', typename: 'Token', data: token(0) });
@@ -137,8 +130,7 @@ describe('React readers on identical re-delivery', () => {
     expect(Row.renderCount).toBe(rowRendersBefore);
     expect(ListCounter.renderCount).toBe(listRendersBefore);
 
-    // A real change re-renders the row that reads it, once. (The list re-renders
-    // too: its constrained live array re-filters on any member change.)
+    // The list re-renders too: its constrained live array re-filters on any member change.
     adapter.emit({ type: 'update', typename: 'Token', data: token(1, 99) });
     await expect.element(getByTestId('row-tok-1')).toHaveTextContent('99:logo-1.png:Ann');
     await sleep(50);

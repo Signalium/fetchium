@@ -51,7 +51,7 @@ export type StoreMessage =
       value: unknown;
       updatedAt: number;
       cacheTime: number;
-      /** Absent on the wire from readers built before 0.6; the writer then keeps the persisted queue's size. */
+      /** Absent from older readers. The writer then keeps the persisted queue's size. */
       maxCount?: number;
       refIds?: number[];
     }
@@ -60,7 +60,7 @@ export type StoreMessage =
       entityKey: number;
       value: unknown;
       refIds?: number[];
-      /** `value` holds only some fields; the writer merges them over the stored record, if any. */
+      /** `value` holds only some fields, merged over the stored record. */
       merge?: boolean;
       /** See `QueryStore.saveEntity`. */
       rest?: string;
@@ -76,11 +76,7 @@ export interface AsyncQueryStoreConfig {
   delegate?: AsyncPersistentStore; // Only provided for writer
 }
 
-/**
- * Writer-internal work run through the same serial queue as wire messages, so
- * it is ordered with the writes and deletions around it. Never sent over the
- * wire.
- */
+/** Writer-internal work, serialized with wire messages. Never sent over the wire. */
 class InternalWork {
   constructor(
     readonly run: () => Promise<void>,
@@ -91,7 +87,6 @@ class InternalWork {
 
 type QueuedWork = StoreMessage | InternalWork;
 
-/** Whether something received on the channel is a message this writer handles. */
 function isStoreMessage(msg: unknown): msg is StoreMessage {
   if (typeof msg !== 'object' || msg === null) return false;
   const type = (msg as { type?: unknown }).type;
@@ -127,19 +122,15 @@ export class AsyncQueryStore implements QueryStore {
   private deleteListeners: Array<(key: number) => void> = [];
   private persistedListeners: Array<(key: number) => void> = [];
   private processing = false;
-  // Queued work that can delete a record: everything except this writer's
-  // own client's entity writes, whose dropped references the client tracks.
+  // Everything except this client's entity writes, whose dropped refs the client tracks.
   private queuedDeletes = 0;
   private readonly ownEntityWrites = new WeakSet<QueuedWork>();
-  // Ids whose value the delegate holds (queued writes included), mirrored so
-  // `hasEntity` can answer synchronously. Read from the delegate once at
-  // start without blocking the queue. Writes and deletions before that read
-  // lands are noted aside and folded in.
+  // Mirror of the delegate's value keys so `hasEntity` answers synchronously.
+  // Changes before the initial scan lands are noted aside and folded in.
   private heldKeys: Set<number> | undefined;
   private heldSinceScan: Set<number> | undefined = new Set();
   private droppedSinceScan: Set<number> | undefined = new Set();
-  // Only the writer sees deletions and completed writes. A reader offers no
-  // hooks, so the client writes every apply.
+  // Writer only. A reader offers no hooks, so its client writes every apply.
   onDelete?: (listener: (key: number) => void) => () => void;
   onPersisted?: (listener: (key: number) => void) => () => void;
   hasEntity?: (key: number) => boolean | undefined;
@@ -154,7 +145,6 @@ export class AsyncQueryStore implements QueryStore {
       this.hasQueuedDeletes = () => this.queuedDeletes > 0;
       this.hasEntity = key => {
         if (this.heldKeys !== undefined) return this.heldKeys.has(key);
-        // Not read yet: only what this writer itself wrote is known.
         return this.heldSinceScan!.has(key) ? true : undefined;
       };
     }
@@ -173,7 +163,6 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  /** Queues writer-internal work behind everything already queued. */
   private runInternal(run: () => Promise<void>): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.enqueueMessage(new InternalWork(run, resolve, reject));
@@ -234,7 +223,7 @@ export class AsyncQueryStore implements QueryStore {
     try {
       held = await this.delegate!.has(valueKeyFor(id));
     } catch {
-      // Unknown: treat it as missing.
+      // Treat as missing.
     }
     if (held) this.noteHeld(id);
     else this.noteDropped(id);
@@ -270,8 +259,7 @@ export class AsyncQueryStore implements QueryStore {
         }
       } catch (error) {
         console.error('Error processing message:', error);
-        // A failed entity write leaves the record missing or stale. Report it
-        // as dropped so the client writes the entity again on its next apply.
+        // Report as dropped so the client rewrites it on its next apply.
         if (!(msg instanceof InternalWork) && msg.type === StoreMessageType.SaveEntity) {
           await this.recheckHeld(msg.entityKey);
           for (const listener of this.deleteListeners.slice()) listener(msg.entityKey);
@@ -283,12 +271,7 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  /**
-   * Reads which records the delegate holds, alongside the queue rather than
-   * ahead of it. Writes and deletions processed meanwhile are folded in.
-   * A failed read is retried. If it keeps failing nothing is assumed held, so
-   * an event for an entity not in memory is not written.
-   */
+  /** Runs alongside the queue, not ahead of it. On repeated failure nothing is assumed held. */
   private async scanHeldKeys(): Promise<void> {
     const held = new Set<number>();
     for (let attempt = 0; ; attempt++) {
@@ -314,10 +297,6 @@ export class AsyncQueryStore implements QueryStore {
     this.heldSinceScan = this.droppedSinceScan = undefined;
   }
 
-  /**
-   * Whether every operation handed to this store has been applied. Readers
-   * hand their operations to a writer elsewhere and never skip writes anyway.
-   */
   isSettled(): boolean {
     return !this.isWriter || (this.messageQueue.length === 0 && !this.processing);
   }
@@ -390,8 +369,7 @@ export class AsyncQueryStore implements QueryStore {
     }
 
     for (const entityId of entityIds) {
-      // Records can reference each other in a cycle (a file whose record
-      // links back to its folder); one read per record.
+      // Records can reference each other in a cycle.
       if (preloaded.has(entityId)) continue;
       const entityValue = await this.delegate.getString(valueKeyFor(entityId));
 
@@ -528,11 +506,8 @@ export class AsyncQueryStore implements QueryStore {
         queue = new Uint32Array(maxCount ?? DEFAULT_MAX_COUNT);
         await this.delegate!.setBuffer(queueKey, queue);
       } else if (maxCount !== undefined && queue.length !== maxCount) {
-        // `maxCount` changed since the queue was written (writers before 0.6
-        // always used the default of 50). A view over the old buffer can't
-        // grow, and a shorter one would strand the keys it drops: copy what
-        // fits and evict the rest. The key being activated moves to the
-        // front, so it is kept wherever it sits.
+        // A view over the old buffer can't grow, and a shorter one would strand
+        // the keys it drops. The activated key moves to the front, so keep it.
         const resized = new Uint32Array(maxCount);
         resized.set(queue.subarray(0, Math.min(queue.length, maxCount)));
         for (let i = maxCount; i < queue.length; i++) {
@@ -573,11 +548,7 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  /**
-   * Drops every query definition's cached queries once the definition has
-   * gone unused for its `cacheTime`. Runs through the writer's serial queue,
-   * so a record it drops cannot be reported as written afterwards.
-   */
+  /** Runs through the writer's queue, so a record it drops can't be reported as written afterwards. */
   purgeStaleQueries(): Promise<void> {
     if (!this.delegate) return Promise.resolve();
     if (!this.isWriter) return this.purgeStaleQueriesNow();

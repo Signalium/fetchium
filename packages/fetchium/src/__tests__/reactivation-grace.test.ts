@@ -15,12 +15,6 @@ import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { Entity } from '../proxy.js';
 import { createMockFetch, createTestWatcher } from './utils.js';
 
-/**
- * A reactivating query skips its refetch while its data is younger than
- * `reactivationGraceMs`. Reactivation refetches that start together are spread
- * across `reactivationStaggerMs`.
- */
-
 class GetA extends RESTQuery {
   path = '/a';
   result = { n: t.number };
@@ -58,8 +52,7 @@ describe('reactivation grace and stagger', () => {
   afterEach(async () => {
     for (const unsub of unsubs) unsub();
     for (const client of clients) client.destroy();
-    // Drain signalium's pending flush on the fake clock; a flush left scheduled
-    // there would block every later flush once real timers are restored.
+    // Drain signalium's flush on the fake clock, or it blocks later flushes under real timers.
     await vi.advanceTimersByTimeAsync(1_000);
     vi.useRealTimers();
   });
@@ -82,7 +75,6 @@ describe('reactivation grace and stagger', () => {
     return client;
   }
 
-  /** Activates a watcher over the given queries' values; returns its unsubscribe. */
   function watch(client: QueryClient, ...queries: Array<new () => RESTQuery>): () => void {
     const { unsub } = withContexts([[QueryClientContext, client]], () =>
       createTestWatcher(() => queries.map(Q => fetchQuery(Q as any).value)),
@@ -91,7 +83,6 @@ describe('reactivation grace and stagger', () => {
     return unsub;
   }
 
-  /** Activates, loads, then deactivates (as a pause would). */
   async function loadThenDeactivate(client: QueryClient, ...queries: Array<new () => RESTQuery>): Promise<void> {
     const unsub = watch(client, ...queries);
     await vi.advanceTimersByTimeAsync(50);
@@ -99,12 +90,11 @@ describe('reactivation grace and stagger', () => {
     await vi.advanceTimersByTimeAsync(10);
   }
 
-  /** Fetch start times relative to the first one. */
   function offsets(): number[] {
     return starts.map(s => s.at - starts[0].at);
   }
 
-  /** Timer 0 counts as 1 ms on the fake clock, so allow a millisecond either way. */
+  // Timer 0 counts as 1 ms on the fake clock.
   function expectOffsets(expected: number[]): void {
     const actual = offsets();
     expect(actual).toHaveLength(expected.length);
@@ -116,7 +106,6 @@ describe('reactivation grace and stagger', () => {
   }
 
   it('passes the grace, stagger and shouldRetry options through to the query context too', () => {
-    // Like any other config key.
     const shouldRetry = () => false;
     const client = makeClient({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
     expect(client.getContext()).toMatchObject({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
@@ -148,7 +137,6 @@ describe('reactivation grace and stagger', () => {
       unsub();
       await vi.advanceTimersByTimeAsync(10);
 
-      // Past the grace (and the default staleTime of 0): refetches.
       await vi.advanceTimersByTimeAsync(10_000);
       watch(client, GetA);
       await vi.advanceTimersByTimeAsync(50);
@@ -249,7 +237,7 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // A refetch fails; updatedAt still dates from the first, successful fetch.
+      // updatedAt still dates from the first, successful fetch.
       await withContexts([[QueryClientContext, client]], async () => {
         const relay = fetchQuery(GetA);
         await (relay.value as any).__refetch().catch(() => {});
@@ -289,11 +277,10 @@ describe('reactivation grace and stagger', () => {
       let unsub = watchRelay();
       await vi.advanceTimersByTimeAsync(50);
 
-      // A slow refetch, which the mock lets finish even after it is aborted.
+      // The mock lets this finish even after it is aborted.
       void relay.value.__refetch().catch(() => {});
       await vi.advanceTimersByTimeAsync(10);
 
-      // Deactivating aborts it; reactivating replaces it with a fetch that fails.
       unsub();
       await vi.advanceTimersByTimeAsync(10);
       unsub = watchRelay();
@@ -301,7 +288,6 @@ describe('reactivation grace and stagger', () => {
       expect(fetchCount('/a')).toBe(3);
       expect(relay.isRejected).toBe(true);
 
-      // The replaced fetch lands.
       await vi.advanceTimersByTimeAsync(1_500);
 
       unsub();
@@ -332,7 +318,7 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // Data is a minute old, but the stream delivered an event a moment ago.
+      // Data is a minute old, but the stream pushed a moment ago.
       await vi.advanceTimersByTimeAsync(60_000);
       push!();
       await vi.advanceTimersByTimeAsync(1_000);
@@ -343,7 +329,6 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // Silent since: the grace counts from the last push, not the deactivation.
       await vi.advanceTimersByTimeAsync(20_000);
       unsub2();
       await vi.advanceTimersByTimeAsync(10);
@@ -383,8 +368,7 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // Visits shorter than the poll interval, gaps shorter than the grace. The
-      // poll restarts its interval each visit, so it never ticks.
+      // Each visit restarts the poll interval, so it never ticks.
       for (let i = 0; i < 20; i++) {
         await vi.advanceTimersByTimeAsync(50_000);
         unsub();
@@ -393,7 +377,6 @@ describe('reactivation grace and stagger', () => {
         await vi.advanceTimersByTimeAsync(10);
       }
 
-      // With a 60 s poll and staleTime 0, the data is never older than a visit.
       const lastFetch = starts.filter(s => s.path === '/a').at(-1)!.at;
       expect(Date.now() - lastFetch).toBeLessThan(60_000);
       expect(fetchCount('/a')).toBe(21);
@@ -422,17 +405,15 @@ describe('reactivation grace and stagger', () => {
       const client = makeClient({ reactivationGraceMs: 15_000, activity });
       const unsub = watch(client, GetPolled);
       await vi.advanceTimersByTimeAsync(35_000);
-      // The initial fetch and ticks at 10, 20 and 30 s.
       expect(fetchCount('/a')).toBe(4);
 
-      // Backgrounded: the poll stops. The screen goes away a minute later.
       setActive(false);
       await vi.advanceTimersByTimeAsync(60_000);
       unsub();
       await vi.advanceTimersByTimeAsync(10);
       setActive(true);
 
-      // Within the grace of the deactivation, but the last tick was 65 s ago.
+      // Deactivated 10 ms ago, but the last tick was 65 s ago.
       watch(client, GetPolled);
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(5);
@@ -475,12 +456,10 @@ describe('reactivation grace and stagger', () => {
       await visit('prices');
       expect(adapter.sends).toBe(1);
 
-      // Pushed on its topic 6 s ago: inside the grace.
       await visit(undefined);
       expect(adapter.sends).toBe(1);
 
-      // The last event didn't name the topic, so the query's last delivery is
-      // the push 67 s ago.
+      // The last event didn't name the topic, so the last push was 67 s ago.
       watch(client, GetTopic as any);
       await vi.advanceTimersByTimeAsync(50);
       expect(adapter.sends).toBe(2);
@@ -568,7 +547,6 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(400);
       expect(starts.map(s => s.path)).toEqual(['/a', '/b', '/c']);
       expectOffsets([0, 100, 200]);
-      // The first one waits only for the flush task.
       expect(starts[0].at - t0).toBeLessThanOrEqual(2);
     });
 
@@ -664,7 +642,7 @@ describe('reactivation grace and stagger', () => {
 
       watch(client, GetCoalescedA, GetC, GetCoalescedB);
       await vi.advanceTimersByTimeAsync(400);
-      // One spread query: it starts with the flush too.
+      // A lone spread query starts with the flush too.
       expect(starts.map(s => s.path).sort()).toEqual(['/a', '/b', '/c']);
       expectOffsets([0, 0, 0]);
     });
@@ -695,7 +673,6 @@ describe('reactivation grace and stagger', () => {
 
       watch(client, GetB, GetCoalesced, GetC);
       await vi.advanceTimersByTimeAsync(400);
-      // The coalesced query starts with the flush; the other two take the two slots.
       expect(starts.map(s => s.path)).toEqual(['/a', '/b', '/c']);
       expectOffsets([0, 0, 150]);
     });
@@ -712,14 +689,13 @@ describe('reactivation grace and stagger', () => {
 
       watch(client, GetA, GetB, GetC);
       await vi.advanceTimersByTimeAsync(100);
-      // /c's slot is 2 s out. A pull to refresh starts it now.
+      // /c's slot is 2 s out.
       await withContexts([[QueryClientContext, client]], async () => {
         void (fetchQuery(GetC).value as any).__refetch();
       });
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/c')).toBe(1);
 
-      // The slot passes while that fetch is in flight, and after it landed.
       await vi.advanceTimersByTimeAsync(2_500);
       expect(fetchCount('/c')).toBe(1);
       expect(fetchCount('/a')).toBe(1);
@@ -749,7 +725,7 @@ describe('reactivation grace and stagger', () => {
         createTestWatcher(() => [fetchQuery(GetA).value, fetchQuery(GetB).value, (value = fetchQuery(GetItems).value)]),
       );
       unsubs.push(unsub);
-      // /items' slot is 2 s out. Load the next page now.
+      // /items' slot is 2 s out.
       await vi.advanceTimersByTimeAsync(100);
       await value.__fetchNext();
       expect(value.items.map((i: any) => i.id)).toEqual(['1', '2']);

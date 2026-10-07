@@ -12,22 +12,15 @@ import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { Entity } from '../proxy.js';
 import { getEntityMapSize, sleep } from './utils.js';
 
-/**
- * The first fetch and zero-delay refetches start on a microtask, ahead of
- * Signalium's flush. That flush is where a Signal param change reaches the
- * query and where a query whose last watcher left is deactivated. These tests
- * pin what happens when either lands in the same task as the fetch was queued.
- */
+// First fetches and zero-delay refetches start on a microtask, ahead of the
+// Signalium flush that applies Signal param changes and deactivations.
 
 interface Call {
   path: string;
   aborted: boolean;
 }
 
-/**
- * A fetch that answers `{ value: <path> }` after `delay` ms. By default it
- * honours the abort signal, as browser and React Native fetch do.
- */
+/** A fetch answering `{ value: <path> }` after `delay` ms. Honours abort by default. */
 function createFetch(delay: number, { ignoreAbort = false }: { ignoreAbort?: boolean } = {}) {
   const calls: Call[] = [];
   const fetch = (url: string, options: RequestInit = {}): Promise<Response> => {
@@ -139,7 +132,6 @@ describe('Activation and deactivation in one task', () => {
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/item' });
     expect(kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItem, undefined)))).toBeTypeOf('number');
 
-    // Coming back shows the data the background request brought in.
     let first: any;
     const again = activate(client, () => (first ??= state(fetchQuery(GetItem))));
     expect(first).toEqual({ isPending: false, isRejected: false, value: '/item' });
@@ -177,7 +169,6 @@ describe('Activation and deactivation in one task', () => {
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/1' });
     expect(persisted(kv, { id: '2' })).toBe(false);
 
-    // Coming back fetches the current params.
     const again = activate(client, () => fetchQuery(GetItemById, { id }).isPending);
     await sleep(20);
     expect(f.paths()).toEqual(['/items/1', '/items/2']);
@@ -231,7 +222,6 @@ describe('Signal params changing around a fetch', () => {
     await sleep(5);
     client.destroy();
 
-    // A cold start for either key, within staleTime, shows that key's data.
     for (const key of ['1', '2']) {
       const cold = createFetch(5);
       const next = makeClient(kv, cold.fetch);
@@ -459,7 +449,6 @@ describe('Reactivating after a deactivation aborted the fetch', () => {
     );
     await sleep(5);
     first();
-    // A caller awaiting the refetch still settles.
     expect(await refetched).toBe('rejected:AbortError');
     expect(state(relay)).toEqual({ isPending: false, isRejected: true, value: '/item' });
 
@@ -475,11 +464,7 @@ describe('Reactivating after a deactivation aborted the fetch', () => {
   });
 });
 
-/**
- * A socket-like topic adapter: subscribing delivers the topic's data 5 ms
- * later; unsubscribing cancels that and drops the topic's state, so a send()
- * still waiting on it never resolves.
- */
+/** Socket-like topic adapter. Unsubscribing drops topic state, so a waiting send() never resolves. */
 class SocketTopicAdapter extends TopicQueryAdapter {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   subscribe(topic: string): void {
@@ -592,7 +577,7 @@ describe('A topic query unmounted before its first data, in a later task', () =>
     if (!hadWindow) delete (globalThis as any).window;
   });
 
-  /** Mounts the topic query, and unmounts it 1 ms later: before its data, due 5 ms after subscribing. */
+  /** Mounts the topic query and unmounts it 1 ms later, before its data (due at 5 ms). */
   async function mountAndLeave(client: QueryClient): Promise<{ relay: any }> {
     let relay: any;
     const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
@@ -748,7 +733,6 @@ describe('Every awaiter settles', () => {
     second();
     expect(await outcome(relay)).toBe('rejected:AbortError');
 
-    // Mounted again online, it fetches.
     networkManager.setNetworkStatus(true);
     const third = activate(client, () => fetchQuery(GetItem).isPending);
     await sleep(50);
@@ -848,8 +832,7 @@ describe('A Signal param change while other signals keep flushing', () => {
     const noise = signal(0);
 
     const dispose = activate(client, () => fetchQuery(GetItemById, { id }).isPending);
-    // A listener that writes a signal another watcher reads: every flush
-    // schedules the next one, as a ticking price feed does.
+    // A listener that writes a signal makes every flush schedule the next.
     const reader = watcher(() => noise.value);
     let flushes = 0;
     const stopReader = reader.addListener(() => {

@@ -21,11 +21,7 @@ export const DEFAULT_MAX_COUNT = 50;
 export const DEFAULT_CACHE_TIME = 60 * 24; // 24 hours in minutes
 export const DEFAULT_GC_TIME = 5; // 5 minutes - in-memory eviction default
 
-/**
- * Merges the fields of a partial record over a stored one, at the JSON level
- * (proxies have already been serialized to `{ __entityRef }` markers), and
- * derives the merged record's references from the markers it contains.
- */
+/** Merges at the JSON level and derives refs from the `__entityRef` markers. */
 export function mergeStoredRecord(
   stored: string,
   partial: unknown,
@@ -36,8 +32,6 @@ export function mergeStoredRecord(
   } catch {
     return undefined;
   }
-  // A non-object record can't be merged into. The caller writes the fields as
-  // the record instead, which heals it.
   if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
   const value = {
     ...(record as Record<string, unknown>),
@@ -49,11 +43,8 @@ export function mergeStoredRecord(
 }
 
 /**
- * The stored record's fields that `partial` does not write, as a JSON fragment
- * (`"a":1,"b":{…}`, or `''` if none) plus the references inside them.
- * Appending the fragment to `partial`'s JSON yields the merged record without
- * re-reading the stored one. Undefined if the stored record is not a JSON
- * object.
+ * The stored record's fields not in `partial`, as a JSON fragment plus their refs.
+ * Appended to `partial`'s JSON it gives the merged record. Undefined for a non-object.
  */
 export function storedRecordRest(
   stored: string,
@@ -69,8 +60,7 @@ export function storedRecordRest(
   const rest: Record<string, unknown> = {};
   let any = false;
   for (const key in record as Record<string, unknown>) {
-    // JSON drops a field the partial holds as undefined, so the stored value
-    // stays.
+    // JSON drops a field the partial holds as undefined, so the stored value stays.
     if (partial[key] !== undefined) continue;
     rest[key] = (record as Record<string, unknown>)[key];
     any = true;

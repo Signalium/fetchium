@@ -13,10 +13,7 @@ import { AsyncQueryStore, type AsyncPersistentStore } from '../stores/async.js';
 import { valueKeyFor, refIdsKeyFor, queueKeyFor, DEFAULT_MAX_COUNT } from '../stores/shared.js';
 import { createMockFetch, setupTestClient, testWithClient, sleep } from './utils.js';
 
-/**
- * Invariants the snapshot fast path, unchanged-apply skipping, single-write
- * events and store deletion reporting must keep.
- */
+// Invariants of the snapshot fast path, write skipping, events and store deletion reporting.
 
 function getDoc(kv: MemoryPersistentStore, key: number): Record<string, unknown> | undefined {
   const value = kv.getString(valueKeyFor(key));
@@ -61,10 +58,6 @@ function makeClient(store: SyncQueryStore | AsyncQueryStore, mockFetch: ReturnTy
   return { client, warn };
 }
 
-// ======================================================
-// Cache hydration must not re-parse an entity that is already in memory
-// ======================================================
-
 describe('hydration of a cached query whose entity is already in memory', () => {
   const getClient = setupTestClient();
   class User extends Entity {
@@ -92,13 +85,12 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     mockFetch.get('/a', { user: payload });
     mockFetch.get('/b', { user: payload, extra: 'e' });
 
-    // Session 1 persists both queries.
     const { client: first } = makeClient(store, mockFetch);
     await holdQuery(first, () => fetchQuery(GetA));
     await holdQuery(first, () => fetchQuery(GetB));
     first.destroy();
 
-    // Session 2: the network is unreachable; A hydrates, then B hydrates the same entity.
+    // Session 2, offline: A hydrates, then B hydrates the same entity.
     mockFetch.get('/a', { user: payload }, { delay: 10_000 });
     mockFetch.get('/b', { user: payload, extra: 'e' }, { delay: 10_000 });
     const { client, warn } = makeClient(store, mockFetch);
@@ -113,8 +105,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
       const hB = snapshotHarness(client, () => fetchQuery(GetB));
       await sleep(20);
 
-      // The in-memory data was not re-parsed: the proxy, the store record and
-      // both consumers agree, and A's consumer had no reason to recompute.
+      // Not re-parsed, so A's consumer had no reason to recompute.
       const instance = client.entityMap.getEntity(hashValue(['User', 1]))!;
       expect((instance.data.profile as { since: unknown }).since).toBeDefined();
       expect((hA.query.value as any).user.profile.since).toBeInstanceOf(Date);
@@ -232,8 +223,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     await holdQuery(first, () => fetchQuery(GetFull));
     first.destroy();
 
-    // Session 2: the summary hydrates User:1 without `meta.owner`; the full
-    // query must not resolve from the cache with the owner missing.
+    // Session 2: the summary hydrates User:1 without `meta.owner`.
     mockFetch.get('/full', { user: { ...full, meta: { ...full.meta, x: 2 } } }, { delay: 50 });
     const { client, warn } = makeClient(store, mockFetch);
     const summary = holdQuery(client, () => fetchQuery(GetSummary));
@@ -361,8 +351,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     await holdQuery(first, () => fetchQuery(GetTeam));
     first.destroy();
 
-    // u-1 is in memory without `email`; the members array narrows it out on
-    // read, so the cached team is still usable as it is.
+    // u-1 lacks `email`, but the members array narrows it out on read.
     const { client, warn } = makeClient(store, mockFetch);
     await holdQuery(client, () => fetchQuery(GetOwner));
     mockFetch.get(
@@ -414,8 +403,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     await holdQuery(first, () => fetchQuery(GetPost, { id: 'p1' }));
     first.destroy();
 
-    // The post comes into memory through an event routed into the feed:
-    // title only. Then the cached post query hydrates the same entity.
+    // An event brings the post into memory with its title only.
     const { client, warn } = makeClient(store, mockFetch);
     const feed = holdQuery(client, () => fetchQuery(GetFeed, { id: 'f1' }));
     await feed;
@@ -438,7 +426,6 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     const post = holdQuery(client, () => fetchQuery(GetPost, { id: 'p1' }));
     await sleep(20);
     expect(warn).not.toHaveBeenCalled();
-    // The event's title stays; the fields it did not carry come from the record.
     expect((post.value as any).post.title).toBe('T2');
     expect((post.value as any).post.body).toBe('hello');
     expect((post.value as any).post.tags).toEqual(['a', 'b']);
@@ -516,8 +503,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
       note: { text: 'n' },
     });
     const before = JSON.stringify(body);
-    // Hands out the same frozen object on every call, as an adapter that
-    // keeps its last response may.
+    // The same frozen object on every call, as an adapter may hand out.
     const fetch = async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => body });
     const { client, warn } = makeClient(
       new SyncQueryStore(new MemoryPersistentStore()),
@@ -537,7 +523,7 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     expect(h.read().doc.meta.views).toBe(2);
     expect(h.read().doc.meta.stats.likes).toBe(4);
     expect(h.read().doc.counts.a).toBe(2);
-    // The live array grows its own array, not the response's (empty, frozen) one.
+    // The live array grows its own array, not the frozen response's.
     client.applyMutationEvent({
       type: 'create',
       typename: 'DocNote',
@@ -556,10 +542,6 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     client.destroy();
   });
 });
-
-// ======================================================
-// Streamed events: what an event changes in an existing entity is written
-// ======================================================
 
 describe('mutation events and the store', () => {
   const getClient = setupTestClient();
@@ -661,7 +643,7 @@ describe('mutation events and the store', () => {
   it('a full-payload update for an entity on disk but not in memory refreshes its record', async () => {
     const { client, mockFetch, kv, store } = getClient();
     await seed(client, mockFetch, false);
-    // Evict User u1 from memory while its record stays referenced by the cached query.
+    // Its record stays referenced by the cached query.
     client.entityMap.getEntity(u1Key)!.evict();
     expect(client.entityMap.getEntity(u1Key)).toBeUndefined();
     expect(getDoc(kv, u1Key)!.name).toBe('Alice');
@@ -677,7 +659,6 @@ describe('mutation events and the store', () => {
     expect(getDoc(kv, u1Key)).toMatchObject({ name: 'Alicia', karma: 12 });
     expect(store.hasEntity(u1Key)).toBe(true);
 
-    // An update for an entity the store has never seen leaves nothing behind.
     client.applyMutationEvent({
       type: 'update',
       typename: 'User',
@@ -687,10 +668,6 @@ describe('mutation events and the store', () => {
     expect(getDoc(kv, hashValue(['User', 'u404']))).toBeUndefined();
   });
 });
-
-// ======================================================
-// `_persisted` is only trusted while the store agrees
-// ======================================================
 
 describe('write skipping stays consistent with the store', () => {
   class User extends Entity {
@@ -727,8 +704,7 @@ describe('write skipping stays consistent with the store', () => {
     expect((relay.value as any)?.user?.name ?? client.entityMap.getEntity(userKey)!.data.name).toBe('Alicia');
     expect(getDoc(kv, userKey)).toMatchObject({ name: 'Alice' });
 
-    // The store recovers; the refetch returns the same data the entity already
-    // holds, so nothing changed in memory, yet the record must be rewritten.
+    // The refetch matches memory, yet the record must be rewritten.
     failing = false;
     await withContexts([[QueryClientContext, client]], () => fetchQuery(GetUser).value ?? undefined);
     await (client as any).queryInstances.values().next().value.refetch();
@@ -747,9 +723,7 @@ describe('write skipping stays consistent with the store', () => {
   });
 });
 
-// ======================================================
 // AsyncQueryStore writer
-// ======================================================
 
 class AsyncDelegate implements AsyncPersistentStore {
   readonly kv: Record<string, unknown> = Object.create(null);
@@ -850,8 +824,7 @@ describe('AsyncQueryStore writer used in-process', () => {
     await drain(store);
     expect(delegate.kv[valueKeyFor(userKey('1'))]).toBeDefined();
 
-    // Q3's SaveQuery will evict Q1 and cascade to User 1 once processed. Before
-    // the writer gets there, Q1 refetches identical data.
+    // Q3's queued SaveQuery will evict Q1 and cascade to User 1. Q1 refetches first.
     await holdQuery(client, () => fetchQuery(GetProfile, { id: '3' }));
     expect(store.isSettled()).toBe(false);
     await (q1.value as any).__refetch();
@@ -860,7 +833,6 @@ describe('AsyncQueryStore writer used in-process', () => {
     expect(delegate.kv[valueKeyFor(userKey('1'))]).toBeDefined();
     expect(warn).not.toHaveBeenCalled();
 
-    // Cold start on the same store: Q1 hydrates from cache.
     client.destroy();
     clients.pop();
     mockFetch.reset();
@@ -938,7 +910,7 @@ describe('AsyncQueryStore writer used in-process', () => {
     const def = (maxCount: number) => ({ statics: { id: defId, cache: { maxCount } } }) as never;
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      // A 4-slot queue from an older install, fully populated, with records behind each key.
+      // A full 4-slot queue from an older install.
       const old = new Uint32Array([4, 3, 2, 1]);
       delegate.kv[queueKeyFor(defId)] = old;
       for (const key of old) {
@@ -954,8 +926,7 @@ describe('AsyncQueryStore writer used in-process', () => {
       expect(Array.from(queue)).toEqual([9, 4, 3, 2, 1, 0]);
       expect(consoleError).not.toHaveBeenCalled();
 
-      // Shrink (after a restart, so the in-memory queue is not cached): the
-      // keys that no longer fit are evicted, not stranded.
+      // Shrink after a restart: keys that no longer fit are evicted, not stranded.
       const restarted = writerStore(delegate);
       restarted.activateQuery(def(3), 9);
       await drain(restarted);
@@ -985,10 +956,6 @@ describe('AsyncQueryStore writer used in-process', () => {
     }
   });
 });
-
-// ======================================================
-// Snapshot fast path
-// ======================================================
 
 describe('snapshot fast path follow-ups', () => {
   const getClient = setupTestClient();
@@ -1170,8 +1137,7 @@ describe('snapshot fast path follow-ups', () => {
     const computesBefore = wrapped.computes();
     expect('__refetch' in before.profile).toBe(false);
 
-    // The entity-rooted query applies identical data. Its own consumer sees
-    // the extras, but the wrapped query's consumer is not re-run for them.
+    // The wrapped query's consumer is not re-run for the root query's extras.
     const root = snapshotHarness(client, () => fetchQuery(GetRoot));
     await root.query;
     await sleep(5);
@@ -1273,7 +1239,6 @@ describe('snapshot fast path follow-ups', () => {
     expect(Object.is(h.read().quote.history[0], -0)).toBe(true);
     expect(h.computes()).toBe(before + 1);
 
-    // The same data again is not a change.
     client.applyMutationEvent({ type: 'update', typename: 'Quote', data: { id: 'q', price: -0, history: [-0, 1] } });
     expect(h.computes()).toBe(before + 1);
   });
@@ -1300,8 +1265,7 @@ describe('snapshot fast path follow-ups', () => {
     expect(Object.isFrozen(snap.meta)).toBe(true);
     const warn = vi.spyOn(client.getContext().log as { warn: (...args: unknown[]) => void }, 'warn');
 
-    // An app forwards part of a snapshot as an event payload (or a mutation's
-    // `effects.updates`); the parser must not write parsed values into it.
+    // A snapshot forwarded as an event payload must not be written into.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Doc',
@@ -1401,8 +1365,7 @@ describe('snapshot fast path follow-ups', () => {
     await h.query;
     expect(h.read().roster.members.size).toBe(3000);
 
-    // Each event recomputes the snapshot at an unchanged version of `roster`,
-    // so the dev guard compares the rebuilt Set with the previous one.
+    // Each event makes the dev guard compare a rebuilt Set with the previous one.
     const started = performance.now();
     for (let i = 0; i < 20; i++) {
       client.applyMutationEvent({ type: 'update', typename: 'Roster', data: { id: 'o', label: `b${i}` } });

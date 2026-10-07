@@ -8,14 +8,8 @@ import { Entity } from '../proxy.js';
 import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 
-/**
- * Cost of reading nested, non-entity fields of an entity. `t.object`,
- * `t.record` and `t.liveArray` values are handed out through wrapping proxies,
- * so every read goes through a proxy trap. Measured inside and outside a
- * reactive computation. Each case reads 1,000 fields.
- *
- * Run with `npm run bench`.
- */
+// Reads of nested non-entity fields, which go through wrapping proxies.
+// Run with `npm run bench`.
 
 class Item extends Entity {
   __typename = t.typename('Item');
@@ -148,7 +142,7 @@ describe('nested reads, 1000 per iteration', () => {
   bench('in a computation: held t.record -> key', recordRender);
 });
 
-// First reads: a wrapper is created once per nested value and then cached.
+// First reads create and cache the wrappers.
 class Row extends Entity {
   __typename = t.typename('Row');
   id = t.id;

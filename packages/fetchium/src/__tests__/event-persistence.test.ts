@@ -12,11 +12,7 @@ import { AsyncQueryStore, type AsyncPersistentStore } from '../stores/async.js';
 import { valueKeyFor, refCountKeyFor, refIdsKeyFor, queueKeyFor, updatedAtKeyFor } from '../stores/shared.js';
 import { createMockFetch, setupTestClient, sleep } from './utils.js';
 
-/**
- * What a streamed event leaves in the store: which records are written, which
- * are not, and whether every reference on disk points at a record that exists.
- * Complements `skip-write-and-snapshot-fixes.test.ts`.
- */
+// What a streamed event leaves in the store, and whether every reference on disk resolves.
 
 function getDoc(kv: MemoryPersistentStore, key: number): Record<string, unknown> | undefined {
   const value = kv.getString(valueKeyFor(key));
@@ -26,10 +22,7 @@ function refIds(kv: MemoryPersistentStore, key: number): number[] {
   return Array.from(kv.getBuffer(refIdsKeyFor(key)) ?? []);
 }
 
-/**
- * Every record must be referenced (a refcount) unless it is a query, and every
- * reference must point at a record that exists.
- */
+/** Every non-query record must be referenced, and every reference must resolve. */
 function audit(kv: MemoryPersistentStore): { orphans: number[]; dangling: string[] } {
   const ids = new Set<number>();
   for (const k of kv.getAllKeys()) {
@@ -60,14 +53,12 @@ function holdQuery<T>(client: QueryClient, start: () => T): T {
 
 const K = (typename: string, id: string | number) => hashValue([typename, id]);
 
-/** The keys of every entity write, whichever store method carried it. */
 function spyWrites(store: SyncQueryStore): () => number[] {
   const saves = vi.spyOn(store, 'saveEntity');
   const merges = vi.spyOn(store, 'mergeEntity');
   return () => [...saves.mock.calls.map(c => c[0]), ...merges.mock.calls.map(c => c[0])];
 }
 
-/** Makes every write of the given key throw, whichever store method carries it. */
 function failWritesOf(store: SyncQueryStore, key: number, shouldFail: () => boolean = () => true): void {
   const save = store.saveEntity.bind(store);
   const merge = store.mergeEntity.bind(store);
@@ -80,10 +71,6 @@ function failWritesOf(store: SyncQueryStore, key: number, shouldFail: () => bool
     merge(k, fields, refs);
   });
 }
-
-// ======================================================
-// Which records an event writes
-// ======================================================
 
 describe('records a streamed event writes', () => {
   class Badge extends Entity {
@@ -168,7 +155,7 @@ describe('records a streamed event writes', () => {
     await sleep(5);
 
     const u7 = client.entityMap.getEntity(K('User', 'u7'))!;
-    // The comment references u7 twice (author and mentions[0]) and u7 keeps its badge.
+    // u7 is referenced twice (author and mentions[0]).
     expect(client.entityMap.getEntity(K('Comment', 'c9'))!.entityRefs!.get(u7)).toBe(2);
     expect([...u7.entityRefs!.keys()].map(e => e.key)).toEqual([K('Badge', 'b7')]);
     expect(writes().filter(k => k === K('User', 'u7'))).toHaveLength(1);
@@ -209,7 +196,6 @@ describe('records a streamed event writes', () => {
     expect(getDoc(kv, K('Badge', 'b1'))).toMatchObject({ label: 'gold' });
     expect((q.value as any).comments.map((c: any) => c.author.badge.label)).toEqual(['gold', 'gold']);
 
-    // A refetch with the same payload changes nothing.
     mockFetch.get('/comments', payload());
     await (q.value as any).__refetch();
     expect(u1.refCount).toBe(2);
@@ -253,8 +239,7 @@ describe('records a streamed event writes', () => {
     client.entityMap.getEntity(K('User', 'u1'))!.evict();
     expect(client.entityMap.getEntity(K('User', 'u1'))).toBeUndefined();
 
-    // The payload carries the required fields (an event for an entity that is
-    // not in memory is parsed as a full record) but not the optional badge.
+    // Required fields only: an event for an entity not in memory parses as a full record.
     client.applyMutationEvent({
       type: 'update',
       typename: 'User',
@@ -262,14 +247,12 @@ describe('records a streamed event writes', () => {
     });
     await sleep(5);
 
-    // The badge reference the event did not carry survives.
     expect(getDoc(kv, K('User', 'u1'))).toMatchObject({ name: 'Alicia', karma: 10 });
     expect(refIds(kv, K('User', 'u1'))).toEqual([K('Badge', 'b1')]);
     expect(getDoc(kv, K('Badge', 'b1'))).toMatchObject({ label: 'gold' });
     expect(kv.getNumber(refCountKeyFor(K('Badge', 'b1')))).toBe(1);
     expect(client.entityMap.getEntity(K('User', 'u1'))).toBeUndefined();
 
-    // A replaced child is written and the old one released.
     client.applyMutationEvent({
       type: 'update',
       typename: 'User',
@@ -288,7 +271,6 @@ describe('records a streamed event writes', () => {
     expect(getDoc(kv, K('Badge', 'b1'))).toBeUndefined();
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
 
-    // The next session hydrates the merged record.
     client.destroy();
     const warn = vi.fn();
     const second = new QueryClient({
@@ -326,9 +308,7 @@ describe('records a streamed event writes', () => {
     await sleep(5);
 
     expect(warn).toHaveBeenCalledWith('Failed to apply mutation event', expect.any(Error));
-    // Memory and the store agree: the comment is in neither, and no record
-    // references it. The author written before the failing write stays behind
-    // unreferenced, as with any write that fails mid-walk.
+    // The author written before the failing write stays behind unreferenced.
     expect((postQ.value as any).post.comments).toEqual([]);
     expect((postQ.value as any).post.commentCount).toBe(0);
     expect(client.entityMap.getEntity(K('Comment', 'c9'))).toBeUndefined();
@@ -377,7 +357,6 @@ describe('records a streamed event writes', () => {
     expect((postQ.value as any).post.comments).toEqual([]);
     expect((postQ.value as any).post.commentCount).toBe(0);
 
-    // The transport retries once the store works again.
     fail = false;
     client.applyMutationEvent(event());
     await sleep(5);
@@ -408,7 +387,7 @@ describe('records a streamed event writes', () => {
     const threadQ = holdQuery(client, () => fetchQuery(GetThread, { id: 'p1' }));
     await threadQ;
     await holdQuery(client, () => fetchQuery(GetComments));
-    // The comments query is collected from memory; its record stays on disk.
+    // Collected from memory. Its record stays on disk.
     client.entityMap.getEntity(K('Comment', 'c1'))!.evict();
 
     client.applyMutationEvent({
@@ -470,7 +449,7 @@ describe('records a streamed event writes', () => {
     const artQ = holdQuery(client, () => fetchQuery(GetArticle, { id: 'a1' }));
     await artQ;
 
-    // No live collection routes notes; the payload's article points back at the note.
+    // The payload's article points back at the note.
     client.applyMutationEvent({
       type: 'create',
       typename: 'Note',
@@ -491,7 +470,6 @@ describe('records a streamed event writes', () => {
     expect(getDoc(kv, K('Note', 'n9'))).toMatchObject({ body: 'hi' });
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
 
-    // A later event for the note reaches the article's consumer.
     client.applyMutationEvent({ type: 'update', typename: 'Note', data: { id: 'n9', body: 'edited' } });
     expect((artQ.value as any).article.latestNote.body).toBe('edited');
     expect(getDoc(kv, K('Note', 'n9'))).toMatchObject({ body: 'edited' });
@@ -628,8 +606,7 @@ describe('records a streamed event writes', () => {
     });
     await sleep(5);
 
-    // The topic's record was not written with a reference to a record that
-    // does not exist; memory holds the adoption and the next write heals it.
+    // Memory holds the adoption and the next write heals the record.
     expect(audit(kv).dangling).toEqual([]);
     expect((topicQ.value as any).topic.replies).toEqual([]);
     expect((topicQ.value as any).topic.latestComment.body).toBe('hi');
@@ -741,8 +718,7 @@ describe('records a streamed event writes', () => {
     client.entityMap.getEntity(K('Badge', 'b1'))?.evict();
     client.entityMap.getEntity(K('Icon', 'i1'))?.evict();
 
-    // The badge under the event is a created entity with a record on disk:
-    // its own merge keeps the icon the event did not mention.
+    // A created badge with a record on disk: its merge keeps the icon.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Profile',
@@ -809,8 +785,7 @@ describe('records a streamed event writes', () => {
 
   it('a member routed into the live array of an entity built from events reaches its record', async () => {
     const { client, mockFetch, kv } = getClient();
-    // A second class for Post without the live fields makes them optional in
-    // the merged definition, so an event for a post can omit them.
+    // Without the live fields, a second class makes them optional in events.
     class PostPreview extends Entity {
       __typename = t.typename('Post');
       id = t.id;
@@ -850,11 +825,9 @@ describe('records a streamed event writes', () => {
     const blogQ = holdQuery(client, () => fetchQuery(GetBlog, { id: 'b1' }));
     await blogQ;
     expect(refIds(kv, K('Post', 'p9'))).toEqual([K('Comment', 'c1')]);
-    // The post is collected from memory; its record stays on disk.
     client.entityMap.getEntity(K('Post', 'p9'))!.evict();
 
-    // An event brings the post back into memory, retained by the blog's live
-    // array and built from the event alone: no comments, no count.
+    // Rebuilt from the event alone: no comments, no count.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Post',
@@ -866,7 +839,6 @@ describe('records a streamed event writes', () => {
     expect(p9._partial).toBe(true);
     expect(getDoc(kv, K('Post', 'p9'))).toMatchObject({ title: 'T2', comments: [{ __entityRef: K('Comment', 'c1') }] });
 
-    // A comment routed into its (empty in memory) live array reaches the record.
     client.applyMutationEvent({
       type: 'create',
       typename: 'Comment',
@@ -930,7 +902,6 @@ describe('records a streamed event writes', () => {
     const postQ = holdQuery(client, () => fetchQuery(GetPost, { id: 'p1' }));
     await postQ;
     await holdQuery(client, () => fetchQuery(GetUser, { id: 'u7' }));
-    // The author's record is on disk with its badge; the author is collected from memory.
     client.entityMap.getEntity(K('User', 'u7'))!.evict();
     client.entityMap.getEntity(K('Badge', 'b7'))?.evict();
 
@@ -947,7 +918,6 @@ describe('records a streamed event writes', () => {
     });
     await sleep(5);
     expect((postQ.value as any).post.comments.map((c: any) => c.author.name)).toEqual(['Newbie']);
-    // The event did not mention the badge: the record keeps it.
     expect(getDoc(kv, K('User', 'u7'))).toMatchObject({
       name: 'Newbie',
       karma: 2,
@@ -957,10 +927,6 @@ describe('records a streamed event writes', () => {
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
   });
 });
-
-// ======================================================
-// Entities with an in-memory gcTime linger after release
-// ======================================================
 
 describe('records a streamed event writes when released entities linger (gcTime)', () => {
   class Badge extends Entity {
@@ -1017,15 +983,13 @@ describe('records a streamed event writes when released entities linger (gcTime)
     });
     await sleep(5);
 
-    // Nothing references what the event created. Had the author lingered
-    // until its gcTime, a later event could have written it as an orphan.
+    // Had the author lingered until gcTime, a later event could write it as an orphan.
     expect(client.entityMap.getEntity(K('Comment', 'c9'))).toBeUndefined();
     expect(client.entityMap.getEntity(K('User', 'u7'))).toBeUndefined();
     expect(client.entityMap.getEntity(K('Badge', 'b7'))).toBeUndefined();
     expect(writes()).toEqual([]);
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
 
-    // A second unrouted event for the same author still writes nothing.
     client.applyMutationEvent({
       type: 'create',
       typename: 'Comment',
@@ -1035,7 +999,6 @@ describe('records a streamed event writes when released entities linger (gcTime)
     expect(writes()).toEqual([]);
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
 
-    // A routed create with the same author writes it, with its badge.
     client.applyMutationEvent({
       type: 'create',
       typename: 'Comment',
@@ -1049,7 +1012,6 @@ describe('records a streamed event writes when released entities linger (gcTime)
     expect(refIds(kv, K('User', 'u7'))).toEqual([K('Badge', 'b7')]);
     expect(audit(kv)).toEqual({ orphans: [], dangling: [] });
 
-    // GC time passes; the entities are retained and survive.
     await sleep(300);
     expect(client.entityMap.getEntity(K('User', 'u7'))).toBeDefined();
     expect(client.entityMap.getEntity(K('Badge', 'b7'))).toBeDefined();
@@ -1075,9 +1037,7 @@ describe('records a streamed event writes when released entities linger (gcTime)
   });
 });
 
-// ======================================================
 // AsyncQueryStore writer
-// ======================================================
 
 class AsyncDelegate implements AsyncPersistentStore {
   kv: Record<string, unknown> = {};
@@ -1245,7 +1205,6 @@ describe('AsyncQueryStore writer', () => {
     expect(asyncDoc(delegate, K('Badge', 'b1'))).toMatchObject({ label: 'gold' });
     expect(client.entityMap.getEntity(K('User', 'u1'))).toBeUndefined();
 
-    // An entity the store has never seen leaves nothing behind.
     client.applyMutationEvent({
       type: 'update',
       typename: 'User',
@@ -1286,7 +1245,6 @@ describe('AsyncQueryStore writer', () => {
     const client = makeClient(store, mockFetch);
     await holdQuery(client, () => fetchQuery(GetUser, { id: 'u2' }));
     expect(store.hasEntity!(K('User', 'u1'))).toBeUndefined();
-    // What this writer wrote itself is known even now.
     expect(store.hasEntity!(K('User', 'u2'))).toBe(true);
     const event = () => ({
       type: 'update' as const,
@@ -1392,7 +1350,7 @@ describe('AsyncQueryStore writer', () => {
   it('a store without mergeEntity gets the whole in-memory data of an event-built entity', async () => {
     const kv = new MemoryPersistentStore();
     const inner = new SyncQueryStore(kv);
-    // A custom store forwarding the pre-0.6 surface only.
+    // A custom store with only the pre-0.6 surface.
     const custom = {
       loadQuery: inner.loadQuery.bind(inner),
       saveQuery: inner.saveQuery.bind(inner),
@@ -1425,8 +1383,7 @@ describe('AsyncQueryStore writer', () => {
       data: { __typename: 'User', id: 'u1', name: 'Alicia', karma: 10 },
     });
     await sleep(5);
-    // Written whole, dropping the badge the event did not carry, never as a
-    // record holding only the event's fields.
+    // Written whole, never as a record of only the event's fields.
     expect(getDoc(kv, K('User', 'u1'))).toMatchObject({ __typename: 'User', id: 'u1', name: 'Alicia', karma: 10 });
     expect(getDoc(kv, K('User', 'u1'))!.badge).toBeUndefined();
   });
@@ -1452,8 +1409,7 @@ describe('AsyncQueryStore writer', () => {
     expect(store.isSettled()).toBe(false);
     await purged;
 
-    // The write was acknowledged before the purge dropped the record, so the
-    // client that heard both ends up with the record marked missing.
+    // Acknowledged before the purge dropped it, so the record ends up marked missing.
     expect(log).toEqual(['ack 5', 'delete 9', 'delete 5']);
     expect(delegate.kv[valueKeyFor(5)]).toBeUndefined();
     expect(store.hasEntity!(5)).toBe(false);
@@ -1531,7 +1487,6 @@ describe('AsyncQueryStore writer', () => {
     first.acknowledgeWrite();
     expect(first._persisted).toBe(false);
 
-    // Two writes in flight: the record is current once both have landed.
     first.save();
     first.save();
     expect(first._pendingWrites).toBe(2);
@@ -1557,7 +1512,6 @@ describe('AsyncQueryStore writer', () => {
       result = { list: t.entity(List) };
     }
 
-    // Holds the write of one record until released.
     class GatedDelegate extends AsyncDelegate {
       gatedKey: string | undefined;
       gate: Promise<void> | undefined;
@@ -1599,10 +1553,6 @@ describe('AsyncQueryStore writer', () => {
     expect(asyncDoc(delegate, listKey)).toMatchObject({ items: [{ __entityRef: itemKey }] });
   });
 });
-
-// ======================================================
-// Store work per streamed event
-// ======================================================
 
 describe('store work per streamed event', () => {
   class Author extends Entity {
@@ -1684,7 +1634,6 @@ describe('store work per streamed event', () => {
     await sleep(5);
 
     expect(merges.mock.calls.map(c => c[0])).toEqual([K('Note', 'n1')]);
-    // The field the event did not carry survives.
     expect(getDoc(kv, K('Note', 'n1'))).toMatchObject({ body: 'b', pinned: true });
   });
 });
@@ -1695,8 +1644,7 @@ describe('streamed full payloads for a typename two classes share, entity not in
     id = t.id;
     label = t.string;
   }
-  // A list's class and a detail class of one typename: a list-shaped payload
-  // carries every field of its class, but not the detail's.
+  // A list class and a detail class of one typename. List payloads lack detail fields.
   class CoinRow extends Entity {
     __typename = t.typename('Coin');
     id = t.id;
@@ -1735,7 +1683,6 @@ describe('streamed full payloads for a typename two classes share, entity not in
   });
   const row = (price: number) => ({ __typename: 'Coin', id: 'c1', symbol: 'C', price });
 
-  /** Writes the detail's record, registers the list class, and drops both from memory. */
   async function setup(tc: ReturnType<typeof getClient>): Promise<void> {
     tc.mockFetch.get('/coin/c1', detail('first'));
     tc.mockFetch.get('/coins', { coins: [{ __typename: 'Coin', id: 'c2', symbol: 'D', price: 2 }] });
@@ -1814,7 +1761,7 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
   });
 
   class Badge extends Entity {
-    // Lingers in memory once released, so a later apply finds the same instance.
+    // Lingers once released, so a later apply finds the same instance.
     static cache = { gcTime: 60 };
     __typename = t.typename('Badge');
     id = t.id;
@@ -1887,7 +1834,6 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
 
   it('an entity a queued write stops referencing is written again when it is referenced again', async () => {
     class Card extends Entity {
-      // Lingers in memory once released, so the next event finds the same instance.
       static cache = { gcTime: 60 };
       __typename = t.typename('Card');
       id = t.id;
@@ -1919,8 +1865,7 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
     await drain(store);
     await scanned(store);
 
-    // The deck's write drops its reference to c1, the only one on disk. Before
-    // it is processed, the same card is created again with identical data.
+    // Recreated with identical data before the deck's write, which drops c1, lands.
     client.applyMutationEvent({ type: 'delete', typename: 'Card', data: 'c1' });
     client.applyMutationEvent({ type: 'create', typename: 'Card', data: card });
     await drain(store);
@@ -1931,18 +1876,13 @@ describe('AsyncQueryStore writer: write skipping while writes are queued', () =>
   });
 });
 
-// ======================================================
-// A typename two classes share, across sessions
-// ======================================================
-
 describe('an event for a typename whose other class is not registered this session', () => {
   class Tag extends Entity {
     __typename = t.typename('Tag');
     id = t.id;
     label = t.string;
   }
-  // A list's class and a detail class of one typename: a list-shaped event
-  // carries every field of the list's class, but not the detail's.
+  // A list-shaped event carries every CoinRow field, but not the detail's.
   class CoinRow extends Entity {
     __typename = t.typename('Coin');
     id = t.id;
@@ -2057,7 +1997,6 @@ describe('an event for a typename whose other class is not registered this sessi
       typename: 'Market',
       data: { __typename: 'Market', id: 'm1', top: row('c1', 3) },
     });
-    // A later event for the in-memory entity still merges.
     client.applyMutationEvent({ type: 'update', typename: 'Coin', data: row('c1', 4) });
 
     expect(getDoc(kv, K('Coin', 'c1'))).toEqual(detailRecord(4));

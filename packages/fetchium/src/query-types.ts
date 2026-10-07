@@ -7,12 +7,8 @@ import { QueryDefinition } from './query.js';
 // Query Types
 // -----------------------------------------------------------------------------
 
-/**
- * Reports whether the app is in the foreground. Supplied by the host (for
- * React Native, wrap `AppState`), since Fetchium cannot observe it itself.
- */
+/** Host-supplied foreground state, e.g. wrapping React Native's `AppState`. */
 export interface ActivitySource {
-  /** `true` while the app is foregrounded and background work should run. */
   isActive(): boolean;
   /** Calls `listener` whenever `isActive()` may have changed. Returns an unsubscribe function. */
   subscribe(listener: () => void): () => void;
@@ -26,10 +22,8 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
-  // `activity` and `pollResumeJitterMs` (see `QueryClientConfig`) reach the
-  // context as pass-through keys but are not declared here, since an app may
-  // have augmented this interface with its own field of the same name.
-  // `poll()` validates them before use.
+  // `activity` and `pollResumeJitterMs` reach the context undeclared: an app may
+  // have augmented this interface with the same names.
 }
 
 /**
@@ -62,13 +56,7 @@ export interface QueryConfigOptions {
   networkMode?: NetworkMode; // default: NetworkMode.Online
   retry?: RetryConfig | number | boolean; // default: 3 on client, 0 on server
   refreshStaleOnReconnect?: boolean; // default: true
-  /**
-   * Milliseconds. When the query reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this, it is not refetched even if
-   * stale. Data a subscription pushed to counts as fresh from the last push.
-   * Overrides `QueryClientConfig.reactivationGraceMs`. Does not affect network
-   * reconnects, `refetch()`, or invalidation.
-   */
+  /** Ms. Overrides `QueryClientConfig.reactivationGraceMs` for this query. */
   reactivationGraceMs?: number;
   subscribe?: (this: any, onEvent: (event: import('./types.js').MutationEvent) => void) => () => void;
 }
@@ -116,11 +104,9 @@ export interface QueryStore {
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void;
 
   /**
-   * Writes the fields streamed events supplied for an entity built from them.
-   * If the store holds a record for the key, it merges `fields` over it and
-   * derives references from the merged value. Otherwise `fields` becomes the
-   * record. Without this method the client calls `saveEntity` with the whole
-   * in-memory data, which drops the fields the events did not carry.
+   * Writes the fields streamed events supplied, merged over the stored record
+   * if one exists (references derived from the merged value). Without it the
+   * client calls `saveEntity`, dropping fields the events did not carry.
    */
   mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>): void;
 
@@ -132,41 +118,35 @@ export interface QueryStore {
 
   /**
    * Called with the key of every record the store drops on its own (eviction,
-   * cascade, purge). May return an unsubscribe function, which the client
-   * calls from `destroy()`. A store without this hook is written on every
-   * apply.
+   * cascade, purge). May return an unsubscribe, called from `destroy()`.
+   * Without it, entities are written on every apply.
    */
   onDelete?(listener: (key: number) => void): void | (() => void);
 
   /**
-   * For stores that process writes asynchronously: called with each entity
-   * key once its write has been applied. The client then treats an entity as
-   * persisted only after this acknowledgement, so a dropped write is retried.
+   * Async stores: called with each entity key once its write is applied. The
+   * client treats an entity as persisted only after this acknowledgement.
    */
   onPersisted?(listener: (key: number) => void): void | (() => void);
 
   /**
-   * For stores that process writes asynchronously: whether every operation
-   * handed to the store has been processed. While it returns `false` the
-   * client does not skip entity writes, since an operation still queued could
-   * delete the record the skip relies on. Absent means always settled.
+   * Async stores: whether every queued operation has been processed. While
+   * `false` the client does not skip unchanged entity writes. Absent means
+   * always settled.
    */
   isSettled?(): boolean;
 
   /**
-   * For stores that process writes asynchronously, a narrower `isSettled`:
-   * whether an operation that could delete a record is still queued. The
-   * client's own entity writes don't count, since it rewrites any entity whose
-   * reference they drop. When present it replaces `isSettled`, so a burst of
-   * entity writes doesn't disable write skipping for every other entity.
+   * Async stores: a narrower `isSettled` that ignores the client's own entity
+   * writes, reporting only queued operations that could delete a record.
+   * Takes precedence over `isSettled` when present.
    */
   hasQueuedDeletes?(): boolean;
 
   /**
-   * Whether the store holds a record for this entity key, or `undefined` if
-   * it can't tell yet (it hasn't finished reading what it holds). A streamed
-   * event for an entity not in memory refreshes the record only when this
-   * returns `true`. Without this hook, such events are not written.
+   * Whether the store holds a record for this key, or `undefined` if it can't
+   * tell yet. An event for an entity not in memory is written only when this
+   * returns `true`.
    */
   hasEntity?(key: number): boolean | undefined;
 

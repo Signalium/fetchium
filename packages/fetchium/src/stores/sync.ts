@@ -76,31 +76,17 @@ export class MemoryPersistentStore implements SyncPersistentStore {
   }
 }
 
-/**
- * Delete listeners are keyed by the backing kv, not the store instance: two
- * stores over one kv delete each other's records, and a client behind either
- * must hear about it.
- */
+/** Keyed by kv, not store: two stores over one kv delete each other's records. */
 const deleteListenersByKv = new WeakMap<SyncPersistentStore, Array<(key: number) => void>>();
 
-/**
- * For a record last written by `mergeEntity()`: which fields that write
- * carried, and the rest of the record (`storedRecordRest`). A later merge of
- * the same fields builds the record from this without reading the stored one,
- * so a high-rate update stream for entities not in memory reads each record
- * only once.
- */
+/** A `mergeEntity()` write's fields and the record's rest, so a same-fields merge skips the read. */
 interface MergeRest {
   fields: string;
   json: string;
   refIds: number[];
 }
 
-/**
- * Keyed by the backing kv, like the delete listeners. Any write or delete
- * through a store over that kv drops the record's entry, so entries match
- * what is on disk. Writing to the kv directly would leave them stale.
- */
+/** Keyed by kv. Writes through any store over it drop entries. Direct kv writes do not. */
 const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>();
 /** LRU bound. An evicted record's next merge reads it again. */
 const MAX_MERGE_RESTS = 1024;
@@ -188,8 +174,7 @@ export class SyncQueryStore implements QueryStore {
 
   private preloadEntities(entityIds: Uint32Array, preloaded: PreloadedEntityMap): void {
     for (const entityId of entityIds) {
-      // Records can reference each other in a cycle (a file whose record
-      // links back to its folder); one read per record.
+      // Records can reference each other in a cycle.
       if (preloaded.has(entityId)) continue;
       const entityValue = this.kv.getString(valueKeyFor(entityId));
 
@@ -389,10 +374,8 @@ export class SyncQueryStore implements QueryStore {
         queue = new Uint32Array(maxCount);
         this.kv.setBuffer(queueKeyFor(queryDefId), queue);
       } else if (queue.length !== maxCount) {
-        // `maxCount` changed since the queue was written. A view over the old
-        // buffer can't grow, and a shorter one would strand the keys it drops:
-        // copy what fits and evict the rest. The key being activated moves to
-        // the front, so it is kept wherever it sits.
+        // A view over the old buffer can't grow, and a shorter one would strand
+        // the keys it drops. The activated key moves to the front, so keep it.
         const resized = new Uint32Array(maxCount);
         resized.set(queue.subarray(0, Math.min(queue.length, maxCount)));
         for (let i = maxCount; i < queue.length; i++) {
@@ -526,7 +509,7 @@ export class SyncQueryStore implements QueryStore {
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));
-    // A copy: a listener may unsubscribe while being notified.
+    // A listener may unsubscribe while being notified.
     for (const listener of this.deleteListeners.slice()) listener(id);
 
     const refIds = kv.getBuffer(refIdsKeyFor(id));

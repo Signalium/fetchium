@@ -39,12 +39,7 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
-/**
- * Options for `new QueryClient(config)`. Every key, including unlisted ones,
- * also reaches query and mutation code as `this.context`, so an app can pass
- * its own services through the config. The names declared below are reserved
- * and always read as that option.
- */
+/** Options for `new QueryClient(config)`. Every key also reaches queries and mutations as `this.context`. */
 export interface QueryClientConfig {
   store?: QueryStore;
   adapters?: QueryAdapter[];
@@ -59,93 +54,69 @@ export interface QueryClientConfig {
   evictionMultiplier?: number;
   /**
    * Milliseconds. A query that reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this is not refetched, even when the
-   * data is past its `staleTime`. Data a subscription pushed to (a `subscribe`
-   * stream event, or a topic event sent with its topic) counts as fresh from
-   * the last push; a `poll()` keeps data current only through the fetches it
-   * makes. Queries can override the window with `reactivationGraceMs` in
-   * their config. Network reconnects,
-   * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
-   * still refetch. `Infinity` never refetches on reactivation. Default: 0
-   * (every stale query refetches on reactivation).
+   * scope resumes) with data younger than this is not refetched, even if stale.
+   * Subscription pushes count as fresh data. Queries can override it with
+   * `reactivationGraceMs`. Reconnects, `refetch()`, invalidation, `markStale()`
+   * and a failed last fetch still refetch. Default: 0.
    */
   reactivationGraceMs?: number;
   /**
-   * Decides whether a failed query attempt (or a mutation attempt, when the
-   * mutation enables retries) is retried. Receives the error, the attempt index
-   * (starting at 0) and the attempt's HTTP status when known. A query's or
-   * mutation's own `retry.shouldRetry` overrides it. Without it, every failed
-   * attempt is retried. Use it to stop retrying permanent errors such as a 4xx.
+   * Decides whether a failed query or mutation attempt is retried, for example
+   * to stop on a 4xx. A query's or mutation's own `retry.shouldRetry` overrides
+   * it. Default: every failed attempt is retried.
    */
   shouldRetry?: ShouldRetry;
   /**
    * Milliseconds. Reactivation refetches that start in the same task (for
    * example every query on a screen that just resumed) are spread evenly
    * across this window, in activation order, instead of all starting at once.
-   * Queries of an adapter that `coalescesRequests` are not spread. A value
-   * that is not a finite positive number counts as 0. Default: 0 (all start
-   * together).
+   * Queries of an adapter that `coalescesRequests` are not spread. Values that
+   * are not finite and positive count as 0. Default: 0.
    */
   reactivationStaggerMs?: number;
   /**
    * Foreground/background source. When set, `poll()` stops its timers while
-   * the app is inactive and resumes them when it becomes active again. A value
-   * without `isActive` and `subscribe` functions is ignored (with a warning in
-   * development). Default: undefined (polls run regardless of app state).
+   * the app is inactive and resumes them when it becomes active again. Values
+   * without `isActive` and `subscribe` are ignored. Default: undefined.
    */
   activity?: ActivitySource;
   /**
-   * Milliseconds. A `poll()` tick that is overdue when the app becomes active
-   * again (or whose timer fires more than a second late, as happens when the
-   * JS thread was suspended in the background) is rescheduled at a random
-   * point within this window rather than firing immediately alongside every
-   * other overdue poll. A value that is not a finite positive number counts
-   * as 0. Default: 0 (overdue ticks fire immediately).
+   * Milliseconds. A `poll()` tick that is overdue on resume, or whose timer
+   * fires over a second late, runs at a random point within this window
+   * instead of immediately. Values that are not finite and positive count as
+   * 0. Default: 0.
    */
   pollResumeJitterMs?: number;
 }
 
 export interface RetainOptions {
-  /**
-   * Milliseconds after which the lease releases itself. Omit to hold it until
-   * the returned `release` is called.
-   */
+  /** Milliseconds until the lease releases itself. Omit to hold until `release` is called. */
   ttl?: number;
 }
 
 export interface PrefetchOptions {
-  /**
-   * Milliseconds to keep the query active if nothing else reads it. Default:
-   * `DEFAULT_PREFETCH_TTL` (10 s).
-   */
+  /** Milliseconds to keep the query active. Default: `DEFAULT_PREFETCH_TTL` (10 s). */
   ttl?: number;
 }
 
-/** How long `prefetch()` keeps a query active when no `ttl` is given. */
 export const DEFAULT_PREFETCH_TTL = 10_000;
 
-/**
- * How long a suspense hold outlives its fetch settling when no reader commits
- * to claim it (the suspended tree was abandoned).
- */
+/** How long a hold outlives its fetch when no reader commits (abandoned tree). */
 const SUSPENSE_HOLD_TTL = 10_000;
 
 /**
  * How long a failed cold fetch's error waits for a render to claim it. A
- * large or time-sliced tree can take far longer than a task to retry a
- * suspended render, and a reader that finds no hold refetches instead of
- * throwing. An error still unclaimed after this belongs to an abandoned tree,
- * so a later mount makes a fresh attempt instead of inheriting it.
+ * time-sliced retry render can take far longer than a task. An unclaimed
+ * error belongs to an abandoned tree, so a later mount retries.
  */
 const UNCLAIMED_FAILURE_TTL = 1_000;
 
 interface SuspenseHold {
   release: () => void;
-  /** Resolves (never rejects) once the cold fetch settles. */
+  /** Never rejects. */
   settled: Promise<void> | undefined;
-  /** The fetch this hold suspended on has settled. */
   done: boolean;
-  /** That fetch failed and its error has been handed to a render. */
+  /** The error has been handed to a render. */
   failed: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
@@ -178,48 +149,28 @@ export class QueryClient {
   currentParseId: number = 0;
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
-  /** With `store.onPersisted`, `_persisted` is set by the store's acknowledgement, not by `save()`. */
+  /** With `store.onPersisted`, `_persisted` is set on acknowledgement, not by `save()`. */
   storeAcksWrites: boolean = false;
-  /**
-   * Per-client static/dynamic key split for each entity shape (see
-   * `shapeKeys` in EntityInstance.ts). Replaced wholesale when a typename
-   * gains a second class, since the split depends on the other classes.
-   */
+  /** Replaced when a typename gains a class, since the static/dynamic split depends on it. */
   shapeKeyCache = new WeakMap<ValidatorDef<any>, EntityKeys>();
 
-  /** See `QueryClientConfig.reactivationGraceMs`. */
   readonly reactivationGraceMs: number;
-  /** See `QueryClientConfig.reactivationStaggerMs`. */
   readonly reactivationStaggerMs: number;
   /** See `QueryClientConfig.shouldRetry`. */
   readonly shouldRetry: ShouldRetry | undefined;
 
-  /** Queries whose reactivation refetch waits for the current task's stagger flush. */
   private staggerQueue = new Set<QueryInstance<any>>();
   private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  /** Release functions of outstanding `retain()` / `prefetch()` leases. */
   private leases = new Set<() => void>();
-  /**
-   * Set during a lease's first run: the queries it reached whose first fetch
-   * (or zero-delay refetch) is queued on a microtask. The lease starts them
-   * before returning. See `retain()`.
-   */
+  /** During a lease's first run: queries with a start queued on a microtask, for the lease to run now. */
   private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
-  /**
-   * Leases taken by `retain()` inside a reactive computation, keyed by the
-   * computation, with the run that took them. See `retain()`.
-   */
+  /** Leases `retain()` took inside a reactive computation, by computation and run. */
   private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
   private warnedReactiveRetain = false;
-  /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
+  /** `useSuspenseQuery` cold-miss leases, by query key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
-  /**
-   * Keys whose last cold failure expired unclaimed. The next attempt's failure
-   * waits `SUSPENSE_HOLD_TTL` instead, so a reader slower than
-   * `UNCLAIMED_FAILURE_TTL` gets the error after one retry rather than
-   * refetching in a loop.
-   */
+  /** Keys whose last cold failure expired unclaimed. The next one waits `SUSPENSE_HOLD_TTL` for a slow reader. */
   private unclaimedFailures = new Set<number>();
 
   private context!: QueryContext;
@@ -248,9 +199,7 @@ export class QueryClient {
     // Must be finite: the window is split into setTimeout delays.
     this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
     this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
-    // All other keys pass through to the context, including the reserved ones
-    // read above and `activity` / `pollResumeJitterMs`, which poll() reads
-    // from there.
+    // The rest, including `activity` and `pollResumeJitterMs` for poll(), go to the context.
     this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -278,7 +227,6 @@ export class QueryClient {
       else instance.recordDeleted();
     });
     if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
-    // A store that processes writes later says when a record is really there.
     this.storeAcksWrites = typeof this.store.onPersisted === 'function';
     const offPersisted = this.store.onPersisted?.(key => {
       this.entityMap.getEntity(key)?.acknowledgeWrite();
@@ -370,11 +318,7 @@ export class QueryClient {
   // Typename Registry (per-client)
   // ======================================================
 
-  /**
-   * Whether every write handed to the store has been processed, so a skipped
-   * write cannot be undone by a deletion the store has queued but not yet run.
-   * A synchronous store is always settled.
-   */
+  /** No queued store deletion can undo a skipped write. */
   storeIsSettled(): boolean {
     const store = this.store;
     if (store.hasQueuedDeletes !== undefined) return !store.hasQueuedDeletes();
@@ -394,8 +338,6 @@ export class QueryClient {
       existing.push(def);
       this.mergedDefCache.delete(typename);
       this.getMergedDef(typename);
-      // The snapshot fast path's static/dynamic split for this typename's
-      // classes now has to account for the new class's fields.
       this.shapeKeyCache = new WeakMap();
     } else {
       this.typenameRegistry.set(typename, [def]);
@@ -537,8 +479,7 @@ export class QueryClient {
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
     }
 
-    // A reader may have activated it earlier in this task with its start still
-    // queued. The lease starts it too.
+    // An earlier reader may have activated it with its start still queued.
     this.leaseStarts?.add(queryInstance);
 
     return queryInstance.relay;
@@ -549,38 +490,15 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Keeps the queries `fn` reads active (fetched, subscribed, and exempt from
-   * GC) until the returned `release` is called, or for `ttl` milliseconds,
-   * whichever comes first. Use it to keep a hidden surface's queries warm, or
-   * to start the queries a likely next screen needs.
-   *
-   * `fn` runs immediately with this client as the `QueryClientContext`, and
-   * again whenever what it reads changes (for example a Signal param). A query
-   * is held when `fn` reads one of its fields (`isReady`, `value`, ...), or
-   * when `fn` returns its promise or an array of them:
+   * Keeps the queries `fn` reads or returns active (fetched, subscribed, exempt
+   * from GC) until `release` is called or `ttl` elapses. `fn` reruns when what
+   * it reads changes. First-run fetches start before `retain` returns. Call it
+   * from an event handler or effect, not a reactive computation.
    *
    * ```ts
    * const release = client.retain(() => [fetchQuery(GetTokens), fetchQuery(GetPrices, { ids })]);
-   * // later, when the surface is gone for good:
    * release();
    * ```
-   *
-   * A reader that mounts while the lease is held joins the already active
-   * query: no new request, and the data (if it has arrived) on its first
-   * render. Releasing never interrupts other readers; when the last one goes,
-   * the query deactivates and its `gcTime` starts as usual. `release` is
-   * idempotent.
-   *
-   * The first run's fetches start before `retain` returns, ahead of anything
-   * already on the microtask queue (such as a render React scheduled for the
-   * same tap). A query that depends on another's result starts once that
-   * result arrives, as with any reader.
-   *
-   * Call `retain` from an event handler or effect, not a reactive computation:
-   * starting a fetch runs adapter code, and a rerunning computation would take
-   * a new lease each run. Called from one anyway, it warns in development,
-   * starts its fetches on their usual microtask, and releases the leases the
-   * computation's previous run took.
    */
   retain(fn: () => unknown, options?: RetainOptions): () => void {
     const owner = currentReactiveOwner();
@@ -605,11 +523,7 @@ export class QueryClient {
     return release;
   }
 
-  /**
-   * `retain()`, with `startNow` choosing whether the first run's fetches start
-   * before returning or on their usual microtask. `useSuspenseQuery` leases
-   * from inside a render, where adapter code must not run, so it passes false.
-   */
+  /** `startNow: false` leaves first-run fetches on their microtask, for callers inside a render. */
   private lease(fn: () => unknown, options: RetainOptions | undefined, startNow: boolean): () => void {
     const w = withContexts([[QueryClientContext, this]], () => watcher(() => holdReturned(fn())));
     const unsubscribe = w.addListener(noop);
@@ -631,8 +545,7 @@ export class QueryClient {
     const starts = startNow ? new Set<QueryInstance<any>>() : undefined;
     this.leaseStarts = starts;
     try {
-      // Run now, so the queries activate (and a synchronous store hydrates
-      // them) before this returns, not on Signalium's next flush.
+      // Activate now, not on Signalium's next flush.
       void w.value;
     } catch (error) {
       release();
@@ -660,18 +573,10 @@ export class QueryClient {
   }
 
   /**
-   * Starts `QueryClass` with `params` now and keeps it active for `ttl`
-   * milliseconds (default {@link DEFAULT_PREFETCH_TTL}), or until the returned
-   * `release` is called. Meant for the tap that commits to a navigation: the
-   * destination's reader, mounting within the window, reuses the in-flight or
-   * finished fetch and renders the data on its first render if it has arrived.
-   *
-   * The `ttl` is an upper bound. The lease ends even if the fetch is still in
-   * flight (offline, or a topic never fulfilled), which aborts it unless a
-   * reader has joined.
-   *
-   * With a synchronous store a fresh cached result is applied without a
-   * request. A stale one is shown and refetched, as on any activation.
+   * Starts `QueryClass` now and keeps it active for `ttl` ms (default
+   * {@link DEFAULT_PREFETCH_TTL}) or until `release` is called, so a reader
+   * mounting within that window reuses the fetch. The lease ends at `ttl` even
+   * if the fetch is in flight, which aborts it unless a reader has joined.
    */
   prefetch<T extends Query>(
     QueryClass: new () => T,
@@ -689,16 +594,9 @@ export class QueryClient {
    * never produced a value (a cold miss), or `undefined` when it has one to
    * render (in memory, or hydrated now from a synchronous store).
    *
-   * A cold miss takes a hold that keeps the query active while the render is
-   * suspended, since React discards a suspended render without subscribing.
-   * The reader's commit releases it (`releaseSuspenseHold`); otherwise it
-   * releases itself `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose
-   * last fetch failed is refetched once per hold: when that attempt fails too,
-   * `error` is set and the hold is dropped, so the caller can throw it. A
-   * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
-   * If that attempt also fails, its error waits `SUSPENSE_HOLD_TTL` for a
-   * render, so even a slow reader reaches its error boundary.
+   * A cold miss takes a hold that keeps the query active while suspended,
+   * since React discards a suspended render without subscribing. A failed
+   * query refetches once per hold, and a second failure sets `error`.
    *
    * @internal
    */
@@ -718,15 +616,14 @@ export class QueryClient {
     }
 
     if (relay.isReady) {
-      // Hydrated by the activation: render it, and keep the hold until the reader commits.
+      // Hydrated by the activation. Keep the hold until the reader commits.
       this.expireSuspenseHold(key, hold);
       return { promise: undefined, key };
     }
 
     if (relay.isPending && hold.done) {
-      // The fetch this hold waited for settled, and another has started since
-      // (a refetch from elsewhere). Suspend on that one: the settled promise
-      // has already resolved, and throwing it again would re-render at once.
+      // Another fetch started after ours settled. Rethrowing the resolved
+      // promise would re-render at once.
       clearTimeout(hold.timer);
       hold.timer = undefined;
       hold.done = false;
@@ -736,10 +633,8 @@ export class QueryClient {
 
     if (!relay.isPending) {
       if (hold.done) {
-        // The fetch this hold waited for failed. Keep the hold until the next
-        // task: React re-renders a throwing component once more before giving
-        // up, and that render must throw the same error, not refetch. A later
-        // mount (an error boundary reset) gets a fresh hold and a new attempt.
+        // Keep the hold one task: React re-renders a throwing component once
+        // more, and that render must throw the same error, not refetch.
         const error = relay.error;
         if (!hold.failed) {
           hold.failed = true;
@@ -751,7 +646,7 @@ export class QueryClient {
         }
         return { promise: undefined, failed: true, error, key };
       }
-      // A failed or not-yet-started fetch: start it now rather than after the activation's refetch hop.
+      // Start now, not after the activation's refetch hop.
       this.queryInstances.get(key)?.refetch();
     }
 
@@ -825,9 +720,7 @@ export class QueryClient {
   /**
    * Parse data: validates, formats, produces parsed entity data objects.
    * Does NOT touch the entity store. Call applyRefs() after to commit entities.
-   *
-   * `copyInput: false` (a fetch result or a cached record, handed over to the
-   * client) copies a nested object only where a parsed value differs from it.
+   * `copyInput: false` copies a nested object only where a parsed value differs.
    */
   parseData(
     obj: unknown,
@@ -886,7 +779,6 @@ export class QueryClient {
     return this.entityMap.getEntity(proxyKey!)!;
   }
 
-  /** `existing`: the instance the caller already looked up under `key`, if any. */
   prepareEntity(
     key: number,
     obj: Record<string, unknown>,
@@ -936,10 +828,7 @@ export class QueryClient {
       return;
     }
 
-    // The apply writes entities the event updates, not ones it creates. A
-    // created entity is written once a written record references it, or below
-    // once the root is known to be retained. Only an event with a new root can
-    // create entities that need collecting here.
+    // Entities the event creates are written only once something retains them.
     const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
@@ -956,7 +845,6 @@ export class QueryClient {
         this.context.log?.warn?.('Failed to apply mutation event', e);
       }
       if (existing === undefined) {
-        // Half applied: nothing built from it can stay.
         const createdRoot = this.entityMap.getEntity(key);
         if (createdRoot !== undefined) this.evictCreated(createdRoot, created!);
       }
@@ -971,13 +859,8 @@ export class QueryClient {
       return;
     }
 
-    // The created root (and what it created) is written when a live array is
-    // about to retain it, or when the store already holds a record of it: a
-    // collected query's cache can still hold this entity, and the event is
-    // that record's only chance to stay fresh. An event is partial, so the
-    // write merges over the record. It comes before routing so that a failed
-    // write routes nothing. A store that can't say what it holds (no
-    // `hasEntity`) is not written, so it never accumulates unreferenced records.
+    // Write a created root if a live array will retain it or the store already
+    // holds it. Before routing, so a failed write routes nothing.
     let matched = false;
     let retains = false;
     this.routeEvent(
@@ -993,8 +876,6 @@ export class QueryClient {
       undefined,
       /* dryRun */ true,
     );
-    // The store is asked only when no live array retains the root, and only
-    // when there is something to write; its answer is handed to save().
     let held: boolean | undefined;
     if (!entity._persisted && entity._pendingWrites === 0) {
       if (!retains) held = this.store.hasEntity?.(key);
@@ -1009,31 +890,20 @@ export class QueryClient {
       }
     }
 
-    // The dry run found no collection to route into: routing again would
-    // only recompute the constraint hashes.
     if (matched) this.routeEvent(typename, entity.data, key, type, eventSource);
     else this.evictUnlessAdopted(entity, created!);
   }
 
-  /**
-   * Evicts the root an event created unless an entity that existed before the
-   * event now references it. References from entities the same event created
-   * (the root included) don't count: they were only reachable through the root.
-   */
+  /** References from entities the same event created don't count as adoption. */
   private evictUnlessAdopted(root: EntityInstance, created: Set<EntityInstance>): void {
     let createdHolders = 0;
     for (const c of created) if (c.entityRefs?.has(root)) createdHolders++;
     if (root.refCount <= createdHolders) this.evictCreated(root, created);
   }
 
-  /**
-   * Evicts the root an event created, along with every entity the event
-   * created that is no longer referenced. They were never written, and
-   * lingering until `gcTime` would let a later event write them as orphans.
-   */
+  /** Also evicts unreferenced entities the event created, so a later event can't write them as orphans. */
   private evictCreated(root: EntityInstance, created: Set<EntityInstance>): void {
     root.evict();
-    // Evicting one releases what it held; repeat until nothing more is free.
     let evicted = true;
     while (evicted) {
       evicted = false;
@@ -1046,10 +916,6 @@ export class QueryClient {
     }
   }
 
-  /**
-   * Entities whose write was requested while an apply was still reifying
-   * them; written once that apply is done.
-   */
   private deferredWrites: Set<EntityInstance> | undefined;
 
   /** @internal */
@@ -1057,11 +923,7 @@ export class QueryClient {
     (this.deferredWrites ??= new Set()).add(entity);
   }
 
-  /**
-   * Writes the deferred entities in the order they were deferred: children
-   * before their parents. If a write fails, the rest are marked so the next
-   * apply writes them.
-   */
+  /** Children were deferred before parents, so insertion order is write order. */
   /** @internal */
   flushDeferredWrites(): void {
     const deferred = this.deferredWrites;
@@ -1082,10 +944,6 @@ export class QueryClient {
     }
   }
 
-  /**
-   * After a failed apply, what it deferred may be half reified, so nothing is
-   * written. Those records are stale and the next apply writes them.
-   */
   /** @internal */
   discardDeferredWrites(): void {
     const deferred = this.deferredWrites;
@@ -1104,9 +962,7 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Called by a query that queued its start (or a zero-delay refetch) on a
-   * microtask, so a lease in its first run can start it before returning.
-   *
+   * A query queued a start on a microtask. A lease in its first run starts it now.
    * @internal
    */
   noteDeferredStart(instance: QueryInstance<any>): void {
@@ -1114,10 +970,10 @@ export class QueryClient {
   }
 
   /**
-   * Queues a reactivation refetch. Everything queued in the same task is
-   * started from one flush, spread evenly across `reactivationStaggerMs` in
-   * the order the queries reactivated, so the first one starts right away.
-   * Queries whose adapter `coalescesRequests` all start right away instead.
+   * Queues a reactivation refetch. One flush per task spreads the queue evenly
+   * across `reactivationStaggerMs` in reactivation order, the first starting
+   * immediately. Queries of an adapter that `coalescesRequests` all start
+   * immediately.
    */
   scheduleReactivationRefetch(instance: QueryInstance<any>): void {
     this.staggerQueue.add(instance);
@@ -1169,12 +1025,7 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Evicts the root entity of a non-entity result that `owner` no longer
-   * shows (its params changed, or it was collected), unless another instance
-   * with the same params still shows it. A root already gone from the entity
-   * map is skipped: its key now belongs to the root of whichever query shows
-   * those params.
-   *
+   * Evicts `owner`'s old non-entity root unless another instance still shows it.
    * @internal
    */
   releaseQueryRoot(root: EntityInstance, owner: QueryInstance<any>): void {
@@ -1286,10 +1137,8 @@ export const QueryClientContext: Context<QueryClient | undefined> = context<Quer
 const noop = (): void => {};
 
 /**
- * The reactive computation (and its run) currently executing, if any. Signalium
- * has no public API for this: a signal read records its consumer, so read a
- * throwaway signal and look at what it recorded. Undefined when the shape
- * isn't the expected one.
+ * The running reactive computation and its run, if any. Signalium has no public
+ * API for this, so read a throwaway signal and inspect the consumer it recorded.
  */
 function currentReactiveOwner(): { ref: object; run: number } | undefined {
   try {
@@ -1304,11 +1153,7 @@ function currentReactiveOwner(): { ref: object; run: number } | undefined {
   }
 }
 
-/**
- * Reads the query promises `retain`'s callback returned, so the lease's
- * watcher depends on them and keeps them active. `isReady` changes once per
- * query, so the watcher reruns at most once for each.
- */
+/** Reads `isReady` on returned query promises so the lease's watcher keeps them active. */
 function holdReturned(returned: unknown): void {
   if (Array.isArray(returned)) {
     for (const item of returned) holdOne(item);

@@ -10,11 +10,6 @@ import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
-/**
- * Resuming a screen paused by `PauseSignalsProvider` reactivates its queries.
- * With `reactivationGraceMs`, data younger than the grace is not refetched.
- */
-
 class GetItem extends RESTQuery {
   path = '/item';
   result = { n: t.number };
