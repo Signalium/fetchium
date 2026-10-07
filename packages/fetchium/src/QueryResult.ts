@@ -57,16 +57,14 @@ export class QueryInstance<T extends Query> {
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
-   * When the running subscription last delivered data: a stream pushed an
-   * event, or a topic adapter delivered one for this query's topic. The data
-   * was known current at that moment, so the reactivation grace measures from
-   * here when it is later than `updatedAt`. A subscription that delivers by
-   * refetching (poll()) moves `updatedAt` instead. Merely having a
-   * subscription running proves nothing: a poll that hasn't ticked yet, or one
-   * stopped while the app was in the background, kept nothing current.
+   * When the subscription last pushed data (a stream event, or a topic event
+   * for this query's topic). The reactivation grace measures from here when
+   * it is later than `updatedAt`. poll() delivers by refetching, so it moves
+   * `updatedAt` instead. A running subscription alone proves nothing: a poll
+   * that hasn't ticked, or one stopped in the background, kept nothing current.
    */
   private lastPushAt: number | undefined = undefined;
-  /** Counts fetches started by runQueryImmediately(). */
+  /** Bumped by every fetch or fetchNext start. A queued reactivation refetch uses it to detect it was overtaken. */
   private fetchStarts: number = 0;
   /** `fetchStarts` when the pending reactivation refetch was queued. */
   private reactivationQueuedAt: number = -1;
@@ -211,7 +209,7 @@ export class QueryInstance<T extends Query> {
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
               // The grace covers a relay resuming, not a network reconnect: data
-              // may have been missed while offline, including while inactive.
+              // may have been missed while offline, even while inactive.
               const withinGrace =
                 activating &&
                 !wasPaused &&
@@ -497,12 +495,11 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Starts a reactivation refetch after `delay` (plus the query's debounce).
-   * Called by the QueryClient's stagger flush, a task after the query was
-   * queued, so it rechecks that the query is still active. A fetch started
-   * since the query was queued (a `refetch()`, a poll tick, an invalidation),
-   * whether still in flight or already done, makes it redundant: it is
-   * skipped rather than aborting and repeating that fetch.
+   * Starts a reactivation refetch after `delay` plus the query's debounce.
+   * The stagger flush calls this a task after queueing, so it rechecks that
+   * the query is still active. Any fetch started since queueing (`refetch()`,
+   * a poll tick, an invalidation) makes it redundant, so it is skipped rather
+   * than aborting and repeating that fetch.
    */
   runReactivationRefetch(delay: number): void {
     if (!this._isActive || this.isPaused || this.relayState.isPending) return;
@@ -630,9 +627,9 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Data is younger than the reactivation grace, and the last fetch didn't
-   * fail. Data a subscription pushed to counts as fresh from its last push.
-   * Invalidation (`updatedAt = 0`) always falls outside.
+   * Data is younger than the reactivation grace and the last fetch didn't
+   * fail. Pushed data counts from its last push. Invalidation (`updatedAt = 0`)
+   * always falls outside.
    */
   private get isWithinReactivationGrace(): boolean {
     const { updatedAt } = this;

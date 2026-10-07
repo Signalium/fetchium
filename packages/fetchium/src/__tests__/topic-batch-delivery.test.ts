@@ -10,10 +10,9 @@ import { t } from '../typeDefs.js';
 import { sleep } from './utils.js';
 
 /**
- * Several topic snapshots delivered in one task (for example one multi-topic
- * snapshot response) settle their queries in a single reactive flush, so
- * consumers re-render once rather than once per topic. Snapshots delivered in
- * separate tasks flush separately; batching them is the adapter's job.
+ * Topic snapshots delivered in one task (for example one multi-topic snapshot
+ * response) settle their queries in a single reactive flush. Snapshots from
+ * separate tasks flush separately. Batching those is the adapter's job.
  */
 
 class SnapshotAdapter extends TopicQueryAdapter {

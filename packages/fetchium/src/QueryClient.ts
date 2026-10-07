@@ -50,14 +50,13 @@ export interface QueryClientConfig {
   evictionMultiplier?: number;
   /**
    * Milliseconds. A query that reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this is not refetched, even when the
-   * data is past its `staleTime`. Data a subscription pushed to (a `subscribe`
-   * stream event, or a topic event sent with its topic) counts as fresh from
-   * the last push; a `poll()` keeps data current only through the fetches it
-   * makes. Queries can override the window with `reactivationGraceMs` in
-   * their config. Network reconnects,
-   * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
-   * still refetch. Default: 0 (every stale query refetches on reactivation).
+   * scope resumes) with data younger than this is not refetched, even if past
+   * its `staleTime`. Data a subscription pushed to (a `subscribe` event, or a
+   * topic event sent with its topic) counts as fresh from the last push. A
+   * `poll()` counts only through its fetches. Queries can override this with
+   * `reactivationGraceMs`. Network reconnects, `refetch()`,
+   * `invalidateQueries()`, `markStale()` and a failed last fetch still
+   * refetch. Default: 0 (every stale query refetches on reactivation).
    */
   reactivationGraceMs?: number;
   /**
@@ -75,11 +74,10 @@ export interface QueryClientConfig {
    */
   activity?: ActivitySource;
   /**
-   * Milliseconds. A `poll()` tick that is overdue when the app becomes active
-   * again (or whose timer fires more than a second late, as happens when the
-   * JS thread was suspended in the background) is rescheduled at a random
-   * point within this window rather than firing immediately alongside every
-   * other overdue poll. Default: 0 (overdue ticks fire immediately).
+   * Milliseconds. A `poll()` tick that is overdue when the app becomes active,
+   * or whose timer fires over a second late (as after the JS thread was
+   * suspended), fires at a random point within this window instead of
+   * immediately alongside every other overdue poll. Default: 0.
    */
   pollResumeJitterMs?: number;
 }
@@ -491,10 +489,10 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Queues a reactivation refetch. Everything queued in the same task is
-   * started from one flush, spread evenly across `reactivationStaggerMs` in
-   * the order the queries reactivated, so the first one starts right away.
-   * Queries whose adapter `coalescesRequests` all start right away instead.
+   * Queues a reactivation refetch. One flush per task spreads the queue evenly
+   * across `reactivationStaggerMs` in reactivation order, the first starting
+   * immediately. Queries of an adapter that `coalescesRequests` all start
+   * immediately.
    */
   scheduleReactivationRefetch(instance: QueryInstance<any>): void {
     this.staggerQueue.add(instance);
