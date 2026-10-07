@@ -230,15 +230,13 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetItem, { id: '1' });
-        // A synchronous store resolves the relay with the cached value in the
-        // read that activates it, so awaiting it yields the cached value.
+        // A synchronous store resolves the relay in the read that activates it.
         relay.value;
         expect(relay.isPending).toBe(false);
         expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
         expect(await relay).toMatchObject({ id: 1, name: 'Cached Data' });
 
-        // The background refetch starts a microtask later; the cached value
-        // stays visible while it is in flight.
+        // The background refetch starts a microtask later, with the cached value still visible.
         await sleep();
         expect(relay.isPending).toBe(true);
         expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
@@ -276,15 +274,13 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
-        // A synchronous store resolves the relay with the cached value in the
-        // read that activates it, so awaiting it yields the cached value.
+        // A synchronous store resolves the relay in the read that activates it.
         relay.value;
         expect(relay.isPending).toBe(false);
         expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
         expect(await relay).toMatchObject({ id: 1, value: 'Persistent' });
 
-        // The background refetch starts a microtask later; the cached value
-        // stays visible while it is in flight.
+        // The background refetch starts a microtask later, with the cached value still visible.
         await sleep();
         expect(relay.isPending).toBe(true);
         expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
@@ -378,16 +374,14 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetDocument);
-        // A synchronous store resolves the relay with the cached value in the
-        // read that activates it, so awaiting it yields the cached value.
+        // A synchronous store resolves the relay in the read that activates it.
         relay.value;
         expect(relay.isPending).toBe(false);
         expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
         const result = await relay;
         expect(result).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
 
-        // The background refetch starts a microtask later; the cached value
-        // stays visible while it is in flight.
+        // The background refetch starts a microtask later, with the cached value still visible.
         await sleep();
         expect(relay.isPending).toBe(true);
         expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });

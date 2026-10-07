@@ -10,13 +10,10 @@ import { QueryDefinition } from '../query.js';
 import { createMockFetch, sleep, testWithClient } from './utils.js';
 
 /**
- * Activation timing with a synchronous persistent store.
+ * Activation timing with a synchronous persistent store (e.g. MMKV on mobile).
  *
- * When the store's `loadQuery` returns synchronously (MMKV on mobile), a
- * freshly activated query must expose its cached value in the same read that
- * activated it, so the first React render has data instead of a skeleton.
- * The first network fetch must start on a microtask, not after a timer hop,
- * and must never run inside the activating read.
+ * The activating read must see the cached value, so the first React render has
+ * data. The first fetch starts on a microtask, never inside the activating read.
  */
 
 /** Same store, but loadQuery resolves on a later microtask (extension-style). */
@@ -51,9 +48,8 @@ async function seedCache(kv: MemoryPersistentStore, QueryClass: new () => RESTQu
 }
 
 /**
- * Activates `read` inside a watched reactive context (the shape React's
- * `useReactive` / `component()` render reads take) and returns what the
- * activating read observed, plus a disposer.
+ * Activates `read` inside a watched reactive context, as React render reads do,
+ * and returns what the activating read observed plus a disposer.
  */
 function activate<T>(client: QueryClient, read: () => T): { first: T; dispose: () => void } {
   let first: T | undefined;
@@ -121,8 +117,6 @@ describe('Activation with a synchronous store', () => {
       return { isReady: relay.isReady, isPending: relay.isPending, value: relay.value?.value };
     });
 
-    // The cached value is resolved, not pending, in the activating read, so a
-    // consumer that awaits the relay gets it immediately.
     expect(first).toEqual({ isReady: true, isPending: false, value: 'cached' });
 
     // The fetch never runs inside the activating read...
