@@ -702,7 +702,7 @@ describe('Entity Snapshots', () => {
     class Container extends Entity {
       __typename = t.typename('Container');
       id = t.id;
-      // The array member sits under the ARRAY_KEY symbol; this used to classify as static.
+      // The array member is keyed by the ARRAY_KEY symbol, not a string.
       content = t.union(t.array(t.entity(Item)), t.object({ __typename: t.typename('Empty'), reason: t.string }));
     }
 
