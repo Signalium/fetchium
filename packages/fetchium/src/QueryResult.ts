@@ -50,23 +50,15 @@ export class QueryInstance<T extends Query> {
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
   private wasPaused: boolean = false;
-  /** `networkManager.reconnects` at the last deactivation. */
   private reconnectsAtDeactivate: number = 0;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
+  /** Errored, not aborted. Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
-  /**
-   * When the subscription last pushed data (a stream event, or a topic event
-   * for this query's topic). The reactivation grace measures from here when
-   * it is later than `updatedAt`. poll() delivers by refetching, so it moves
-   * `updatedAt` instead. A running subscription alone proves nothing: a poll
-   * that hasn't ticked, or one stopped in the background, kept nothing current.
-   */
+  /** Not set by poll(): it delivers by refetching, which moves `updatedAt`. */
   private lastPushAt: number | undefined = undefined;
-  /** Bumped by every fetch or fetchNext start. A queued reactivation refetch uses it to detect it was overtaken. */
+  /** Lets a queued reactivation refetch detect that another fetch overtook it. */
   private fetchStarts: number = 0;
-  /** `fetchStarts` when the pending reactivation refetch was queued. */
   private reactivationQueuedAt: number = -1;
 
   // Invalidates on any signal consumed by getConfig() (such as
@@ -208,8 +200,7 @@ export class QueryInstance<T extends Query> {
               this.runQueryImmediately();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
-              // The grace covers a relay resuming, not a network reconnect: data
-              // may have been missed while offline, even while inactive.
+              // No grace after a reconnect: data may have been missed while offline.
               const withinGrace =
                 activating &&
                 !wasPaused &&
@@ -408,8 +399,7 @@ export class QueryInstance<T extends Query> {
         this.queryClient.getContext(),
       );
       this._executionCtx.refetch = () => this.refetch();
-      // `TopicQuery.getConfig.subscribe` hands this to its adapter, which calls
-      // it when it delivers an event for the query's topic.
+      // `TopicQuery.getConfig.subscribe` passes this to its adapter.
       (this._executionCtx as unknown as Record<string, unknown>)._notePush = this.notePush;
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
       // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
@@ -488,13 +478,7 @@ export class QueryInstance<T extends Query> {
     }, debounce + extraDelay);
   }
 
-  /**
-   * Starts a reactivation refetch after `delay` plus the query's debounce.
-   * The stagger flush calls this a task after queueing, so it rechecks that
-   * the query is still active. Any fetch started since queueing (`refetch()`,
-   * a poll tick, an invalidation) makes it redundant, so it is skipped rather
-   * than aborting and repeating that fetch.
-   */
+  /** Runs a task after queueing. Skipped if a fetch started since, rather than aborting and repeating it. */
   runReactivationRefetch(delay: number): void {
     if (!this._isActive || this.isPaused || this.relayState.isPending) return;
     const queuedAt = this.reactivationQueuedAt;
@@ -511,7 +495,6 @@ export class QueryInstance<T extends Query> {
     );
   }
 
-  /** Records that the subscription delivered data. See `lastPushAt`. */
   private notePush = (): void => {
     if (this._isActive) this.lastPushAt = Date.now();
   };
@@ -620,11 +603,6 @@ export class QueryInstance<T extends Query> {
     return Date.now() - this.updatedAt >= staleTime;
   }
 
-  /**
-   * Data is younger than the reactivation grace and the last fetch didn't
-   * fail. Pushed data counts from its last push. Invalidation (`updatedAt = 0`)
-   * always falls outside.
-   */
   private get isWithinReactivationGrace(): boolean {
     const { updatedAt } = this;
     if (updatedAt === undefined || updatedAt === 0 || this.lastFetchFailed) return false;
