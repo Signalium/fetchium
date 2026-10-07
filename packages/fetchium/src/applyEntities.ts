@@ -30,12 +30,10 @@ export interface ApplyResult {
 
 /**
  * Whether an apply writes to the store. `true` writes every entity that needs
- * it; `false` writes nothing (a cache hydration); `'existing'` writes entities
- * that already existed in memory and not the ones this apply creates: those
- * are written when a written record references them (`EntityInstance.save`
- * writes a record's missing children first), or by the caller once it knows
- * the root is retained (a streamed event whose root may end up routed
- * nowhere).
+ * it, and `false` writes nothing (cache hydration). `'existing'` writes only
+ * entities already in memory. Ones this apply creates are written when a
+ * written record references them (`EntityInstance.save` writes missing
+ * children first), or by the caller once it knows the root is retained.
  */
 export type PersistMode = boolean | 'existing';
 
@@ -91,8 +89,8 @@ function reifyAndApply(
     return applyEntity(entity, seen, queryClient, persist, entityRefs, appendMode, created);
   }
 
-  // Only a slot whose value changes is written: values the parser did not
-  // declare (and so did not copy) may belong to the caller, and be frozen.
+  // Assign only slots whose value changes: values the parser did not declare
+  // (and so did not copy) may belong to the caller and be frozen.
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const item = value[i];
@@ -138,11 +136,10 @@ function applyEntity(
   const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial, record } = entity;
   const shapeFields = entityShape.shape;
 
-  // The same entity can appear more than once in one payload (an author under
-  // `author` and again under `mentions`). The parser hands every slot the one
-  // parsed object, so the walk arrives here once per slot; applying it again
-  // would find its children already reified, count none of them and release
-  // every child ref. Count this slot's reference and hand out the proxy.
+  // An entity can appear in several slots of one payload (under `author` and
+  // `mentions`), all sharing one parsed object. Applying it again would find
+  // its children already reified, count none and release every child ref, so
+  // only count this slot's reference.
   const applied = queryClient.entityMap.getEntity(key);
   if (applied !== undefined && applied.parseId === queryClient.currentParseId) {
     parentEntityRefs.set(applied, (parentEntityRefs.get(applied) ?? 0) + 1);
@@ -273,9 +270,9 @@ function applyEntity(
   const newRefs = keepsHeldRefs ? heldRefs : childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
   // An entity hydrated from the store was never written, so there is no write
-  // to skip. One whose own write is still queued has its current data on the
-  // way. A skip is also only safe while the store has no deletion queued: it
-  // could drop the record this apply trusts.
+  // to skip. One with a write still queued has its current data on the way.
+  // Skipping is only safe while the store has no deletion queued, which could
+  // drop the record this apply trusts.
   const needsPersist =
     changed ||
     refsChanged ||
@@ -377,8 +374,8 @@ function mergeFields(
 
     const raw = data[fieldKey];
     if (shouldReify(raw)) {
-      // Written only when it changes: an object the parser kept as is (a
-      // fetch result's) may belong to the adapter, and be frozen.
+      // Assign only on change: an object the parser kept as is (from a fetch
+      // result) may belong to the adapter and be frozen.
       const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
       if (reified !== raw) data[fieldKey] = reified;
     }
@@ -410,11 +407,9 @@ function mergeFields(
       // payload fails validation, so every update carries the full variant.
       const isUnion = propShape instanceof ValidatorDef && (propShape.mask & Mask.UNION) !== 0;
       if (!isUnion && isPlainObject(newVal) && isPlainObject(oldVal)) {
-        // Only an object/entity def carries a record of field defs. A record
-        // def's shape is its *value* type — a bare `Mask` for `t.record(t.string)`
-        // — and recursing into that iterated `Object.entries(8)`, merged
-        // nothing, and then restored the old value: record fields never
-        // applied an update, an addition or a removal.
+        // Only object/entity defs have a record of field defs as their shape.
+        // A record def's shape is its value type (a bare `Mask` for
+        // `t.record(t.string)`), which must not be recursed into as fields.
         const nestedShape =
           propShape instanceof ValidatorDef &&
           propShape.shape !== undefined &&
@@ -423,8 +418,8 @@ function mergeFields(
           !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
-        // The parser keeps a fetch result's unchanged objects as they are, and
-        // an adapter may hand out frozen ones: merge into a copy of those.
+        // An unchanged object kept from a fetch result may be frozen by the
+        // adapter: merge into a copy.
         const target = Object.isFrozen(oldVal) ? { ...oldVal } : oldVal;
         if (nestedShape !== undefined) {
           if (
@@ -444,9 +439,9 @@ function mergeFields(
             )
           ) {
             changed = true;
-            // Merged in place, so the value keeps its identity: hand out a
-            // new wrapper, so whoever holds just this value (a child given it
-            // as a prop) sees a new one. A merged copy is a new value already.
+            // Merged in place, so the value keeps its identity. Drop its
+            // wrapper so a child given just this value as a prop sees a new
+            // one. A merged copy is already a new value.
             if (target === oldVal) dropNestedWrapper(oldVal);
             existingData[fieldKey] = target;
           } else {
@@ -468,13 +463,13 @@ function mergeFields(
           }
           existingData[fieldKey] = merged ? target : oldVal;
         } else {
-          // A key was added or removed. Copying field by field would never
-          // apply a removal, leaving the old key in `data` indefinitely.
+          // A key was added or removed. Replace wholesale, since copying field
+          // by field can't apply a removal.
           existingData[fieldKey] = newVal;
           changed = true;
         }
       } else if (!sameValue(oldVal, newVal)) {
-        // Otherwise the existing value stays, so its identity survives.
+        // An equal value keeps the existing reference.
         existingData[fieldKey] = newVal;
         changed = true;
       }
@@ -505,8 +500,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
   if (a instanceof FormattedValue || b instanceof FormattedValue) {
     return a instanceof FormattedValue && b instanceof FormattedValue && a._raw === b._raw;
   }
-  // Distinct proxies are distinct entities, and anything else exotic (a Date, a
-  // live collection binding, a class instance) is not safely comparable.
+  // Distinct proxies are distinct entities. Other exotic objects (a Date, a
+  // live collection binding, a class instance) fail the prototype check below.
   if (PROXY_ID.has(a) || PROXY_ID.has(b)) return false;
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
@@ -520,8 +515,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
   if (aKeys.length !== Object.keys(b).length) return false;
   for (let i = 0; i < aKeys.length; i++) {
     const key = aKeys[i];
-    // `hasOwn`, not `in`: `in` reaches the prototype, so a key missing from `b`
-    // can be answered by `Object.prototype` and compared against instead.
+    // `hasOwn`, not `in`: `in` would let `Object.prototype` answer for a key
+    // missing from `b`.
     if (!Object.hasOwn(b, key)) return false;
     if (!sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
   }
@@ -531,8 +526,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
 /**
  * Compares the ref *key set*, which is what a write would change: the store
  * persists `refKeys` with no counts, and `setChildRefs` retains and releases on
- * a key appearing or disappearing. Comparing counts would force a write that
- * produced byte-identical bytes.
+ * a key appearing or disappearing. Comparing counts would force a write of
+ * identical bytes.
  */
 export function sameRefs(
   a: Map<EntityInstance, number> | undefined,
@@ -569,8 +564,8 @@ function initFields(
 
     const raw = data[fieldKey];
     if (shouldReify(raw)) {
-      // Written only when it changes: an object the parser kept as is (a
-      // fetch result's) may belong to the adapter, and be frozen.
+      // Assign only on change: an object the parser kept as is (from a fetch
+      // result) may belong to the adapter and be frozen.
       const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
       if (reified !== raw) data[fieldKey] = reified;
     }
@@ -587,11 +582,9 @@ function initFields(
     } else {
       const val = data[fieldKey];
       if (isPlainObject(val)) {
-        // Only an object/entity def carries a record of field defs. A record
-        // def's shape is its *value* type — a bare `Mask` for `t.record(t.string)`
-        // — and recursing into that iterated `Object.entries(8)`, merged
-        // nothing, and then restored the old value: record fields never
-        // applied an update, an addition or a removal.
+        // Only object/entity defs have a record of field defs as their shape.
+        // A record def's shape is its value type (a bare `Mask` for
+        // `t.record(t.string)`), which must not be recursed into as fields.
         const nestedShape =
           propShape instanceof ValidatorDef &&
           propShape.shape !== undefined &&

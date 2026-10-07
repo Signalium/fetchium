@@ -14,10 +14,8 @@ import { valueKeyFor, refIdsKeyFor, queueKeyFor, DEFAULT_MAX_COUNT } from '../st
 import { createMockFetch, setupTestClient, testWithClient, sleep } from './utils.js';
 
 /**
- * Regression coverage for the follow-ups to the snapshot fast path (#59),
- * unchanged-apply skipping (#60), single-write events (#61) and store
- * deletion reporting (#64). Each case failed on the tree with those PRs and
- * passed on the tree before them.
+ * Invariants the snapshot fast path (#59), unchanged-apply skipping (#60),
+ * single-write events (#61) and store deletion reporting (#64) must keep.
  */
 
 function getDoc(kv: MemoryPersistentStore, key: number): Record<string, unknown> | undefined {
@@ -1142,8 +1140,8 @@ describe('snapshot fast path follow-ups', () => {
     const computesBefore = wrapped.computes();
     expect('__refetch' in before.profile).toBe(false);
 
-    // The entity-rooted query applies identical data: its own consumer sees
-    // the extras, the wrapped query's consumer is not re-run for them.
+    // The entity-rooted query applies identical data. Its own consumer sees
+    // the extras, but the wrapped query's consumer is not re-run for them.
     const root = snapshotHarness(client, () => fetchQuery(GetRoot));
     await root.query;
     await sleep(5);

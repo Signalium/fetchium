@@ -79,9 +79,9 @@ export interface LiveInstance {
   readonly _notifier: Notifier;
   getValue(): unknown;
   getRawValue(): unknown;
-  /** Returns whether the value/membership actually changed. */
+  /** Returns whether the value or membership changed. */
   reset(raw: unknown): boolean;
-  /** Returns whether anything was actually added. */
+  /** Returns whether anything was added. */
   append(raw: unknown): boolean;
   onEvent(
     entityKey: number,
@@ -103,9 +103,9 @@ export class LiveCollectionBinding {
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
   /**
-   * What reads of the value's contents consume. The array or object
-   * `getValue()` returns can change in place without the parent entity
-   * changing, so its wrapper must not follow the entity's notifier.
+   * Consumed by reads of the value's contents. The value from `getValue()`
+   * can change in place without the parent entity changing, so its wrapper
+   * can't rely on the entity's notifier.
    */
   readonly _valueOwner: Notifier;
 
@@ -330,7 +330,7 @@ export class LiveArrayInstance {
     if (this._fieldKey !== undefined) this._parent.liveFieldChanged?.(this._fieldKey);
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
-      // Only the parent's ref set needs persisting; the child's record is current.
+      // Only the parent's ref set changed. The child's record is already current.
       this._parent.addChildRef(child);
     }
 
@@ -470,9 +470,8 @@ export class LiveValueInstance {
         this._value = this._onDelete(this._value, entity ?? entityData);
         break;
     }
-    // Notify after every reducer run, even one that returns the value it was
-    // given: a reducer may mutate the value in place (push onto an array and
-    // return it), and a reference check can't tell that from a no-op.
+    // Notify even when the reducer returns the same reference: it may have
+    // mutated the value in place.
     this._notifier.notify();
   }
 
@@ -486,10 +485,9 @@ export class LiveValueInstance {
   }
 
   /**
-   * Shaped differently from `LiveArrayInstance.reset`, which returns before
-   * touching anything: the dedup sets have to be cleared either way, or a
-   * repeated `create` would apply its reducer twice. Only the notify is
-   * conditional.
+   * Unlike `LiveArrayInstance.reset`, this can't return early: the dedup sets
+   * must be cleared even when the value is unchanged, or a repeated `create`
+   * would apply its reducer twice. Only the notify is conditional.
    */
   reset(value: unknown): boolean {
     const changed = this._value !== value;

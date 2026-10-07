@@ -27,9 +27,9 @@ export interface QueryContext {
   };
   evictionMultiplier?: number;
   // `activity` and `pollResumeJitterMs` (see `QueryClientConfig`) reach the
-  // context as pass-through keys, as any custom config key does, but are not
-  // declared here: an app may have augmented this interface with its own
-  // field of the same name. `poll()` checks their shape before using them.
+  // context as pass-through keys but are not declared here, since an app may
+  // have augmented this interface with its own field of the same name.
+  // `poll()` validates them before use.
 }
 
 /**
@@ -64,10 +64,10 @@ export interface QueryConfigOptions {
   refreshStaleOnReconnect?: boolean; // default: true
   /**
    * Milliseconds. When the query reactivates (a watcher returns, or a paused
-   * scope resumes) and its data is younger than this, it is not refetched even
-   * if stale. Data a subscription pushed to (a stream event, or a topic event
-   * sent with its topic) counts as fresh from the last push. Overrides `QueryClientConfig.reactivationGraceMs`. Does
-   * not affect network reconnects, `refetch()`, or invalidation.
+   * scope resumes) with data younger than this, it is not refetched even if
+   * stale. Data a subscription pushed to counts as fresh from the last push.
+   * Overrides `QueryClientConfig.reactivationGraceMs`. Does not affect network
+   * reconnects, `refetch()`, or invalidation.
    */
   reactivationGraceMs?: number;
   subscribe?: (this: any, onEvent: (event: import('./types.js').MutationEvent) => void) => () => void;
@@ -119,12 +119,11 @@ export interface QueryStore {
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void;
 
   /**
-   * Writes the fields streamed events supplied for an entity built from them:
-   * a store that holds a record for the key merges `fields` over it (and
-   * derives the record's references from the merged value); one that does not
-   * writes `fields` as the record. A store without this method gets the
-   * entity's whole in-memory data through `saveEntity` instead, which drops
-   * from its record the fields the events did not carry.
+   * Writes the fields streamed events supplied for an entity built from them.
+   * If the store holds a record for the key, it merges `fields` over it and
+   * derives references from the merged value. Otherwise `fields` becomes the
+   * record. Without this method the client calls `saveEntity` with the whole
+   * in-memory data, which drops the fields the events did not carry.
    */
   mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>): void;
 
@@ -136,16 +135,16 @@ export interface QueryStore {
 
   /**
    * Called with the key of every record the store drops on its own (eviction,
-   * cascade, purge). May return an unsubscribe function; the client calls it
-   * from `destroy()`. A store without this hook is written on every apply.
+   * cascade, purge). May return an unsubscribe function, which the client
+   * calls from `destroy()`. A store without this hook is written on every
+   * apply.
    */
   onDelete?(listener: (key: number) => void): void | (() => void);
 
   /**
-   * For stores that process writes asynchronously: called with the key of
-   * every entity record once its write has actually been applied. While a
-   * store offers this, the client treats an entity as persisted only after
-   * the acknowledgement, so a write the store dropped is retried.
+   * For stores that process writes asynchronously: called with each entity
+   * key once its write has been applied. The client then treats an entity as
+   * persisted only after this acknowledgement, so a dropped write is retried.
    */
   onPersisted?(listener: (key: number) => void): void | (() => void);
 
@@ -159,20 +158,18 @@ export interface QueryStore {
 
   /**
    * For stores that process writes asynchronously, a narrower `isSettled`:
-   * whether an operation that could delete a record is still queued. This
-   * client's own entity writes do not count; for those that drop a
-   * reference, the client itself writes the referenced entity again. When
-   * present, the client uses it instead of `isSettled`, so a burst of entity
-   * writes does not turn write skipping off for every other entity.
+   * whether an operation that could delete a record is still queued. The
+   * client's own entity writes don't count, since it rewrites any entity whose
+   * reference they drop. When present it replaces `isSettled`, so a burst of
+   * entity writes doesn't disable write skipping for every other entity.
    */
   hasQueuedDeletes?(): boolean;
 
   /**
-   * Whether the store currently holds a record for this entity key, or
-   * `undefined` while it cannot tell yet (a store that has not finished
-   * reading what it holds). A streamed event for an entity that is not in
-   * memory refreshes the record only when this answers `true`; a store
-   * without this hook is not written for such events.
+   * Whether the store holds a record for this entity key, or `undefined` if
+   * it can't tell yet (it hasn't finished reading what it holds). A streamed
+   * event for an entity not in memory refreshes the record only when this
+   * returns `true`. Without this hook, such events are not written.
    */
   hasEntity?(key: number): boolean | undefined;
 

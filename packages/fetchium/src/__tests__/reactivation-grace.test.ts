@@ -16,10 +16,9 @@ import { Entity } from '../proxy.js';
 import { createMockFetch, createTestWatcher } from './utils.js';
 
 /**
- * Reactivation grace and stagger: a query whose relay resumes (its watchers
- * return, or a paused scope resumes) skips the refetch while its data is
- * younger than `reactivationGraceMs`, and reactivation refetches that start
- * together are spread across `reactivationStaggerMs`.
+ * A reactivating query skips its refetch while its data is younger than
+ * `reactivationGraceMs`. Reactivation refetches that start together are spread
+ * across `reactivationStaggerMs`.
  */
 
 class GetA extends RESTQuery {
@@ -117,7 +116,7 @@ describe('reactivation grace and stagger', () => {
   }
 
   it('passes the grace, stagger and shouldRetry options through to the query context too', () => {
-    // As every config key did before these options existed.
+    // Like any other config key.
     const shouldRetry = () => false;
     const client = makeClient({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
     expect(client.getContext()).toMatchObject({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
@@ -344,8 +343,7 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(1);
 
-      // Still subscribed, but silent: the credit stops at the last push, not
-      // at the deactivation.
+      // Silent since: the grace counts from the last push, not the deactivation.
       await vi.advanceTimersByTimeAsync(20_000);
       unsub2();
       await vi.advanceTimersByTimeAsync(10);

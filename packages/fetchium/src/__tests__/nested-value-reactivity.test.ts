@@ -9,13 +9,10 @@ import { testWithClient, sleep, setupTestClient } from './utils.js';
 
 /**
  * Nested values (`t.object` and `t.record` fields, live collection values) are
- * merged in place. A computation that only holds the nested value, such as a
- * child component given `entity.price` as a prop, never reads the entity:
- * - an entity's nested value is handed out through a new wrapper once a merge
- *   changed it, so the parent, which the entity re-runs, passes a new value;
- *   an unchanged one keeps its wrapper, so the child is left alone;
- * - a live collection's value changes in place under the collection's
- *   notifier, which reads through its wrapper consume.
+ * merged in place, and a child given only the nested value never reads the
+ * entity. A changed entity value gets a new wrapper, so the parent passes a new
+ * value. A live collection value's wrapper reads consume the collection's
+ * notifier.
  */
 describe('reads through a held nested value', () => {
   const getClient = setupTestClient();

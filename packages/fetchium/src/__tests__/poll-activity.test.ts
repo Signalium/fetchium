@@ -225,13 +225,13 @@ describe('poll() with an activity source', () => {
     const client = makeClient({ pollResumeJitterMs: 300 });
     await mount(client, GetPolled);
 
-    // The clock jumps 10s while no timer runs, then the overdue timer fires.
+    // Jump the clock 10 s without running timers, as a frozen JS thread would.
     vi.setSystemTime(Date.now() + 10_000);
     const jumpedAt = Date.now() - t0;
-    // The frozen timer fires at its scheduled point (~INTERVAL - 5 from here) but doesn't fetch.
+    // The timer fires at its scheduled point (~INTERVAL - 5 from here) but doesn't fetch.
     await vi.advanceTimersByTimeAsync(INTERVAL);
     expect(count()).toBe(0);
-    // It is rescheduled at the jitter point instead: 0.5 * 300.
+    // It fetches at the jitter point instead: 0.5 * 300.
     await vi.advanceTimersByTimeAsync(200);
     expect(count()).toBe(1);
     expect(Math.abs(starts[0].at - jumpedAt - (INTERVAL - 5 + 150))).toBeLessThanOrEqual(1);

@@ -24,13 +24,12 @@ interface TopicState {
 
 /**
  * `promise`, or a rejection once `signal` aborts. A topic's data comes from
- * its subscription, which the query's deactivation tears down: a fetch that
- * deactivation aborted would otherwise wait for data that never comes, and
- * so would whoever awaits the query.
+ * its subscription, which deactivation tears down, so an aborted fetch would
+ * otherwise wait forever, along with whoever awaits the query.
  */
 function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
-  // React Native's AbortController polyfill sets no `reason`: reject with an
-  // AbortError there too, so the rejection reads as the abort it is.
+  // React Native's AbortController polyfill sets no `reason`, so
+  // getAbortReason() falls back to an AbortError.
   if (signal.aborted) return Promise.reject(getAbortReason(signal));
   return new Promise((resolve, reject) => {
     const onAbort = (): void => reject(getAbortReason(signal));
@@ -158,10 +157,8 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
    * Convenience wrapper — pushes a mutation event through the QueryClient
    * so that entities and live collections are updated reactively.
    *
-   * Pass the `topic` the event was delivered on to tell that topic's queries
-   * their subscription is live and current. With the client's
-   * `reactivationGraceMs`, a query that reactivates within the grace of the
-   * last such event is not refetched.
+   * Pass the `topic` the event arrived on to mark that topic's queries as
+   * current, so their `reactivationGraceMs` measures from this event.
    */
   protected sendMutationEvent(event: MutationEvent, topic?: string): void {
     if (topic !== undefined) {
@@ -173,7 +170,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
   /**
    * Registers a subscribed query's callback for events delivered on `topic`.
-   * Returns its removal.
+   * Returns a function that removes it.
    *
    * @internal
    */

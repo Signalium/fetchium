@@ -40,10 +40,10 @@ import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
 /**
- * Options for `new QueryClient(config)`. Every key, including ones not listed
- * here, also reaches query and mutation code as `this.context`, so an app can
- * pass its own services through the config. The names declared below are
- * reserved: a custom value under one of them is read as that option.
+ * Options for `new QueryClient(config)`. Every key, including unlisted ones,
+ * also reaches query and mutation code as `this.context`, so an app can pass
+ * its own services through the config. The names declared below are reserved
+ * and always read as that option.
  */
 export interface QueryClientConfig {
   store?: QueryStore;
@@ -74,9 +74,8 @@ export interface QueryClientConfig {
    * Decides whether a failed query attempt (or a mutation attempt, when the
    * mutation enables retries) is retried. Receives the error, the attempt index
    * (starting at 0) and the attempt's HTTP status when known. A query's or
-   * mutation's own `retry.shouldRetry` overrides it. Optional: without it,
-   * every failed attempt is retried, whatever its status. Use it to stop
-   * retrying errors you know are permanent, such as a 4xx from an endpoint.
+   * mutation's own `retry.shouldRetry` overrides it. Without it, every failed
+   * attempt is retried. Use it to stop retrying permanent errors such as a 4xx.
    */
   shouldRetry?: ShouldRetry;
   /**
@@ -132,13 +131,11 @@ export const DEFAULT_PREFETCH_TTL = 10_000;
 const SUSPENSE_HOLD_TTL = 10_000;
 
 /**
- * How long a failed cold fetch's error waits for a render to claim it. React
- * starts the retry of a suspended render soon after its promise settles, but
- * a large or time-sliced tree can take far longer than a task to reach the
- * reader again, and a reader that found no hold would refetch instead of
- * throwing, every time. An error nobody claimed by then belongs to an
- * abandoned tree, and a later mount makes a fresh attempt instead of
- * inheriting it.
+ * How long a failed cold fetch's error waits for a render to claim it. A
+ * large or time-sliced tree can take far longer than a task to retry a
+ * suspended render, and a reader that finds no hold refetches instead of
+ * throwing. An error still unclaimed after this belongs to an abandoned tree,
+ * so a later mount makes a fresh attempt instead of inheriting it.
  */
 const UNCLAIMED_FAILURE_TTL = 1_000;
 
@@ -204,13 +201,13 @@ export class QueryClient {
   /** Release functions of outstanding `retain()` / `prefetch()` leases. */
   private leases = new Set<() => void>();
   /**
-   * While a lease's callback first runs: the queries it reached that left
-   * their first fetch (or a zero-delay refetch) for a microtask. The lease
-   * starts them before returning. See `retain()`.
+   * Set during a lease's first run: the queries it reached whose first fetch
+   * (or zero-delay refetch) is queued on a microtask. The lease starts them
+   * before returning. See `retain()`.
    */
   private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
   /**
-   * Leases taken by `retain()` calls inside a reactive computation, by the
+   * Leases taken by `retain()` inside a reactive computation, keyed by the
    * computation, with the run that took them. See `retain()`.
    */
   private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
@@ -218,10 +215,10 @@ export class QueryClient {
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
   /**
-   * Keys whose last cold failure expired unclaimed. The next failure of the
-   * attempt that follows waits for a render as long as an unsettled hold
-   * would, so a reader slower than `UNCLAIMED_FAILURE_TTL` gets the error
-   * after one retried request rather than refetching in a loop.
+   * Keys whose last cold failure expired unclaimed. The next attempt's failure
+   * waits `SUSPENSE_HOLD_TTL` instead, so a reader slower than
+   * `UNCLAIMED_FAILURE_TTL` gets the error after one retry rather than
+   * refetching in a loop.
    */
   private unclaimedFailures = new Set<number>();
 
@@ -248,12 +245,12 @@ export class QueryClient {
     this.store = store;
     const { reactivationGraceMs, reactivationStaggerMs, shouldRetry } = config;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
-    // Finite: the window becomes setTimeout delays.
+    // Must be finite: the window is split into setTimeout delays.
     this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
     this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
-    // Every other key passes through to the context, as custom keys always
-    // have, including the reserved ones read above and `activity` /
-    // `pollResumeJitterMs`, which poll() reads from there.
+    // All other keys pass through to the context, including the reserved ones
+    // read above and `activity` / `pollResumeJitterMs`, which poll() reads
+    // from there.
     this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -572,8 +569,8 @@ export class QueryClient {
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
     }
 
-    // Already active with its start still queued (a reader activated it earlier
-    // in this task): the lease starts it too.
+    // A reader may have activated it earlier in this task with its start still
+    // queued. The lease starts it too.
     this.leaseStarts?.add(queryInstance);
 
     return queryInstance.relay;
@@ -606,16 +603,16 @@ export class QueryClient {
    * the query deactivates and its `gcTime` starts as usual. `release` is
    * idempotent.
    *
-   * The fetches the first run of `fn` needs start before `retain` returns: a
-   * request goes out inside the call, ahead of anything already queued on the
-   * microtask queue (such as a render React scheduled for the same tap). A
-   * query that depends on another's result (`fn` reads an id, then fetches by
-   * it) starts once that result arrives, as with any reader. Call `retain`
-   * from an event handler or effect, not from inside a reactive computation:
-   * starting a fetch runs adapter code, and a computation that reruns would
-   * take a new lease on every run. Called from one anyway, it warns in
-   * development, starts its fetches on their usual microtask, and releases the
-   * leases the computation's previous run took.
+   * The first run's fetches start before `retain` returns, ahead of anything
+   * already on the microtask queue (such as a render React scheduled for the
+   * same tap). A query that depends on another's result starts once that
+   * result arrives, as with any reader.
+   *
+   * Call `retain` from an event handler or effect, not a reactive computation:
+   * starting a fetch runs adapter code, and a rerunning computation would take
+   * a new lease each run. Called from one anyway, it warns in development,
+   * starts its fetches on their usual microtask, and releases the leases the
+   * computation's previous run took.
    */
   retain(fn: () => unknown, options?: RetainOptions): () => void {
     const owner = currentReactiveOwner();
@@ -692,17 +689,16 @@ export class QueryClient {
   /**
    * Starts `QueryClass` with `params` now and keeps it active for `ttl`
    * milliseconds (default {@link DEFAULT_PREFETCH_TTL}), or until the returned
-   * `release` is called. The `ttl` is an upper bound: the lease goes when it
-   * runs out even if the fetch is still in flight (offline, or a topic that is
-   * never fulfilled), which aborts that fetch unless a reader has joined it.
-   * Meant for the moment a user commits to a navigation
-   * (a tap): the destination's reader, mounting within the window, reuses the
-   * in-flight or finished fetch instead of starting its own, and renders the
-   * data on its first render if it has arrived.
+   * `release` is called. Meant for the tap that commits to a navigation: the
+   * destination's reader, mounting within the window, reuses the in-flight or
+   * finished fetch and renders the data on its first render if it has arrived.
    *
-   * Cached data counts: with a synchronous store a cached, fresh result is
-   * applied without a request. A stale one is shown and refetched, as on any
-   * activation.
+   * The `ttl` is an upper bound. The lease ends even if the fetch is still in
+   * flight (offline, or a topic never fulfilled), which aborts it unless a
+   * reader has joined.
+   *
+   * With a synchronous store a fresh cached result is applied without a
+   * request. A stale one is shown and refetched, as on any activation.
    */
   prefetch<T extends Query>(
     QueryClass: new () => T,
@@ -727,9 +723,9 @@ export class QueryClient {
    * last fetch failed is refetched once per hold: when that attempt fails too,
    * `error` is set and the hold is dropped, so the caller can throw it. A
    * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt;
-   * if that attempt fails too, its error waits `SUSPENSE_HOLD_TTL` for a
-   * render, so a reader that slow still reaches its error boundary.
+   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
+   * If that attempt also fails, its error waits `SUSPENSE_HOLD_TTL` for a
+   * render, so even a slow reader reaches its error boundary.
    *
    * @internal
    */
@@ -967,10 +963,10 @@ export class QueryClient {
       return;
     }
 
-    // Entities the event creates are not written by the apply; entities it
-    // merely updates are. A created entity is written once a written record
-    // references it, or below, once the root is known to be retained. Only an
-    // event whose root is new can create entities that need collecting here.
+    // The apply writes entities the event updates, not ones it creates. A
+    // created entity is written once a written record references it, or below
+    // once the root is known to be retained. Only an event with a new root can
+    // create entities that need collecting here.
     const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
@@ -1002,19 +998,13 @@ export class QueryClient {
       return;
     }
 
-    // The root the event created is written, with the entities it created
-    // under it, when a live array is about to retain it (the array's owner
-    // is written with the reference) or when the store already holds a record
-    // of it: a query that was collected from memory can still hold this
-    // entity in its cache, and the event is that record's only chance to stay
-    // fresh. That write merges the event's fields over the record, since an
-    // event is a partial update and the fields it leaves out are not known
-    // here. The write comes before the routing: if it fails, nothing is
-    // routed, the failure is logged, and memory stays as it was, as a failed
-    // event always did. A store that cannot say what it holds (no
-    // `hasEntity`, or not yet) is not written, so it never accumulates
-    // records nothing references. Anything else the event created was only
-    // ever referenced by an unwritten root and stays unwritten.
+    // The created root (and what it created) is written when a live array is
+    // about to retain it, or when the store already holds a record of it: a
+    // collected query's cache can still hold this entity, and the event is
+    // that record's only chance to stay fresh. An event is partial, so the
+    // write merges over the record. It comes before routing so that a failed
+    // write routes nothing. A store that can't say what it holds (no
+    // `hasEntity`) is not written, so it never accumulates unreferenced records.
     let matched = false;
     let retains = false;
     this.routeEvent(
@@ -1053,10 +1043,9 @@ export class QueryClient {
   }
 
   /**
-   * Evicts the root an event created unless an entity that existed before
-   * the event now references it (its owner's data holds the proxy, so it is
-   * live). References from entities the same event created, the root itself
-   * included, do not count: they were only ever reachable through the root.
+   * Evicts the root an event created unless an entity that existed before the
+   * event now references it. References from entities the same event created
+   * (the root included) don't count: they were only reachable through the root.
    */
   private evictUnlessAdopted(root: EntityInstance, created: Set<EntityInstance>): void {
     let createdHolders = 0;
@@ -1065,10 +1054,9 @@ export class QueryClient {
   }
 
   /**
-   * Evicts the root an event created, and with it every entity the event
-   * created that nothing references any more: they were never written, so
-   * lingering until a `gcTime` runs out would let a later event write them
-   * as records nothing references.
+   * Evicts the root an event created, along with every entity the event
+   * created that is no longer referenced. They were never written, and
+   * lingering until `gcTime` would let a later event write them as orphans.
    */
   private evictCreated(root: EntityInstance, created: Set<EntityInstance>): void {
     root.evict();
@@ -1098,8 +1086,8 @@ export class QueryClient {
 
   /**
    * Writes the deferred entities in the order they were deferred: children
-   * before their parents. A write that fails leaves the rest unwritten, and
-   * marked so that the next apply writes them.
+   * before their parents. If a write fails, the rest are marked so the next
+   * apply writes them.
    */
   /** @internal */
   flushDeferredWrites(): void {
@@ -1122,9 +1110,8 @@ export class QueryClient {
   }
 
   /**
-   * An apply that failed leaves nothing to write: what it deferred may be half
-   * reified. The records that were waiting are stale, so the next apply
-   * writes them.
+   * After a failed apply, what it deferred may be half reified, so nothing is
+   * written. Those records are stale and the next apply writes them.
    */
   /** @internal */
   discardDeferredWrites(): void {
@@ -1145,7 +1132,7 @@ export class QueryClient {
 
   /**
    * Called by a query that queued its start (or a zero-delay refetch) on a
-   * microtask. During a lease's first run, the lease starts it before returning.
+   * microtask, so a lease in its first run can start it before returning.
    *
    * @internal
    */
@@ -1210,11 +1197,10 @@ export class QueryClient {
 
   /**
    * Evicts the root entity of a non-entity result that `owner` no longer
-   * shows (its params changed, or it was collected), unless another query
-   * instance still shows it. Since a root's key follows the current params,
-   * two instances whose params agree share one. A root already gone from the
-   * map is left alone: evicting it would remove whatever the map now holds
-   * at its key, which is the root a query showing those params applies to.
+   * shows (its params changed, or it was collected), unless another instance
+   * with the same params still shows it. A root already gone from the entity
+   * map is skipped: its key now belongs to the root of whichever query shows
+   * those params.
    *
    * @internal
    */

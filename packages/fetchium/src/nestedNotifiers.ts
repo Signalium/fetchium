@@ -1,16 +1,14 @@
 /**
- * The wrapping proxy handed out for a nested object, record or array inside
- * an entity (or a live collection's value), keyed by the wrapped value.
- * `EntityInstance` creates the wrappers; `applyEntities` drops an entity's
- * nested wrapper when a merge changes the value in place.
+ * Wrapping proxies for nested objects, records and arrays inside entities and
+ * live collection values, keyed by the wrapped value. `EntityInstance` creates
+ * them and `applyEntities` drops them on in-place merges.
  */
 export const NESTED_WRAPPERS = new WeakMap<object, object>();
 
 /**
- * A merge changed a nested value in place. Its wrapper is dropped, so the
- * next read through the entity hands out a new one: the value is merged in
- * place to keep the raw data's identity, but whoever holds only the wrapper
- * (a child component given it as a prop) must see a new value to re-render.
+ * Call when a merge changes a nested value in place. The raw value keeps its
+ * identity, but a child holding only the wrapper (e.g. as a prop) needs a new
+ * value to re-render, so the next read hands out a new wrapper.
  */
 export function dropNestedWrapper(value: object): void {
   NESTED_WRAPPERS.delete(value);

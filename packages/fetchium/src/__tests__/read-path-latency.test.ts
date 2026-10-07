@@ -164,8 +164,8 @@ describe('read-path latency (macrotask turns)', () => {
     console.log(
       `[latency] param change -> fetch start: ${turns} turns, ${(performance.now() - started).toFixed(2)} ms`,
     );
-    // A watched relay reruns its update in Signalium's flush (one timer); the
-    // fetch then starts on a microtask of that flush rather than another timer.
+    // The relay update reruns in Signalium's flush (one timer), and the fetch
+    // starts on a microtask of that flush.
     expect(turns).toBe(1);
     expect(mockFetch.calls[1].url).toContain('/users/2');
     unsub();
@@ -197,10 +197,9 @@ describe('read-path latency (macrotask turns)', () => {
     unsub();
     // Before the response (30 ms).
     await sleep(10);
-    // Signalium deactivates on its next flush (a timer), after the microtask
-    // that starts the refetch, so the refetch starts and deactivation cancels
-    // it. A mount and unmount within one task is the cost of not waiting a
-    // timer on every reactivation.
+    // Signalium deactivates on its next flush (a timer), after the refetch's
+    // microtask has started it. This wasted request is the trade-off for not
+    // waiting a timer on every reactivation.
     expect(mockFetch.calls).toHaveLength(1);
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
     await sleep(30);
