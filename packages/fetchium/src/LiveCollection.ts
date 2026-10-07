@@ -75,7 +75,6 @@ export interface LiveCollectionParent {
 // ======================================================
 
 export interface LiveInstance {
-  /** Notified whenever the value or membership changes. */
   readonly _notifier: Notifier;
   getValue(): unknown;
   getRawValue(): unknown;
@@ -102,11 +101,7 @@ export class LiveCollectionBinding {
   _entityDefsByTypename: Map<string, ValidatorDef<any>[]>;
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
-  /**
-   * Consumed by reads of the value's contents. The value from `getValue()`
-   * can change in place without the parent entity changing, so its wrapper
-   * can't rely on the entity's notifier.
-   */
+  /** Consumed by reads of the value's contents, which can change in place. */
   readonly _valueOwner: Notifier;
 
   constructor(

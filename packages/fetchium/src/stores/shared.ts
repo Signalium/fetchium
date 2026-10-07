@@ -45,11 +45,8 @@ export function mergeStoredRecord(
 }
 
 /**
- * The stored record's fields that `partial` does not write, as a JSON fragment
- * (`"a":1,"b":{…}`, or `''` if none) plus the references inside them.
- * Appending the fragment to `partial`'s JSON yields the merged record without
- * re-reading the stored one. Undefined if the stored record is not a JSON
- * object.
+ * The stored record's fields not in `partial`, as a JSON fragment plus their refs.
+ * Appended to `partial`'s JSON it gives the merged record. Undefined for a non-object.
  */
 export function storedRecordRest(
   stored: string,
@@ -65,8 +62,7 @@ export function storedRecordRest(
   const rest: Record<string, unknown> = {};
   let any = false;
   for (const key in record as Record<string, unknown>) {
-    // JSON drops a field the partial holds as undefined, so the stored value
-    // stays.
+    // JSON drops a field the partial holds as undefined, so the stored value stays.
     if (partial[key] !== undefined) continue;
     rest[key] = (record as Record<string, unknown>)[key];
     any = true;
@@ -77,7 +73,7 @@ export function storedRecordRest(
   return { json: JSON.stringify(rest).slice(1, -1), refIds: [...refIds] };
 }
 
-/** Adds the `__entityRef` ids in a record's JSON to `into`, as `collectEntityRefs` would for the parsed record. */
+/** Adds the `__entityRef` ids in a record's JSON to `into`. */
 export function entityRefsInJson(json: string, into: Set<number>): void {
   if (json.indexOf('"__entityRef":') === -1) return;
   const re = /"__entityRef":(\d+)/g;

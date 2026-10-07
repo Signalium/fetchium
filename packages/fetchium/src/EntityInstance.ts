@@ -18,7 +18,6 @@ import { entitySatisfiesShape } from './parseEntities.js';
 // ======================================================
 
 const ObjectProto = Object.prototype;
-// Module-local alias: read on every nested read.
 const nestedWrappers = NESTED_WRAPPERS;
 
 /** A `WRAPPED_VALUE` item. A live collection's value changes under its own notifier. */
@@ -27,14 +26,7 @@ interface WrappedValue {
   readonly _valueOwner?: Notifier;
 }
 
-/**
- * `owner` is the notifier of the live collection this value belongs to. A
- * reducer or event can change such a value in place, so reads through its
- * wrapper consume that notifier. Without an owner the value is nested in an
- * entity and its wrapper consumes nothing: an in-place merge drops the wrapper
- * (`dropNestedWrapper`), so the next read hands out a new one and a child
- * given only the nested value (e.g. `entity.price` as a prop) re-renders.
- */
+/** `owner` is the live collection's notifier. Unowned wrappers consume nothing, and merges replace them. */
 function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (typeof value !== 'object' || value === null) return value;
   if (WRAPPED_VALUE.has(value)) {
@@ -113,16 +105,12 @@ const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
   },
 };
 
-/**
- * Wraps a value inside a live collection. Traps consume the collection's
- * notifier, and nested values inherit that owner.
- */
+/** Wraps a live collection value. Reads consume the collection's notifier. */
 class OwnedArrayHandler implements ProxyHandler<unknown[]> {
   constructor(readonly owner: Notifier) {}
 
   get(target: unknown[], prop: string | symbol, receiver: unknown): unknown {
-    // Consume on every read, including `length` and iteration methods: an
-    // in-place push changes all of them.
+    // Consume on every read: an in-place push changes `length` and iteration too.
     this.owner.consume();
     if (typeof prop === 'string') {
       const idx = Number(prop);

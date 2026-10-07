@@ -1695,8 +1695,7 @@ describe('streamed full payloads for a typename two classes share, entity not in
     id = t.id;
     label = t.string;
   }
-  // A list's class and a detail class of one typename: a list-shaped payload
-  // carries every field of its class, but not the detail's.
+  // A list class and a detail class of one typename. List payloads lack detail fields.
   class CoinRow extends Entity {
     __typename = t.typename('Coin');
     id = t.id;
@@ -1735,7 +1734,6 @@ describe('streamed full payloads for a typename two classes share, entity not in
   });
   const row = (price: number) => ({ __typename: 'Coin', id: 'c1', symbol: 'C', price });
 
-  /** Writes the detail's record, registers the list class, and drops both from memory. */
   async function setup(tc: ReturnType<typeof getClient>): Promise<void> {
     tc.mockFetch.get('/coin/c1', detail('first'));
     tc.mockFetch.get('/coins', { coins: [{ __typename: 'Coin', id: 'c2', symbol: 'D', price: 2 }] });

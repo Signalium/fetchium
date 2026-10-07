@@ -12,11 +12,8 @@ import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
-/**
- * A nested value passed as a prop keeps its identity when it changes, because
- * it is merged in place. A `component()` child that skips re-rendering for
- * identical props still has to update, through its own reads of the value.
- */
+// A nested value prop keeps its identity when merged in place. A `component()`
+// child that skips re-rendering for identical props updates through its own reads.
 describe('component() child given a nested entity value as a prop', () => {
   let client: QueryClient;
   let mockFetch: ReturnType<typeof createMockFetch>;

@@ -661,7 +661,6 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
       expect(retry).toMatchObject({ failed: true, promise: undefined });
       expect(mockFetch.calls).toHaveLength(1);
 
-      // An error-boundary reset after the claim makes a new attempt.
       await vi.advanceTimersByTimeAsync(5);
       expect(render().promise).toBeDefined();
       expect(mockFetch.calls).toHaveLength(2);
@@ -691,7 +690,6 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
       expect(render()).toMatchObject({ failed: true, promise: undefined });
       expect(mockFetch.calls).toHaveLength(2);
 
-      // A claimed error is let go on the next task, so a reset retries.
       await vi.advanceTimersByTimeAsync(5);
       expect(render().promise).toBeDefined();
       expect(mockFetch.calls).toHaveLength(3);

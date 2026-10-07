@@ -375,8 +375,8 @@ describe('useSuspenseQuery', () => {
 
     const screen = render(tree(true));
     await expect.element(screen.getByText('Suspended')).toBeInTheDocument();
-    // Navigated away while suspended; the fetch fails with no reader, and no
-    // render claims the error within the unclaimed-failure window (1 s).
+    // Navigated away while suspended. The fetch fails and no render claims the
+    // error within the 1 s window.
     screen.rerender(tree(false));
     await sleep(1_150);
     expect(mockFetch.calls).toHaveLength(1);

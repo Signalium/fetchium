@@ -35,14 +35,7 @@ function abortError(): Error {
   return error;
 }
 
-/**
- * The start window: open from when a query's first fetch starts on its
- * microtask until the Signalium flush outstanding at that moment has run. A
- * query mounted and unmounted in one task is deactivated by that flush after
- * its first fetch went out. A first fetch started inside the window is left
- * to finish instead of being aborted into an error. One window serves every
- * first fetch started before it closes.
- */
+/** Open from a microtask first-fetch start until the pending flush runs. A deactivation inside it keeps the fetch. */
 let startWindow = 0;
 let startWindowOpen = false;
 
@@ -97,34 +90,18 @@ export class QueryInstance<T extends Query> {
   private startPending: boolean = false;
   /** The fetch restartAbortedFetch() queued on a microtask, until it runs. */
   private pendingRestart: (() => void) | undefined = undefined;
-  /**
-   * Rejects a restart that found the query offline or inactive when it ran.
-   * The relay stays pending until reconnecting restarts it or a full
-   * deactivation rejects it.
-   */
+  /** Rejects a restart parked while offline or inactive. */
   private parkedRestart: ((error: unknown) => void) | undefined = undefined;
-  /**
-   * Signal of a first fetch that a same-task unmount let finish. GC is
-   * scheduled once it settles: collecting earlier would leave the fetch
-   * applying to an instance nothing owns.
-   */
+  /** First fetch a same-task unmount let finish. GC waits for it to settle. */
   private keptFetchSignal: AbortSignal | undefined = undefined;
-  /**
-   * Signal of a fetch whose abort leaves the relay pending instead of
-   * rejecting it. See `holdsDeactivationAbort()`.
-   */
+  /** Aborted fetch that leaves the relay pending instead of rejected. */
   private heldAbortSignal: AbortSignal | undefined = undefined;
-  /** Some param is a Signal, so its value can change before the first start runs. */
   private hasSignalParams: boolean = false;
-  /** The first fetch's controller and its start window. See `openStartWindow()`. */
   private firstFetchController: AbortController | undefined = undefined;
-  /** Bumped by `abortForDestroy()`, so a late response from before it is dropped. */
+  /** Bumped by `abortForDestroy()` so a late response is dropped. */
   private destroyCount: number = 0;
   private firstFetchWindow: number = 0;
-  /**
-   * A deactivation aborted the in-flight fetch, so the relay settles with an
-   * AbortError. The next activation refetches instead of showing it.
-   */
+  /** The next activation refetches instead of showing the AbortError. */
   private abortedByDeactivation: boolean = false;
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
@@ -174,11 +151,7 @@ export class QueryInstance<T extends Query> {
   /** Extra methods (__refetch, __fetchNext) attached to the root entity proxy. */
   private _extraMethods: Record<string, (...args: unknown[]) => unknown> = {};
 
-  /**
-   * Query id injected as QUERY_ID on non-entity payloads. It keys the root
-   * entity and follows the params, so each params key's cached record points
-   * at its own data.
-   */
+  /** Query id injected as QUERY_ID on non-entity payloads. Follows the params. */
   private _queryId: number = 0;
 
   get key(): number {
@@ -232,14 +205,12 @@ export class QueryInstance<T extends Query> {
           this.reconnectsAtDeactivate = this.queryClient.networkManager.reconnects;
 
           this.cancelDebounced();
-          // Cancel initialize()'s start if it hasn't run. The next activation restarts it.
+          // Cancel a start that hasn't run. The next activation restarts it.
           this.startPending = false;
 
           const controller = this._abortController;
           if (controller !== undefined && !controller.signal.aborted) {
-            // A fetch may be waiting on the subscription this deactivation
-            // tears down (a topic query's send() resolves from it), so it is
-            // aborted and the next activation restarts it.
+            // A topic query's send() may wait on the subscription torn down here.
             const sameTask =
               controller === this.firstFetchController && startWindowOpen && this.firstFetchWindow === startWindow;
             const keepFirstFetch = !isPausing && sameTask && this.unsubscribe === undefined;
@@ -269,8 +240,7 @@ export class QueryInstance<T extends Query> {
 
           if (isPausing) return;
 
-          // A restart parked while offline has no fetch to abort. Settle it as
-          // the abort would have. The next activation restarts it.
+          // A parked restart has no fetch to abort, so settle it here.
           const parked = this.parkedRestart;
           if (parked !== undefined) {
             this.parkedRestart = undefined;
@@ -318,15 +288,8 @@ export class QueryInstance<T extends Query> {
 
             // If the relay shows pending but the abort controller is gone, the
             // previous fetch was aborted during deactivation (or never started).
-            // runDebounced() would bail out because isPending is still true from
-            // the doomed promise, which may also never settle (a topic query's
-            // send() waits on a subscription that is gone). A relay the abort
-            // already rejected is restarted too, so it doesn't show the
-            // AbortError until a refetch lands. So is a fetch still in flight
-            // for params that changed meanwhile. With reactivationStaggerMs, a
-            // rejected relay that holds a value is re-settled with it and
-            // refetches like any stale relay below, so aborted refetches are
-            // still spread across the window.
+            // runDebounced() would bail on the doomed promise. A rejected relay restarts
+            // too, unless a stagger can re-settle its value and spread the refetch.
             if (
               this.abortedByDeactivation &&
               this.queryClient.reactivationStaggerMs > 0 &&
@@ -369,7 +332,7 @@ export class QueryInstance<T extends Query> {
             if (this.startPending) {
               // The pending first start sends the new params.
             } else if (this.relayState.isPending) {
-              // A fetch for the old params is in flight (or queued): replace it.
+              // Replace the in-flight or queued fetch for the old params.
               this.restartAbortedFetch(true);
             } else {
               this.runDebounced(0, false, true);
@@ -407,7 +370,6 @@ export class QueryInstance<T extends Query> {
     );
 
     if (previousRoot !== undefined && previousRoot !== this.rootEntity && !def.statics.isEntityResult) {
-      // The params changed, so this query no longer shows the old params' root.
       this.queryClient.releaseQueryRoot(previousRoot, this);
     }
 
@@ -501,11 +463,7 @@ export class QueryInstance<T extends Query> {
     }
   }
 
-  /**
-   * A Signal param changed while an async cache load was pending. The loaded
-   * entry belongs to the old params, so it is dropped, and a fetch starts
-   * unless the change already started one.
-   */
+  /** Drops a cache load for old params. Fetches unless the change already did. */
   private startAfterParamsChangedDuringLoad(fetchStartsAtLoad: number): void {
     if (this.fetchStarts === fetchStartsAtLoad) this.startSubscriptionAndFetch();
   }
@@ -514,17 +472,12 @@ export class QueryInstance<T extends Query> {
     this.runStart(true);
   };
 
-  /**
-   * `fromMicrotask` means the start raced Signalium's flush, so a deactivation
-   * in that flush lets the fetch finish. A lease's start (`startPendingNow()`)
-   * doesn't race: the lease holds the query, and releasing it aborts the fetch.
-   */
+  /** A microtask start races Signalium's flush, so a deactivation in it lets the fetch finish. */
   private runStart(fromMicrotask: boolean): void {
     if (!this.startPending) return;
     this.startPending = false;
     if (this.hasSignalParams) {
-      // A Signal param set in the same task as the activation reaches update()
-      // only in Signalium's next flush. Send the params as they are now.
+      // A Signal param set this task reaches update() only next flush. Read it now.
       const extractedParams = extractParamsForKey(this.params);
       const storageKey = queryKeyFor(this.def, extractedParams);
       if (storageKey !== this.storageKey) {
@@ -540,12 +493,11 @@ export class QueryInstance<T extends Query> {
     }
   }
 
-  /** Switches to new params. Data shown until the next fetch lands is the old params'. */
   private adoptParams(extractedParams: Record<string, unknown> | undefined, storageKey: number): void {
     this.currentParams = extractedParams as QueryParams;
     this.storageKey = storageKey;
     this._queryId = extractedParams !== undefined ? hashValue(extractedParams) : 0;
-    // The timestamp belongs to the old params' data, so force a refetch as invalidation does.
+    // The timestamp is the old params' data. Force a refetch.
     if (this.updatedAt !== undefined) this.updatedAt = 0;
   }
 
@@ -649,8 +601,7 @@ export class QueryInstance<T extends Query> {
       );
       this._executionCtx.refetch = () => this.refetch();
       // `TopicQuery.getConfig.subscribe` hands this to its adapter, which calls
-      // it when it delivers an event for the query's topic. Non-enumerable so
-      // it stays out of `Object.keys(this)` inside query methods.
+      // it on a topic event. Non-enumerable to stay out of `Object.keys(this)`.
       Object.defineProperty(this._executionCtx, '_notePush', { value: this.notePush, configurable: true });
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
       // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
@@ -689,8 +640,7 @@ export class QueryInstance<T extends Query> {
           attempt.start();
           try {
             const freshData = await adapter.send(ctx, signal);
-            // The adapter ignored the abort and the params changed, or the
-            // client was destroyed, while the request was in flight.
+            // Params changed or client destroyed mid-request, and the adapter ignored the abort.
             if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
             this.updatedAt = Date.now();
 
@@ -716,8 +666,7 @@ export class QueryInstance<T extends Query> {
     } catch (error) {
       if (!signal.aborted) this.lastFetchFailed = true;
       if (signal === this.heldAbortSignal) {
-        // Stay pending until the next activation replaces this fetch, or
-        // abortForDestroy() settles it on collection or destroy.
+        // Stay pending until reactivation or abortForDestroy() settles it.
         this.heldAbortSignal = undefined;
         return new Promise<never>(() => {});
       }
@@ -731,20 +680,8 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Whether a deactivation that aborts this query's fetch leaves the relay
-   * pending instead of rejecting it. Signalium keeps a rejected relay's error
-   * until it gets a value, so the next mount would report `isRejected` with
-   * the AbortError until its refetch lands (a chart switched away from
-   * mid-fetch and back would flash its error state). A held relay is settled
-   * by the next activation's refetch, or by `abortForDestroy()`.
-   *
-   * An unmount mid-fetch holds any query whose relay has no value yet, except
-   * one mounted and unmounted in the same task: that is a one-off read, and
-   * its awaiter gets the AbortError at once. A pause (offline) or a restart
-   * parked while offline waits on the network, not a remount, so it uses this
-   * method and holds only a query with a subscription, since a topic query's
-   * fetch waits on the subscription the deactivation tears down. Other
-   * awaiters get the AbortError at once.
+   * Whether a pause's abort leaves the relay pending. Signalium keeps a rejected
+   * relay's error until it gets a value, so the next activation would show it.
    */
   private holdsDeactivationAbort(): boolean {
     return this.relayState.value === undefined && this.config?.subscribe !== undefined;
@@ -767,10 +704,7 @@ export class QueryInstance<T extends Query> {
     this.heldAbortSignal = undefined;
     if (this.abortedByDeactivation) {
       this.abortedByDeactivation = false;
-      // The abort rejected the relay. Signalium keeps a rejected relay's
-      // error while it is pending again, so the refetch would show the
-      // AbortError next to the cached value. Re-settling with the value
-      // clears it.
+      // Re-settle with the value. Signalium keeps the AbortError while pending again.
       const value = this.relayState.value;
       if (value !== undefined && !this.relayState.isPending) this.relayState.value = value;
     }
@@ -796,9 +730,7 @@ export class QueryInstance<T extends Query> {
         return;
       }
       if (!this._isActive || this.isPaused) {
-        // Went offline or inactive before it ran. Park it with the relay
-        // pending: reconnecting restarts it, and a full deactivation first
-        // rejects it.
+        // Went offline or inactive first. Park it until reconnect or deactivation.
         if (this._abortController === controller) this._abortController = undefined;
         this.parkedRestart = reject;
         return;
@@ -811,19 +743,10 @@ export class QueryInstance<T extends Query> {
     this.relayState.setPromise(promise);
   }
 
-  /**
-   * Queues a deferred fetch on a microtask or, with `afterFlush`, after
-   * Signalium's outstanding flush. A params change reaches update() inside
-   * that flush, which may also deactivate the query. Waiting for it costs no
-   * extra task and lets the deactivation cancel the fetch instead of aborting
-   * it after it went out.
-   */
+  /** `afterFlush` waits for the pending flush, so a deactivation in it cancels the fetch first. */
   private deferRun(run: () => void, afterFlush: boolean): void {
     if (afterFlush) {
-      // settled() also waits for later flushes, which a listener that writes
-      // signals can keep scheduling, so the timer caps the wait at one task.
-      // A flush finishes within the task it starts in, so the timer still
-      // fires after the outstanding one.
+      // settled() may keep waiting on later flushes. The timer caps it at one task.
       let timer: ReturnType<typeof setTimeout> | undefined = undefined;
       const once = (): void => {
         if (timer === undefined) return;
@@ -886,8 +809,7 @@ export class QueryInstance<T extends Query> {
       if (generation !== this.debounceGeneration) return;
       this.debounceGeneration++;
       this.pendingDebouncedRun = undefined;
-      // Deactivated or went offline in the same task. Deactivation or
-      // reconnecting decides what happens next.
+      // Deactivated or went offline meanwhile. Those paths decide what runs next.
       if (!this._isActive || this.isPaused) return;
       // Another path started a fetch in the meantime (refetch(), activation).
       if (this.relayState.isPending && this._abortController !== undefined) return;
@@ -934,11 +856,7 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Called by `QueryClient.destroy()` and when the client collects the query.
-   * Aborts in-flight fetches (including a first fetch a same-task unmount
-   * kept), cancels deferred ones and settles the relay, so nothing reaches
-   * the store afterwards and no awaiter hangs.
-   *
+   * On destroy or collection. Settles every awaiter, so nothing hangs or reaches the store.
    * @internal
    */
   abortForDestroy(): void {
@@ -953,10 +871,7 @@ export class QueryInstance<T extends Query> {
     this._abortController = undefined;
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
-    // Every awaiter must get an answer. A queued restart sees its aborted
-    // controller and rejects, a parked one is rejected here, and an in-flight
-    // fetch rejects with its abort. A pending relay with no fetch at all (its
-    // first start never ran) is rejected directly.
+    // Every awaiter must settle, including a pending relay whose start never ran.
     const restart = this.pendingRestart;
     restart?.();
     this.pendingRestart = undefined;
@@ -1055,7 +970,6 @@ export class QueryInstance<T extends Query> {
       async () => {
         attempt.start();
         const freshData = await adapter.sendNext!(ctx, signal);
-        // As in runQuery().
         if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
         this.updatedAt = Date.now();
 

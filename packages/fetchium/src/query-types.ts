@@ -26,10 +26,8 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
-  // `activity` and `pollResumeJitterMs` (see `QueryClientConfig`) reach the
-  // context as pass-through keys but are not declared here, since an app may
-  // have augmented this interface with its own field of the same name.
-  // `poll()` validates them before use.
+  // `activity` and `pollResumeJitterMs` reach the context undeclared: an app may
+  // have augmented this interface with the same names.
 }
 
 /**

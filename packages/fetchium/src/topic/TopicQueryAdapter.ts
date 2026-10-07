@@ -22,14 +22,9 @@ interface TopicState {
   error?: unknown;
 }
 
-/**
- * `promise`, or a rejection once `signal` aborts. A topic's data comes from
- * its subscription, which deactivation tears down, so an aborted fetch would
- * otherwise wait forever, along with whoever awaits the query.
- */
+/** `promise`, or a rejection once `signal` aborts. A topic fetch would otherwise hang after deactivation. */
 function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
-  // React Native's AbortController polyfill sets no `reason`, so
-  // getAbortReason() falls back to an AbortError.
+  // React Native's AbortController sets no `reason`, so getAbortReason() falls back.
   if (signal.aborted) return Promise.reject(getAbortReason(signal));
   return new Promise((resolve, reject) => {
     const onAbort = (): void => reject(getAbortReason(signal));

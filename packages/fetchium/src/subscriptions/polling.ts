@@ -19,15 +19,9 @@ export interface PollConfig {
   resumeJitterMs?: number;
 }
 
-/** Contexts whose invalid `activity` value was already reported. */
 const warnedActivity = new WeakSet<object>();
 
-/**
- * The context's `activity`, if it is an `ActivitySource`. Custom config keys
- * pass through to the context, so an app may already use this name for its
- * own value. Anything without `isActive` and `subscribe` functions is ignored,
- * with a warning in development.
- */
+/** The context's `activity` if it is an `ActivitySource`. Apps may use the key for their own value. */
 function activitySource(queryContext: QueryContext | undefined): ActivitySource | undefined {
   const activity = (queryContext as Record<string, unknown> | undefined)?.activity;
   if (activity === undefined || activity === null) return undefined;

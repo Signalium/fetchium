@@ -79,24 +79,14 @@ export class MemoryPersistentStore implements SyncPersistentStore {
  */
 const deleteListenersByKv = new WeakMap<SyncPersistentStore, Array<(key: number) => void>>();
 
-/**
- * For a record last written by `mergeEntity()`: which fields that write
- * carried, and the rest of the record (`storedRecordRest`). A later merge of
- * the same fields builds the record from this without reading the stored one,
- * so a high-rate update stream for entities not in memory reads each record
- * only once.
- */
+/** A `mergeEntity()` write's fields and the record's rest, so a same-fields merge skips the read. */
 interface MergeRest {
   fields: string;
   json: string;
   refIds: number[];
 }
 
-/**
- * Keyed by the backing kv, like the delete listeners. Any write or delete
- * through a store over that kv drops the record's entry, so entries match
- * what is on disk. Writing to the kv directly would leave them stale.
- */
+/** Keyed by kv. Writes through any store over it drop entries. Direct kv writes do not. */
 const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>();
 /** LRU bound. An evicted record's next merge reads it again. */
 const MAX_MERGE_RESTS = 1024;

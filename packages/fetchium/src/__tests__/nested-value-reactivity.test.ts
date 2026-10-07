@@ -7,13 +7,8 @@ import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { testWithClient, sleep, setupTestClient } from './utils.js';
 
-/**
- * Nested values (`t.object` and `t.record` fields, live collection values) are
- * merged in place, and a child given only the nested value never reads the
- * entity. A changed entity value gets a new wrapper, so the parent passes a new
- * value. A live collection value's wrapper reads consume the collection's
- * notifier.
- */
+// Nested values merge in place. A changed entity value gets a new wrapper, and a
+// live collection value's wrapper consumes the collection's notifier.
 describe('reads through a held nested value', () => {
   const getClient = setupTestClient();
 
@@ -54,7 +49,6 @@ describe('reads through a held nested value', () => {
       const balances = token.balances;
       expect([price.usd, change.h24, balances.SOL]).toEqual([100, 1, 1]);
 
-      // Readers through the entity re-run.
       const usd = reactive(() => token.price.usd);
       const h24 = reactive(() => token.price.change.h24);
       const sol = reactive(() => token.balances.SOL);
@@ -64,7 +58,7 @@ describe('reads through a held nested value', () => {
       await sleep(0);
 
       expect([usd(), h24(), sol()]).toEqual([150, 2, 5]);
-      // Changed in place: new wrappers, so a holder of the old one is handed a new value.
+      // New wrappers, so a holder of the old one gets a new value.
       expect(token.price).not.toBe(price);
       expect(token.price.change).not.toBe(change);
       expect(token.balances).not.toBe(balances);

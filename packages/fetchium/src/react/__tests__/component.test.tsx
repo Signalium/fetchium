@@ -805,9 +805,8 @@ describe('React Query Integration with component()', () => {
       await userQuery!.value!.__refetch();
       await sleep(10);
 
-      // mergeFields mutates the existing nested plain object in place, but a
-      // merge that changed it drops its cached wrapper, so the parent hands
-      // the memo'd child a new prop and the child re-renders.
+      // The merge mutates the nested object in place but drops its wrapper, so the
+      // memo'd child gets a new prop.
       expect(memoRenderCount).toBe(2);
       expect(getByTestId('bio').element().textContent).toBe('new bio');
     });

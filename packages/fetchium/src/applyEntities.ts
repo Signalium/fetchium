@@ -342,9 +342,8 @@ function mergeFields(
             )
           ) {
             changed = true;
-            // Merged in place, so the value keeps its identity. Drop its
-            // wrapper so a child given just this value as a prop sees a new
-            // one. A merged copy is already a new value.
+            // Merged in place: drop the wrapper so a child given just this value gets a new
+            // one.
             if (target === oldVal) dropNestedWrapper(oldVal);
             existingData[fieldKey] = target;
           } else {

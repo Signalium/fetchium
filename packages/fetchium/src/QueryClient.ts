@@ -39,12 +39,7 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
-/**
- * Options for `new QueryClient(config)`. Every key, including unlisted ones,
- * also reaches query and mutation code as `this.context`, so an app can pass
- * its own services through the config. The names declared below are reserved
- * and always read as that option.
- */
+/** Options for `new QueryClient(config)`. Every key also reaches queries and mutations as `this.context`. */
 export interface QueryClientConfig {
   store?: QueryStore;
   adapters?: QueryAdapter[];
@@ -59,15 +54,10 @@ export interface QueryClientConfig {
   evictionMultiplier?: number;
   /**
    * Milliseconds. A query that reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this is not refetched, even when the
-   * data is past its `staleTime`. Data a subscription pushed to (a `subscribe`
-   * stream event, or a topic event sent with its topic) counts as fresh from
-   * the last push; a `poll()` keeps data current only through the fetches it
-   * makes. Queries can override the window with `reactivationGraceMs` in
-   * their config. Network reconnects,
-   * `refetch()`, `invalidateQueries()`, `markStale()` and a failed last fetch
-   * still refetch. `Infinity` never refetches on reactivation. Default: 0
-   * (every stale query refetches on reactivation).
+   * scope resumes) with data younger than this is not refetched, even if stale.
+   * Subscription pushes count as fresh data. Queries can override it with
+   * `reactivationGraceMs`. Reconnects, `refetch()`, invalidation, `markStale()`
+   * and a failed last fetch still refetch. Default: 0.
    */
   reactivationGraceMs?: number;
   /**
@@ -82,25 +72,21 @@ export interface QueryClientConfig {
    * Milliseconds. Reactivation refetches that start in the same task (for
    * example every query on a screen that just resumed) are spread evenly
    * across this window, in activation order, instead of all starting at once.
-   * Queries of an adapter that `coalescesRequests` are not spread. A value
-   * that is not a finite positive number counts as 0. Default: 0 (all start
-   * together).
+   * Queries of an adapter that `coalescesRequests` are not spread. Values that
+   * are not finite and positive count as 0. Default: 0.
    */
   reactivationStaggerMs?: number;
   /**
    * Foreground/background source. When set, `poll()` stops its timers while
-   * the app is inactive and resumes them when it becomes active again. A value
-   * without `isActive` and `subscribe` functions is ignored (with a warning in
-   * development). Default: undefined (polls run regardless of app state).
+   * the app is inactive and resumes them when it becomes active again. Values
+   * without `isActive` and `subscribe` are ignored. Default: undefined.
    */
   activity?: ActivitySource;
   /**
-   * Milliseconds. A `poll()` tick that is overdue when the app becomes active
-   * again (or whose timer fires more than a second late, as happens when the
-   * JS thread was suspended in the background) is rescheduled at a random
-   * point within this window rather than firing immediately alongside every
-   * other overdue poll. A value that is not a finite positive number counts
-   * as 0. Default: 0 (overdue ticks fire immediately).
+   * Milliseconds. A `poll()` tick that is overdue on resume, or whose timer
+   * fires over a second late, runs at a random point within this window
+   * instead of immediately. Values that are not finite and positive count as
+   * 0. Default: 0.
    */
   pollResumeJitterMs?: number;
 }
@@ -132,10 +118,8 @@ const SUSPENSE_HOLD_TTL = 10_000;
 
 /**
  * How long a failed cold fetch's error waits for a render to claim it. A
- * large or time-sliced tree can take far longer than a task to retry a
- * suspended render, and a reader that finds no hold refetches instead of
- * throwing. An error still unclaimed after this belongs to an abandoned tree,
- * so a later mount makes a fresh attempt instead of inheriting it.
+ * time-sliced retry render can take far longer than a task. An unclaimed
+ * error belongs to an abandoned tree, so a later mount retries.
  */
 const UNCLAIMED_FAILURE_TTL = 1_000;
 
@@ -214,12 +198,7 @@ export class QueryClient {
   private warnedReactiveRetain = false;
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
-  /**
-   * Keys whose last cold failure expired unclaimed. The next attempt's failure
-   * waits `SUSPENSE_HOLD_TTL` instead, so a reader slower than
-   * `UNCLAIMED_FAILURE_TTL` gets the error after one retry rather than
-   * refetching in a loop.
-   */
+  /** Keys whose last cold failure expired unclaimed. The next one waits `SUSPENSE_HOLD_TTL` for a slow reader. */
   private unclaimedFailures = new Set<number>();
 
   private context!: QueryContext;
@@ -248,9 +227,7 @@ export class QueryClient {
     // Must be finite: the window is split into setTimeout delays.
     this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
     this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
-    // All other keys pass through to the context, including the reserved ones
-    // read above and `activity` / `pollResumeJitterMs`, which poll() reads
-    // from there.
+    // The rest, including `activity` and `pollResumeJitterMs` for poll(), go to the context.
     this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -605,16 +582,9 @@ export class QueryClient {
    * never produced a value (a cold miss), or `undefined` when it has one to
    * render (in memory, or hydrated now from a synchronous store).
    *
-   * A cold miss takes a hold that keeps the query active while the render is
-   * suspended, since React discards a suspended render without subscribing.
-   * The reader's commit releases it (`releaseSuspenseHold`); otherwise it
-   * releases itself `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose
-   * last fetch failed is refetched once per hold: when that attempt fails too,
-   * `error` is set and the hold is dropped, so the caller can throw it. A
-   * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
-   * If that attempt also fails, its error waits `SUSPENSE_HOLD_TTL` for a
-   * render, so even a slow reader reaches its error boundary.
+   * A cold miss takes a hold that keeps the query active while suspended,
+   * since React discards a suspended render without subscribing. A failed
+   * query refetches once per hold, and a second failure sets `error`.
    *
    * @internal
    */
@@ -1085,12 +1055,7 @@ export class QueryClient {
   // ======================================================
 
   /**
-   * Evicts the root entity of a non-entity result that `owner` no longer
-   * shows (its params changed, or it was collected), unless another instance
-   * with the same params still shows it. A root already gone from the entity
-   * map is skipped: its key now belongs to the root of whichever query shows
-   * those params.
-   *
+   * Evicts `owner`'s old non-entity root unless another instance still shows it.
    * @internal
    */
   releaseQueryRoot(root: EntityInstance, owner: QueryInstance<any>): void {
