@@ -9,11 +9,10 @@ import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 
 /**
- * Streamed full-payload updates for in-memory entities whose typename is
- * declared by two classes: a list class and a detail class with fields the
- * list class lacks. The detail class wrote the records in an earlier session,
- * so every write of a list entity has to keep the detail's fields in its
- * record. A typename with one class is measured alongside as the control.
+ * Streamed full-payload updates of in-memory entities whose typename two
+ * classes share: a list class and a detail class with extra fields. The detail
+ * class wrote the records in an earlier session, so every list-entity write
+ * must keep the detail's fields. A single-class typename is the control.
  *
  * Run with `npm run bench`.
  */

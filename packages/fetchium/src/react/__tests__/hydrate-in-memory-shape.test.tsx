@@ -13,10 +13,9 @@ import { sleep } from '../../__tests__/utils.js';
 import { useQuery } from '../index.js';
 
 /**
- * React view of hydrate-in-memory-shape: a screen whose cached query shares
- * an entity with a query already in memory paints its cached value on the
- * first commit (a synchronous store), not a loading frame followed by the
- * network result.
+ * With a synchronous store, a screen whose cached query shares an entity with
+ * a query already in memory paints the cached value on its first commit, not a
+ * loading frame.
  */
 
 let clients: QueryClient[] = [];

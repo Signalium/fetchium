@@ -236,8 +236,8 @@ export class SyncQueryStore implements QueryStore {
       this.setValue(entityKey, value, refIds);
       return;
     }
-    // The kept fields go first: should one ever repeat a field of `value`,
-    // the value's own (later) occurrence is the one a parse keeps.
+    // Kept fields go first, so if one repeats a field of `value` the parse
+    // keeps `value`'s later occurrence.
     const json = JSON.stringify(value);
     const rests = this.mergeRests;
     if (rests.size !== 0) rests.delete(entityKey);
@@ -283,9 +283,8 @@ export class SyncQueryStore implements QueryStore {
     if (at !== undefined) {
       since = { at, stored: true };
     } else {
-      // Not known: count from now. Telling an empty store from one an
-      // earlier release wrote would take a scan of every key, on the thread
-      // that creates the client at startup.
+      // Unknown: count from now. Telling an empty store from one an earlier
+      // release wrote would take a scan of every key at startup.
       since = { at: Date.now(), stored: false };
     }
     fieldNamesSinceByKv.set(kv, since);
@@ -293,11 +292,10 @@ export class SyncQueryStore implements QueryStore {
   }
 
   /**
-   * Records that a class of `typename` declares `fields` now. A name keeps
-   * the time it was last declared (refreshed at most once a day, so a
-   * session normally writes nothing here); one no class has declared for
-   * `FIELD_NAME_TTL` is forgotten, so a field an app update removed stops
-   * marking the typename's classes, and stops being kept in its records.
+   * Records that a class of `typename` declares `fields` now. Each name keeps
+   * the time it was last declared, refreshed at most daily, so most sessions
+   * write nothing. A name undeclared for `FIELD_NAME_TTL` is forgotten, so a
+   * field an app update removed stops being kept in records.
    */
   addEntityFieldNames(typename: string, fields: readonly string[]): void {
     const names = this.fieldNamesOf(typename);
@@ -341,17 +339,14 @@ export class SyncQueryStore implements QueryStore {
   }
 
   /**
-   * Deletes every query, entity record and queue this store holds (the
-   * `sq:doc:` keys of its kv) and reports each record to `onDelete`
-   * listeners, so a client over it drops what it kept from those records
-   * and its next write of an entity carries only what the entity holds in
-   * memory. Wipe the cache with this rather than on the kv directly (an
-   * MMKV `clearAll()`): a client does not know about records deleted under
-   * it, and its next write of an entity of a typename two classes share puts
-   * back the other class's fields it kept from the deleted record. The field
-   * names the store remembers per typename (`sq:meta:`) describe the app's
-   * entity classes, not cached data, and are kept; with no record left,
-   * they cover every record from now on (`entityFieldNamesComplete`).
+   * Deletes every query, entity record and queue (the kv's `sq:doc:` keys)
+   * and reports each record to `onDelete` listeners, so clients drop what
+   * they kept from those records. Wipe the cache with this, not on the kv
+   * directly (e.g. MMKV `clearAll()`): a client unaware of the deletion would
+   * write back another class's fields it kept from a deleted record. The
+   * per-typename field names (`sq:meta:`) describe the app's classes, not
+   * cached data, so they are kept. With no records left, they are complete
+   * from now on (`entityFieldNamesComplete`).
    */
   clear(): void {
     const kv = this.kv;

@@ -403,10 +403,9 @@ export class QueryClient {
   }
 
   /**
-   * Per entity def: whether another class sharing its typename declares a
-   * field it does not, in this session or (with a store that remembers field
-   * names) an earlier one. A record of such a class may hold fields it does
-   * not parse, which its writes must keep.
+   * Per entity def: whether another class of its typename declares a field it
+   * lacks, this session or (via the store) an earlier one. Its records may
+   * hold fields it does not parse, which its writes must keep.
    */
   private foreignFieldDefs = new WeakMap<ValidatorDef<any>, boolean>();
   /** Per typename: every top-level field its classes have declared (see `foreignFieldDefs`). */
@@ -425,8 +424,8 @@ export class QueryClient {
 
   /**
    * Whether a stored record of this def's typename may hold fields the def
-   * does not declare. One WeakMap lookup; registers the def first if needed
-   * (a hydration parse runs before the apply registers it).
+   * does not declare. Registers the def first if needed, since a hydration
+   * parse runs before the apply registers it.
    *
    * @internal
    */
@@ -436,10 +435,9 @@ export class QueryClient {
       this.registerEntityDef(def);
       verdict = this.foreignFieldDefs.get(def);
       if (verdict === undefined) {
-        // Not a class: the merged def of a typename's classes (a streamed
-        // event's root), whose fields are some of the typename's. A new class
-        // registered later replaces the merged def, so the verdict cannot go
-        // stale.
+        // Not a class but a typename's merged def (a streamed event's root).
+        // Registering a new class replaces the merged def, so this verdict
+        // cannot go stale.
         const fields = def.typenameValue !== undefined ? this.typenameFields.get(def.typenameValue) : undefined;
         const shape = def.shape as Record<string, unknown> | undefined;
         verdict = fields !== undefined && shape !== undefined && fields.size > Object.keys(shape).length;
@@ -450,12 +448,10 @@ export class QueryClient {
   }
 
   /**
-   * The top-level fields that other classes registered for this def's
-   * typename declare, that it does not, and whose values can hold an entity
-   * (a `t.entity`, a live array, or an array or object containing one). Only
-   * these can hold references to children that a full payload of this def
-   * leaves in the data. Computed once per def until another class of the
-   * typename registers.
+   * Top-level fields that other classes of this def's typename declare, this
+   * def does not, and that can hold an entity. Only these can hold child
+   * references that a full payload of this def leaves in the data. Cached per
+   * def until another class of the typename registers.
    *
    * @internal
    */
@@ -480,9 +476,9 @@ export class QueryClient {
   }
 
   /**
-   * Folds a newly registered def's fields into its typename's field set (and
-   * the store's, which outlives the session), then re-derives which of the
-   * typename's defs lack a field of it. Runs once per def and client.
+   * Folds a newly registered def's fields into its typename's field set and
+   * the store's, then re-derives which of the typename's defs lack one. Runs
+   * once per def and client.
    */
   private noteTypenameFields(typename: string, def: ValidatorDef<any>): void {
     let fields = this.typenameFields.get(typename);
@@ -504,8 +500,8 @@ export class QueryClient {
     // Every registered def's fields are in the set, so a def lacks one of
     // them exactly when the set is larger than its shape.
     for (const d of this.typenameRegistry.get(typename)!) {
-      // A new class can declare a field name already known with a def that
-      // holds entities, so every def of the typename recomputes.
+      // A new class may declare a known field name with an entity-holding
+      // def, so every def's ref fields recompute.
       this.foreignRefFieldsByDef.delete(d);
       if (!added && d !== def) continue;
       const misses = fields.size > Object.keys(d.shape as Record<string, unknown>).length;

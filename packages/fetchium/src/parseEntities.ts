@@ -56,9 +56,8 @@ export interface ParsedEntity {
   fillsPartial: boolean;
   /**
    * Hydration only: the raw cached record, when it holds fields the
-   * instance's data does not (another class sharing the typename wrote
-   * them). The apply keeps those fields on the instance so its writes carry
-   * them instead of dropping them from the record.
+   * instance's data does not (written by another class of the typename). The
+   * apply keeps them so the instance's writes don't drop them.
    */
   record?: Record<string, unknown>;
 }
@@ -531,12 +530,10 @@ function parseEntityData(
       fillKeys = existing._partialKeys;
       obj = preloaded;
       // The fill makes the entity whole, so its next write replaces the
-      // record: hand over the record when it holds fields this class does not
-      // declare (another class of the typename wrote them), and that write
-      // keeps them. Hydrating over an event-built entity is rare, so every
-      // record is checked, not only for a class known to lack fields: a store
-      // written before field names were remembered may not know the other
-      // class.
+      // record. Hand over a record holding fields this class does not declare
+      // so that write keeps them. This path is rare, so every record is
+      // checked: a store written before field names were remembered may not
+      // know the other class.
       const shape = entityShape.shape;
       for (const k in preloaded) {
         if (!(k in shape)) {
@@ -552,11 +549,9 @@ function parseEntityData(
       }
       obj = preloaded;
       // Only a class lacking fields another class of its typename declares
-      // can be handed a record holding fields it does not parse; for every
-      // other class this is one WeakMap lookup. Unless the store knows every
-      // class that wrote its records (an earlier release wrote some, or it
-      // does not remember field names): then any record is checked, as the
-      // other class may not be registered yet.
+      // can get a record with fields it does not parse. If the store's field
+      // names don't cover every record, the other class may not be registered
+      // yet, so every record is checked.
       if (
         !queryClient.storeKnowsTypenameFields ||
         queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
@@ -636,26 +631,21 @@ function parseEntityData(
 // ======================================================
 
 /**
- * A cached query references an entity that is already live in memory. The
- * in-memory data is at least as fresh as the cached record (it was hydrated
- * from that record or applied from a later payload) and every consumer
- * already sees it, so it is never re-parsed or overwritten from the cache:
- * re-parsing would run already-parsed values (formatted values, parse
- * results, child proxies) through the parser again, in place, and corrupt
- * them.
+ * A cached query references an entity already live in memory. The in-memory
+ * data is at least as fresh as the cached record and every consumer already
+ * sees it, so it is never overwritten from the cache. Re-parsing it would also
+ * run already-parsed values (formatted values, child proxies) through the
+ * parser again, in place, and corrupt them.
  *
- * Field by field, against the hydrating query's shape:
- *  - no class applied to the instance declares the field (it is not an own
- *    key of the data; every applied class's parse sets each of its fields,
- *    even to `undefined`) and the record holds it: the record's value is
- *    parsed and merged in. Nothing in memory says anything about it, and it
- *    was written by a class that declares it, so it is no older than this
- *    cached query;
- *  - the in-memory value satisfies the field: used as is;
- *  - anything else (a value of another type, or `undefined` from a class
- *    that declares the field optional, which is fresher than the record):
- *    the cached query cannot be served, `CachedEntityMismatchError`, and it
- *    is dropped and fetched.
+ * Each field of the hydrating query's shape:
+ *  - not an own key of the data (no applied class declares it, since each
+ *    class's parse sets all its fields, even to `undefined`) but held by the
+ *    record: parsed from the record and merged in. A class that declares it
+ *    wrote it, so it is no older than this cached query.
+ *  - the in-memory value satisfies the field: used as is.
+ *  - otherwise (another type, or `undefined` from a class declaring it
+ *    optional, which is fresher than the record): `CachedEntityMismatchError`,
+ *    so the cached query is dropped and fetched.
  */
 function hydrateFromMemory(
   existing: EntityInstance,

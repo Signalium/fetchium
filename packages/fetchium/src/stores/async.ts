@@ -63,9 +63,9 @@ export type StoreMessage =
       /** `value` holds only some fields; the writer merges them over the stored record, if any. */
       merge?: boolean;
       /**
-       * Fields of the stored record to keep alongside `value` (a JSON object
-       * body, see `QueryStore.saveEntity`). Optional on the wire: a writer
-       * built before it ignores it and writes `value` alone.
+       * Fields of the stored record to keep alongside `value`, as a JSON
+       * object body (see `QueryStore.saveEntity`). An older writer ignores it
+       * and writes `value` alone.
        */
       rest?: string;
     }

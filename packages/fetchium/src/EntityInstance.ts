@@ -14,17 +14,16 @@ import { entitySatisfiesShape } from './parseEntities.js';
 import { recordRestOutside } from './stores/shared.js';
 
 /**
- * Fields of an entity's stored record that no class applied to the in-memory
- * instance declares: another class sharing the typename wrote them, in this
- * session or an earlier one. Kept, as raw record JSON, so the instance's
- * writes carry them instead of dropping them from the record.
+ * Fields of an entity's stored record that no class applied to the instance
+ * declares, written by another class sharing the typename. Kept as raw JSON so
+ * the instance's writes don't drop them.
  */
 export interface RecordRest {
   /** The fields kept. */
   keys: string[];
   /** Their raw values as a JSON object body (`"a":1,"b":{…}`), written as is. */
   json: string;
-  /** The `{ __entityRef }` keys inside them, which the record goes on referencing. */
+  /** The `{ __entityRef }` keys inside them, which the record still references. */
   refIds: number[];
 }
 
@@ -658,21 +657,19 @@ export class EntityInstance {
   /** The stored record's fields this instance does not hold; its writes carry them. */
   _recordRest: RecordRest | undefined = undefined;
   /**
-   * The stored record handed over at hydration by a store that cannot read
-   * it again synchronously, while `_recordRest` has not been taken from it
-   * yet: that happens at the first write, so a cold start pays nothing for it.
+   * The stored record, held until `_recordRest` is taken from it at the first
+   * write so a cold start pays nothing. Kept from hydration only for stores
+   * that can't re-read it synchronously.
    */
   private _storedRecord: Record<string, unknown> | undefined = undefined;
   /**
-   * The stored record may hold fields of another class sharing the typename
-   * (built from a fetch of a class that lacks some, or hydrated from a record
-   * that holds some), so the first write reads it (synchronous stores) and
-   * keeps them.
+   * The stored record may hold another class's fields, so the first write
+   * reads it (synchronous stores) and keeps them.
    */
   _checkStoredRecord: boolean = false;
   /**
-   * `entityRefs` were counted from the whole data by a full payload's apply,
-   * not carried over by a partial update or changed by a live collection.
+   * `entityRefs` were counted from the whole data by a full payload, and not
+   * since changed by a partial update or a live collection.
    */
   _refsCounted: boolean = false;
   private _saving: boolean = false;
@@ -904,7 +901,7 @@ export class EntityInstance {
     this.markUnwritten();
   }
 
-  /** The store deleted this entity's record, and with it the fields this instance kept from it. */
+  /** The store deleted this entity's record: drop the fields kept from it. */
   recordDeleted(): void {
     this._recordRest = undefined;
     this._storedRecord = undefined;
@@ -912,15 +909,15 @@ export class EntityInstance {
     this.recordDropped();
   }
 
-  /** Whether this instance keeps fields of its stored record (or reads them, or has the record to take them from). */
+  /** Whether this instance keeps, or will read, fields of its stored record. */
   keepsRecordFields(): boolean {
     return this._recordRest !== undefined || this._storedRecord !== undefined || this._checkStoredRecord;
   }
 
   /**
-   * The stored record holds fields the data does not: keep them. A
-   * synchronous store's record is read again at the first write rather than
-   * held in memory until then.
+   * The stored record holds fields the data does not: keep them. A rereadable
+   * (synchronous) store's record is read again at the first write instead of
+   * held in memory.
    */
   recordHoldsOtherFields(record: Record<string, unknown>, rereadable: boolean): void {
     if (rereadable) {
@@ -933,11 +930,9 @@ export class EntityInstance {
   }
 
   /**
-   * Keeps the fields of this entity's stored record (raw, as parsed from the
-   * store) that the instance's data does not hold, so its writes carry them.
-   * A field the data holds, even as `undefined` (a class declares it and the
-   * payload left it out), is the instance's to write. The record is kept as
-   * handed over and the fields are taken from it at the first write.
+   * Keeps the stored record (raw, as parsed) so the instance's writes carry
+   * the fields its data lacks. They are taken from it at the first write. A
+   * field the data holds, even as `undefined`, is the instance's to write.
    */
   noteRecord(record: Record<string, unknown>): void {
     this._storedRecord = record;
@@ -945,9 +940,8 @@ export class EntityInstance {
   }
 
   /**
-   * The kept record fields to write with the data. Normally exactly what was
-   * kept; once a class declaring some of them has been applied, the data
-   * holds those itself and they are dropped from what is kept.
+   * The kept record fields to write with the data, minus any an applied class
+   * now declares (the data holds those itself).
    */
   recordRestForWrite(): RecordRest | undefined {
     const data = this.data;

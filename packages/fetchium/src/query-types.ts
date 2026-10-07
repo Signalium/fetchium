@@ -111,12 +111,10 @@ export interface QueryStore {
 
   /**
    * Writes an entity's record. `rest`, when given, is a JSON object body
-   * (`"a":1,"b":{…}`) of fields the record already held that no entity class
-   * applied to the in-memory instance declares (another class sharing the
-   * typename wrote them). The store writes them alongside `value`, ahead of
-   * its fields, so the write does not drop them; `refIds` already includes
-   * the references inside them. A store that ignores `rest` drops those
-   * fields from the record, as before.
+   * (`"a":1,"b":{…}`) of fields the record already held that the instance's
+   * classes don't declare (another class of the typename wrote them). Write
+   * them ahead of `value`'s fields so they are kept. `refIds` already includes
+   * the references inside them. A store that ignores `rest` drops them.
    */
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void;
 
@@ -187,12 +185,11 @@ export interface QueryStore {
   readEntity?(entityKey: number): Record<string, unknown> | undefined;
 
   /**
-   * The top-level field names the entity classes of `typename` have
-   * declared, as `addEntityFieldNames` recorded them in this session or an
-   * earlier one. Lets the client tell, without reading any record, which
-   * classes may be handed a record holding fields they do not declare. A
-   * store without these methods only knows the classes of the current
-   * session.
+   * The top-level field names `typename`'s entity classes have declared, as
+   * `addEntityFieldNames` recorded them in this or an earlier session. Lets
+   * the client tell, without reading records, which classes may get a record
+   * holding fields they don't declare. Without these methods the client only
+   * knows this session's classes.
    */
   getEntityFieldNames?(typename: string): readonly string[] | undefined;
   /**
@@ -205,11 +202,9 @@ export interface QueryStore {
   /**
    * Whether the names `getEntityFieldNames` returns cover every class that
    * wrote a record the store holds. Asked once, when the client is created.
-   * Only then is an entity built from streamed events that carried every
-   * field of its class, of a typename whose other classes declare nothing
-   * more, written whole rather than merged into its record. A store some of
-   * whose records were written before it remembered field names (by an
-   * earlier release) answers `false` until they cannot matter.
+   * Only then can an entity built from streamed events be written whole
+   * instead of merged into its record. A store holding records written before
+   * it remembered field names answers `false` until they cannot matter.
    */
   entityFieldNamesComplete?(): boolean;
 }

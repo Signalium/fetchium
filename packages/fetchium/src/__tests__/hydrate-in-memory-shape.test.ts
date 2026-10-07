@@ -13,19 +13,15 @@ import { hashValue } from 'signalium/utils';
 import { sleep } from './utils.js';
 
 /**
- * A persisted query must be served from the cache when one of its entities is
- * already in memory with data that does not, by itself, fit the query's shape,
- * as long as the cache can make up the difference without serving data older
- * than the in-memory entity:
- *   A. a required top-level `t.format` field: the in-memory value is already
- *      a parsed FormattedValue;
- *   B. two entity classes share a typename and the class in memory lacks a
- *      field the cached query's class requires;
- *   B2/B3. the other class wrote the record (in this session or an earlier
- *      one): its write must keep the fields it does not declare, or even a
- *      cold start with nothing in memory cannot serve the cache.
- * The negative cases (C) must keep falling back to the network: the cache
- * must never resurrect a value the fresher in-memory entity contradicts.
+ * A persisted query is served from the cache when one of its entities is in
+ * memory with data that doesn't fit the query's shape by itself, as long as
+ * the cache can fill the gap without serving data older than memory:
+ *   A. a required top-level `t.format` field, already parsed in memory;
+ *   B. two classes share a typename and the in-memory class lacks a field the
+ *      cached query's class requires. The in-memory class's writes must keep
+ *      the other class's fields, or even a cold start cannot serve the cache.
+ * The negative cases (C) fall back to the network: the cache must never
+ * resurrect a value the fresher in-memory entity contradicts.
  */
 
 let clients: QueryClient[] = [];
@@ -239,7 +235,7 @@ async function runDetail(
 ): Promise<DetailOutcome> {
   const logs: string[] = [];
   const c = makeClient(kv, f, logs);
-  // Wrapped: a QueryPromise is thenable, so returning it bare from an async function would unwrap it.
+  // `before` wraps the list: a QueryPromise is thenable, so an async function returning it bare would unwrap it.
   const list = (await before(c))?.list;
   f.set('/product', detailBody(6, 'net', 'P-net'), 200);
   const requestsBefore = f.count('/product');
@@ -1078,14 +1074,14 @@ describe('E. what the store remembers about the other class, and for how long', 
 
     // Within 30 days the detail's names are known: the summary's first write keeps its fields.
     expect(await listSession(t0 + 29 * day)).toBe(1);
-    // Past them, the summary is no longer marked: it writes without reading.
+    // Past 30 days the names are forgotten: the summary writes without reading.
     expect(await listSession(t0 + 31 * day)).toBe(0);
   });
 
   it('E3 a typename with one class: an event carrying every field writes the record whole, without a merge', async () => {
     const kv = new MemoryPersistentStore();
-    // A store whose field names cover every record it holds: emptied with
-    // clear() (otherwise, 30 days after it started remembering them; see E5).
+    // clear() makes the field names cover every record (otherwise that takes
+    // 30 days; see E5).
     new SyncQueryStore(kv).clear();
     const f = makeFetch();
     f.set('/reading/latest', { reading: readingPayload });
@@ -1115,7 +1111,7 @@ describe('E. what the store remembers about the other class, and for how long', 
     await session(kv, f, async c => {
       await start(c, () => fetchQuery(GetItem));
     });
-    /** The kv opened by a new app process; without `sq:meta:` keys, as a release that did not remember field names left it. */
+    /** The kv reopened by a new app process. `stripMeta` drops `sq:meta:` keys, as a release without field names left it. */
     const reopen = (stripMeta: boolean) => {
       const copy = new MemoryPersistentStore();
       for (const k of kv.getAllKeys()) {
@@ -1154,13 +1150,13 @@ describe('E. what the store remembers about the other class, and for how long', 
     reopen(false);
     expect(await listSession(t0 + 2 * hour, 'U2')).toEqual({ merged: 1, savedWhole: false });
     expect(recordOf(kv, 'Item', 'i1')).toEqual({ __typename: 'Item', id: 'i1', name: 'U2', ...kept });
-    // 30 days after the store started remembering, a class not declared since would have been forgotten anyway: written whole.
+    // 30 days after the store started remembering names: written whole.
     reopen(false);
     kv.setNumber('sq:meta:fieldsSince', t0 + 3 * hour - 30 * day);
     expect(await listSession(t0 + 3 * hour, 'U3')).toEqual({ merged: 0, savedWhole: true });
 
-    // A store first opened by this version counts from then, empty or not:
-    // telling would take a scan of every key at startup, which it does not do.
+    // A store without `fieldsSince` counts from now, empty or not, rather than
+    // scan every key at startup.
     const fresh = new MemoryPersistentStore();
     const scans = vi.spyOn(fresh, 'getAllKeys');
     expect(new SyncQueryStore(fresh).entityFieldNamesComplete()).toBe(false);

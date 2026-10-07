@@ -224,13 +224,11 @@ function applyEntity(
   } finally {
     entityInstance._applying = false;
   }
-  // A full payload of a class that lacks fields another class of the typename
-  // declares leaves those fields in the data: count the references they hold,
+  // A full payload of a class lacking fields another class of the typename
+  // declares leaves those fields in the data. Count the references they hold,
   // or they would be released while the other class's consumers still show
-  // them, and dropped from the record's references. Only fields whose defs
-  // can hold an entity are walked. An unchanged payload skips the walk when
-  // the last full payload counted the references: the entity still holds
-  // exactly those.
+  // them. An unchanged payload skips the walk if the last full payload already
+  // counted them.
   const heldRefs = entityInstance.entityRefs;
   let keepsHeldRefs = false;
   if (
@@ -322,10 +320,10 @@ function countHeldRefs(
 }
 
 /**
- * A whole record is about to be written from a fetch's data: if the entity's
- * class lacks fields another class sharing its typename declares, the stored
- * record may hold them, and the first write reads it to keep them. For an app
- * whose typenames each have one class this is a field read.
+ * A fetch's data is about to replace the whole record. If the class lacks
+ * fields another class of its typename declares, the record may hold them, so
+ * the first write reads it to keep them. With one class per typename this
+ * costs a field read.
  */
 function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClient: QueryClient): void {
   if (
@@ -338,14 +336,12 @@ function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClie
 }
 
 /**
- * Whether the fields streamed events carried (`keys`) are the entity's whole
- * record, so it can be written whole rather than merged into its record. They
- * must name every field of its class, and no other class sharing the typename
- * may declare a field this one lacks: such a field can sit in the record (an
- * earlier session's write), and only a merge keeps it. That takes a store
- * that remembers each typename's field names across sessions, for every
- * record it holds; with any other store, or one with records an earlier
- * release wrote, a class not registered this session may be unknown, so the
+ * Whether the fields streamed events carried (`keys`) make up the entity's
+ * whole record, so it can be written whole instead of merged. They must cover
+ * its class, and no other class of the typename may declare a field this one
+ * lacks, since the record could hold it. That needs a store whose remembered
+ * field names cover every record it holds (`storeKnowsTypenameFields`).
+ * Otherwise a class not registered this session may be unknown, so the
  * entity stays partial and is merged.
  */
 function eventsBuiltWholeRecord(keys: Set<string>, entityShape: EntityDef, queryClient: QueryClient): boolean {

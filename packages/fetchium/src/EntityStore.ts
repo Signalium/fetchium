@@ -83,8 +83,8 @@ export class EntityStore {
       return;
     }
     if (instance._checkStoredRecord) {
-      // First write of an instance whose class may lack fields the record
-      // holds: read the record once and keep them from now on.
+      // The class may lack fields the record holds: read it once, on the
+      // first write.
       instance._checkStoredRecord = false;
       const stored = this.readEntity?.(instance.key);
       if (stored !== undefined) instance.noteRecord(stored);
