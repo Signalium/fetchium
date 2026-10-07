@@ -57,7 +57,8 @@ export interface QueryClientConfig {
    * scope resumes) with data younger than this is not refetched, even if stale.
    * Subscription pushes count as fresh data. Queries can override it with
    * `reactivationGraceMs`. Reconnects, `refetch()`, invalidation, `markStale()`
-   * and a failed last fetch still refetch. Default: 0.
+   * and a failed last fetch still refetch. Default: 0. `Infinity` never
+   * refetches on reactivation.
    */
   reactivationGraceMs?: number;
   /**
