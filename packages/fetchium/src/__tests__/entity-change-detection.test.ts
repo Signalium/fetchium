@@ -7,13 +7,6 @@ import { RESTQuery } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { testWithClient, setupTestClient } from './utils.js';
 
-/**
- * Entity Change Detection Tests
- *
- * A refetch or poll that returns data the store already holds notifies no one
- * and writes nothing. A real change still notifies and persists.
- */
-
 /** Records `typename:id` for every entity that notifies while active. */
 function recordNotifies() {
   const notified: string[] = [];
@@ -57,7 +50,6 @@ class GetList extends RESTQuery {
   result = { list: t.entity(List) };
 }
 
-/** A list whose members are named in order; `i-1`, `i-2`, ... */
 function list(...names: string[]) {
   return {
     list: {
@@ -113,8 +105,7 @@ describe('Entity Change Detection', () => {
 
       expect(recorder.notified).toEqual([]);
       expect(tokenSaves(saveEntity)).toHaveLength(0);
-      // The query's own freshness bookkeeping still has to be written, or the
-      // query would look stale forever and refetch on every read.
+      // Query freshness is still written, or the query would refetch on every read.
       expect(saveQuery).toHaveBeenCalled();
     });
   });
@@ -295,7 +286,6 @@ describe('Entity Change Detection', () => {
 
       recorder = recordNotifies();
 
-      // Membership is unchanged, so the list stays quiet.
       mockFetch.get('/list', list('A', 'B2'));
       (query.value as unknown as { __refetch(): void }).__refetch();
       await query;
@@ -320,7 +310,6 @@ describe('Entity Change Detection', () => {
     const instance = client.entityMap.getEntity(hashValue(['Token', 'tok-0']))!;
     recorder = recordNotifies();
 
-    // The no-op must leave the value intact; the real change must land it.
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-0', price: 0 } });
     expect(recorder.notified).toEqual([]);
     expect(instance.data.price).toBe(0);
@@ -364,12 +353,10 @@ describe('Entity Change Detection', () => {
     const owner = client.entityMap.getEntity(hashValue(['Owner', 'o-1']))!;
     recorder = recordNotifies();
 
-    // The no-op must leave the value intact; the real change must land it.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Ann') });
     expect(recorder.notified).toEqual([]);
     expect(owner.data.name).toBe('Ann');
 
-    // The parent's own fields and its ref set are unchanged, so it stays quiet.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: doc('Bea') });
     expect(recorder.notified).toEqual(['Owner:o-1']);
     expect(owner.data.name).toBe('Bea');
@@ -402,7 +389,6 @@ describe('Entity Change Detection', () => {
       (query.value as unknown as { __refetch(): void }).__refetch();
       await query;
 
-      // A key-by-key copy can't apply a removal, so `b` would survive one.
       expect((query.value as unknown as Result).config.attrs).toEqual({ a: '1' });
       expect(recorder.notified).toEqual(['Config:c-1']);
     });
@@ -420,8 +406,6 @@ describe('Entity Change Detection', () => {
       const instance = client.entityMap.getEntity(key)!;
       expect(instance._persisted).toBe(true);
 
-      // An entity applied with persist: false has nothing in the store to
-      // skip, so the next apply must write it whether or not data changed.
       instance._persisted = false;
       const saveEntity = vi.spyOn(store, 'saveEntity');
       (query.value as unknown as { __refetch(): void }).__refetch();
