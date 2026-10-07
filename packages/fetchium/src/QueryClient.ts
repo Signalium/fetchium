@@ -52,14 +52,9 @@ export interface QueryClientConfig {
   };
   evictionMultiplier?: number;
   /**
-   * Milliseconds. A query that reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this is not refetched, even if past
-   * its `staleTime`. Data a subscription pushed to (a `subscribe` event, or a
-   * topic event sent with its topic) counts as fresh from the last push. A
-   * `poll()` counts only through its fetches. Queries can override this with
-   * `reactivationGraceMs`. Network reconnects, `refetch()`,
-   * `invalidateQueries()`, `markStale()` and a failed last fetch still
-   * refetch. Default: 0 (every stale query refetches on reactivation).
+   * Ms. A reactivating query with data younger than this skips its stale refetch.
+   * Subscription pushes count as fresh data, `poll()` only through its fetches.
+   * Reconnects, `refetch()`, invalidation and a failed last fetch still refetch. Default: 0.
    */
   reactivationGraceMs?: number;
   /**
@@ -76,18 +71,9 @@ export interface QueryClientConfig {
    * (all start together).
    */
   reactivationStaggerMs?: number;
-  /**
-   * Foreground/background source. When set, `poll()` stops its timers while
-   * the app is inactive and resumes them when it becomes active again.
-   * Default: undefined (polls run regardless of app state).
-   */
+  /** Foreground/background source. `poll()` stops its timers while the app is inactive. */
   activity?: ActivitySource;
-  /**
-   * Milliseconds. A `poll()` tick that is overdue when the app becomes active,
-   * or whose timer fires over a second late (as after the JS thread was
-   * suspended), fires at a random point within this window instead of
-   * immediately alongside every other overdue poll. Default: 0.
-   */
+  /** Ms. Overdue `poll()` ticks on resume fire at a random point in this window, not all at once. Default: 0. */
   pollResumeJitterMs?: number;
 }
 
@@ -148,14 +134,11 @@ export class QueryClient {
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
 
-  /** See `QueryClientConfig.reactivationGraceMs`. */
   readonly reactivationGraceMs: number;
-  /** See `QueryClientConfig.reactivationStaggerMs`. */
   readonly reactivationStaggerMs: number;
   /** See `QueryClientConfig.shouldRetry`. */
   readonly shouldRetry: ShouldRetry | undefined;
 
-  /** Queries whose reactivation refetch waits for the current task's stagger flush. */
   private staggerQueue = new Set<QueryInstance<any>>();
   private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
@@ -931,7 +914,6 @@ function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset
   return true;
 }
 
-/** Writes an entity and its not-yet-written descendants. */
 function persistUnwritten(entity: EntityInstance): void {
   if (!entity._persisted) entity.save();
   const refs = entity.entityRefs;

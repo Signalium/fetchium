@@ -3,19 +3,12 @@ import type { QueryContext } from '../query-types.js';
 
 const MIN_INTERVAL = 100;
 
-/**
- * A tick this late means its timer was frozen (React Native suspends JS timers
- * in the background), so every other poll is overdue too and the tick gets
- * jittered. A busy JS thread delays timers by far less.
- */
+// A tick this late means timers were frozen in the background, so every poll is overdue.
 const LATE_TICK_THRESHOLD = 1000;
 
 export interface PollConfig {
   interval: number;
-  /**
-   * Overrides `QueryClientConfig.pollResumeJitterMs` for this poll: the window
-   * an overdue tick is spread across when the app becomes active again.
-   */
+  /** Overrides `QueryClientConfig.pollResumeJitterMs` for this poll. */
   resumeJitterMs?: number;
 }
 
@@ -36,7 +29,7 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
-    /** When the next tick is due. Kept while the timer is stopped, so resuming knows what is overdue. */
+    /** Kept while the timer is stopped, so resuming knows what is overdue. */
     let dueAt = Date.now() + interval;
 
     const refetch = this.refetch as () => Promise<unknown>;
@@ -52,7 +45,6 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
       timer = setTimeout(tick, delay);
     };
 
-    /** Reschedules an overdue tick at a random point within the jitter window. */
     const scheduleOverdue = (): void => {
       schedule(jitterWindow > 0 ? Math.floor(Math.random() * jitterWindow) : 0);
     };
@@ -65,7 +57,7 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
     const tick = async (): Promise<void> => {
       timer = undefined;
       if (!active) return;
-      // Leave the tick overdue. The activity listener reschedules it on resume.
+      // Stay overdue. The activity listener reschedules on resume.
       if (!isAppActive()) return;
       if (jitterWindow > 0 && Date.now() - dueAt > LATE_TICK_THRESHOLD) {
         scheduleOverdue();
@@ -94,7 +86,7 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
         stopTimer();
         return;
       }
-      // A refetch in flight schedules the next tick itself when it settles.
+      // An in-flight refetch schedules the next tick itself.
       if (timer !== undefined || inFlight) return;
       const remaining = dueAt - Date.now();
       if (remaining > 0) {

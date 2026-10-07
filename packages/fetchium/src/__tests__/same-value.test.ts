@@ -4,11 +4,7 @@ import { FormattedValue } from '../typeDefs.js';
 import { PROXY_ID } from '../proxyId.js';
 import type { EntityInstance } from '../EntityInstance.js';
 
-/**
- * `sameValue` decides whether an apply notifies consumers and writes to the
- * store, so a wrong `true` is a dropped update. Every branch answers `false`
- * for anything it cannot compare confidently; these pin that direction.
- */
+// A wrong `true` drops an update, so anything uncertain must compare unequal.
 
 const proxyLike = (key: number) => {
   const obj = {};
@@ -80,8 +76,6 @@ describe('sameValue', () => {
   }
 
   it('a key answered only by the prototype is not a match', () => {
-    // `in` would find `constructor` on Object.prototype and compare it against
-    // the left side's own `constructor`, reporting two different objects equal.
     expect(sameValue({ constructor: Object, x: 1 }, { x: 1, y: 2 })).toBe(false);
     expect(sameValue({ toString: 1, a: 2 }, { a: 2, b: 3 })).toBe(false);
   });
@@ -121,14 +115,11 @@ describe('sameRefs', () => {
   });
 
   it('ignores ref counts, which the store does not persist', () => {
-    // `EntityStore.save` writes a key set; `setChildRefs` acts on a key
-    // appearing or disappearing. A count change writes identical bytes.
     expect(sameRefs(new Map([[a, 1]]), new Map([[a, 3]]))).toBe(true);
   });
 });
 
 describe('sameKeys', () => {
-  // A wrong `true` here leaves a key the server removed in the store.
   const cases: [string, Record<string, unknown>, Record<string, unknown>, boolean][] = [
     ['both empty', {}, {}, true],
     ['same keys, same values', { a: 1 }, { a: 1 }, true],

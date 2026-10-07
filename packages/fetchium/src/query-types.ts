@@ -7,12 +7,8 @@ import { QueryDefinition } from './query.js';
 // Query Types
 // -----------------------------------------------------------------------------
 
-/**
- * Reports whether the app is in the foreground. Supplied by the host (for
- * React Native, wrap `AppState`), since Fetchium cannot observe it itself.
- */
+/** Host-supplied foreground state, e.g. wrapping React Native's `AppState`. */
 export interface ActivitySource {
-  /** `true` while the app is foregrounded and background work should run. */
   isActive(): boolean;
   /** Calls `listener` whenever `isActive()` may have changed. Returns an unsubscribe function. */
   subscribe(listener: () => void): () => void;
@@ -26,9 +22,7 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
-  /** See `QueryClientConfig.activity`. */
   activity?: ActivitySource;
-  /** See `QueryClientConfig.pollResumeJitterMs`. */
   pollResumeJitterMs?: number;
 }
 
@@ -62,13 +56,7 @@ export interface QueryConfigOptions {
   networkMode?: NetworkMode; // default: NetworkMode.Online
   retry?: RetryConfig | number | boolean; // default: 3 on client, 0 on server
   refreshStaleOnReconnect?: boolean; // default: true
-  /**
-   * Milliseconds. When the query reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this, it is not refetched even if
-   * stale. Data a subscription pushed to counts as fresh from the last push.
-   * Overrides `QueryClientConfig.reactivationGraceMs`. Does not affect network
-   * reconnects, `refetch()`, or invalidation.
-   */
+  /** Ms. Overrides `QueryClientConfig.reactivationGraceMs` for this query. */
   reactivationGraceMs?: number;
   subscribe?: (this: any, onEvent: (event: import('./types.js').MutationEvent) => void) => () => void;
 }
