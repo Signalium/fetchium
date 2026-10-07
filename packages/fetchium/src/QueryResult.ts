@@ -535,6 +535,8 @@ export class QueryInstance<T extends Query> {
 
   private runQueryImmediately(): void {
     this.fetchStarts++;
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = undefined;
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();
