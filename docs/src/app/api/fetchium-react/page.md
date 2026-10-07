@@ -132,8 +132,8 @@ const SearchResults = component(() => {
 
 - `useQuery` is a thin wrapper around Signalium v3's `useReactive`, which is deep-by-default. It returns a **structurally-shared snapshot** of the query result, so memoized children that receive subtrees as props keep stable references when the underlying data is unchanged.
 - Fetchium registers a custom snapshot for entity proxies so the snapshot walks into entities (instead of returning them by reference), giving you correct re-rendering on entity field changes.
-- The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Treat it as read-only: in development builds the snapshot and every nested object and array in it are frozen, so an in-place `sort()`, a `push()` or an assignment in render throws a `TypeError` at that line. Production snapshots are not frozen, and a mutation there is carried forward until the entity changes. Sort a copy (`[...items].sort()`) or use `draft()` from `fetchium` if you need a mutable copy for mutations.
-- `useQuery` never suspends. Reading `.value` while pending returns `undefined`. Use [`useSuspenseQuery`](#usesuspensequery) to suspend on a cold miss.
+- The snapshot is a read-only copy of the query result. Development builds freeze it, so mutating it throws a `TypeError`. Sort a copy (`[...items].sort()`) or use `draft()` from `fetchium` when you need a mutable copy.
+- `useQuery` never suspends: `.value` is `undefined` until the first value arrives. Use [`useSuspenseQuery`](#usesuspensequery) to suspend.
 
 ---
 
@@ -146,13 +146,9 @@ function useSuspenseQuery<T extends Query>(
 ): ReadyReactivePromise<QueryResult<T>>;
 ```
 
-`useQuery` for components under a React `<Suspense>` boundary. It suspends only on a **cold miss**: the query has never produced a value, neither in memory nor, with a synchronous store, in the persisted cache. Anything else renders at once, including a stale value whose refetch is in flight. Refetches never suspend. Because the hook only returns once a value exists, `value` is always defined.
+Like `useQuery`, but suspends while the query has no value yet. Refetches don't suspend, so `value` is always defined. A failed first fetch is thrown to the nearest error boundary, and resetting the boundary retries it.
 
-A cold fetch that fails is thrown to the nearest error boundary. Resetting the boundary (remounting the component) tries the fetch again.
-
-Changing params to ones with no value yet is a cold miss, so the component suspends. Wrap the change in `startTransition` to keep showing the previous result.
-
-Call it from a plain function component. Like `useQuery`, it cannot run inside a Signalium `component()`, which is a reactive context.
+Changing params to ones with no value yet suspends again. Wrap the change in `startTransition` to keep showing the previous result.
 
 ```tsx
 import { Suspense } from 'react';
@@ -167,5 +163,3 @@ function UserName({ id }: { id: number }) {
   <UserName id={42} />
 </Suspense>;
 ```
-
-While suspended, the client keeps the query active, since React discards a suspended render without subscribing to anything. The component's commit takes over.
