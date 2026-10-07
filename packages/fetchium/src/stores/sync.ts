@@ -264,16 +264,11 @@ export class SyncQueryStore implements QueryStore {
   }
 
   /**
-   * Whether the remembered field names cover every class that wrote a
-   * record this store holds. Not while it holds records a version that did
-   * not remember field names wrote: they may hold fields of a class not
-   * registered since. When this version first opens a store it notes since
-   * when the names cover its records (`sq:meta:fieldsSince`, stored with the
-   * first field names it writes): from then, whether or not the store held
-   * cached data (finding out would take a scan of every key). `clear()`
-   * resets it to the start. 30 days on (`FIELD_NAME_TTL`), a class not
-   * declared since then would have been forgotten anyway, and the names
-   * count as complete.
+   * Whether the remembered field names cover every record this store holds.
+   * Records an earlier version wrote may hold fields of a class not registered
+   * since, so this is `false` for `FIELD_NAME_TTL` after this version first
+   * opens the store (`sq:meta:fieldsSince`), whether or not it was empty.
+   * `clear()` makes it `true`.
    */
   entityFieldNamesComplete(): boolean {
     const at = this.fieldNamesSince().at;
