@@ -271,7 +271,12 @@ export class QueryClient {
     this.storeKnowsTypenameFields =
       typeof this.store.getEntityFieldNames === 'function' && this.store.entityFieldNamesComplete?.() === true;
     const offDelete = this.store.onDelete?.(key => {
-      this.entityMap.getEntity(key)?.recordDeleted();
+      const instance = this.entityMap.getEntity(key);
+      if (instance === undefined) return;
+      // A failed write is reported too. If the record survived it, keep the
+      // fields kept from it.
+      if (this.store.hasEntity?.(key) === true) instance.recordDropped();
+      else instance.recordDeleted();
     });
     if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
     // A store that processes writes later says when a record is really there.

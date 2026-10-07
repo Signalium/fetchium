@@ -84,9 +84,9 @@ export class EntityStore {
     }
     if (instance._checkStoredRecord) {
       // The class may lack fields the record holds: read it once, on the
-      // first write.
-      instance._checkStoredRecord = false;
+      // first write. Cleared after the read, so a failed read is retried.
       const stored = this.readEntity?.(instance.key);
+      instance._checkStoredRecord = false;
       if (stored !== undefined) instance.noteRecord(stored);
     }
     const rest = instance.recordRestForWrite();

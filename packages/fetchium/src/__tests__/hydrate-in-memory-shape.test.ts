@@ -714,6 +714,106 @@ describe('D. writes keep the fields another class sharing the typename declared'
     expect(recordOf(kv, 'Item', 'i1')).toEqual({ __typename: 'Item', id: 'i1', name: 'L', ...kept });
   });
 
+  it('D8 a failed record read is retried at the next write, so the other class fields are kept', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    await session(kv, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+    });
+
+    class FlakyReadStore extends SyncQueryStore {
+      failNext = true;
+      readEntity(entityKey: number) {
+        if (this.failNext) {
+          this.failNext = false;
+          throw new Error('read failed');
+        }
+        return super.readEntity(entityKey);
+      }
+    }
+    class GetFirst extends RESTQuery {
+      path = '/first';
+      result = { items: t.array(t.entity(ItemSummary)) };
+    }
+    class GetSecond extends RESTQuery {
+      path = '/second';
+      result = { items: t.array(t.entity(ItemSummary)) };
+    }
+    f.set('/first', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
+    f.set('/second', { items: [{ __typename: 'Item', id: 'i1', name: 'I3' }] });
+    const c = makeCountingClient(new FlakyReadStore(kv), f);
+
+    await Promise.resolve(start(c, () => fetchQuery(GetFirst))).catch(() => {});
+    await start(c, () => fetchQuery(GetSecond));
+    expect(recordOf(kv, 'Item', 'i1')).toMatchObject({ name: 'I3', details: { rating: 5 } });
+  });
+
+  it('D9 a failed async write over a surviving record keeps the other class fields at the next write', async () => {
+    const data = new Map<string, unknown>();
+    let failNextWriteOf: string | undefined;
+    const delegate = {
+      has: async (k: string) => data.has(k),
+      getString: async (k: string) => data.get(k) as string | undefined,
+      setString: async (k: string, v: string) => {
+        if (k === failNextWriteOf) {
+          failNextWriteOf = undefined;
+          throw new Error('write failed');
+        }
+        data.set(k, v);
+      },
+      getNumber: async (k: string) => data.get(k) as number | undefined,
+      setNumber: async (k: string, v: number) => void data.set(k, v),
+      getBuffer: async (k: string) => data.get(k) as Uint32Array | undefined,
+      setBuffer: async (k: string, v: Uint32Array) => void data.set(k, v),
+      delete: async (k: string) => void data.delete(k),
+      getAllKeys: async () => [...data.keys()],
+    };
+    const writerStore = () =>
+      new AsyncQueryStore({
+        isWriter: true,
+        delegate,
+        connect: handleMessage => ({ sendMessage: msg => handleMessage(msg) }),
+      });
+    const drain = async (store: AsyncQueryStore) => {
+      for (let i = 0; i < 500 && !store.isSettled(); i++) await sleep(2);
+    };
+    const record = () => JSON.parse(data.get(valueKeyFor(hashValue(['Item', 'i1']))) as string);
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+
+    // Both classes write i1 in the first session, so the record holds the detail fields.
+    const first = writerStore();
+    const c1 = makeCountingClient(first as any, f);
+    await start(c1, () => fetchQuery(GetItem));
+    await start(c1, () => fetchQuery(GetItems));
+    await drain(first);
+    c1.destroy();
+
+    // Next session: only the summary class, hydrated from its cache over that record.
+    const second = writerStore();
+    const c2 = makeCountingClient(second as any, f);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await start(c2, () => fetchQuery(GetItems));
+      await drain(second);
+      const update = (name: string) =>
+        c2.applyMutationEvent({ type: 'update', typename: 'Item', data: { __typename: 'Item', id: 'i1', name } });
+
+      failNextWriteOf = valueKeyFor(hashValue(['Item', 'i1']));
+      update('I2');
+      await drain(second);
+      expect(record()).toMatchObject({ name: 'I', details: { rating: 5 } });
+
+      update('I3');
+      await drain(second);
+      expect(record()).toMatchObject({ name: 'I3', details: { rating: 5 } });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('D5 the stores write the kept fields with the record, the async writer included', async () => {
     const kv = new MemoryPersistentStore();
     new SyncQueryStore(kv).saveEntity(7, { id: 'a', name: 'n' }, undefined, '"extra":{"x":1}');

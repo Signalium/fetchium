@@ -358,9 +358,8 @@ export class SyncQueryStore implements QueryStore {
     fieldNamesSinceByKv.set(kv, { at: 0, stored: true });
     this.queues.clear();
     this.mergeRests.clear();
-    const listeners = this.deleteListeners;
     for (let i = 0; i < deleted.length; i++) {
-      for (let j = 0; j < listeners.length; j++) listeners[j](deleted[i]);
+      for (const listener of this.deleteListeners.slice()) listener(deleted[i]);
     }
   }
 
