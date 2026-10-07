@@ -550,7 +550,6 @@ function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset
   return true;
 }
 
-/** Writes an entity and its not-yet-written descendants. */
 function persistUnwritten(entity: EntityInstance): void {
   if (!entity._persisted) entity.save();
   const refs = entity.entityRefs;
