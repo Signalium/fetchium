@@ -8,20 +8,10 @@ import { HasRequiredKeys, Optionalize, Signalize } from '../type-utils.js';
 import { useQuery } from './use-query.js';
 
 /**
- * `useQuery` for components rendered under a React `<Suspense>` boundary.
- *
- * Suspends only on a cold miss: the query has never produced a value, neither
- * in memory nor (with a synchronous store) in the persisted cache. Anything
- * else renders immediately, including a stale value whose refetch is in
- * flight; refetches never suspend. A cold fetch that fails is thrown to the
- * nearest error boundary; resetting the boundary retries it.
- *
- * Changing params to ones with no value yet is a cold miss, so it suspends.
- * Wrap the change in `startTransition` to keep showing the previous result.
- *
- * Call it from a plain function component. Like `useQuery`, it can't run
- * inside a Signalium `component()` (a reactive context); use `fetchQuery`
- * there.
+ * `useQuery` under a `<Suspense>` boundary. Suspends only on a cold miss (no
+ * value in memory or a sync store), never on refetch. A failed cold fetch is
+ * thrown to the error boundary. Wrap param changes in `startTransition` to keep
+ * the previous result. Not usable inside a Signalium `component()`.
  */
 export function useSuspenseQuery<T extends Query>(
   QueryClass: new () => T,
@@ -35,9 +25,7 @@ export function useSuspenseQuery<T extends Query>(
     throw new Error('QueryClient not found');
   }
 
-  // Decide before useQuery: a suspended render is discarded without a commit,
-  // so a subscription it took would never be cleaned up. The client holds the
-  // query active while suspended instead.
+  // Before useQuery: a suspended render never commits, so its subscription would leak.
   const { promise, failed, error, key } = client.suspendOnColdMiss(
     QueryDefinition.for(QueryClass),
     args[0] as QueryParams | undefined,

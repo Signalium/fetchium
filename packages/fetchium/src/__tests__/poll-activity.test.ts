@@ -9,12 +9,6 @@ import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { poll } from '../subscriptions/polling.js';
 import { createMockFetch, createTestWatcher } from './utils.js';
 
-/**
- * Focus-aware polling: with an `activity` source, poll() stops its timers
- * while the app is inactive, and spreads overdue ticks across
- * `pollResumeJitterMs` when it becomes active again.
- */
-
 const INTERVAL = 1_000;
 
 class GetPolled extends RESTQuery {
@@ -110,7 +104,7 @@ describe('poll() with an activity source', () => {
     return unsub;
   }
 
-  /** Mounts the queries and lets the initial fetch settle; poll ticks are then due at INTERVAL. */
+  /** Poll ticks are then due at INTERVAL. */
   async function mount(client: QueryClient, ...queries: Array<new () => RESTQuery>): Promise<() => void> {
     t0 = Date.now();
     const unsub = watch(client, ...queries);
@@ -199,7 +193,6 @@ describe('poll() with an activity source', () => {
       ['/polled-b', 270],
     ]);
 
-    // Then back on the regular interval, from each tick.
     await vi.advanceTimersByTimeAsync(INTERVAL);
     expect(count('/polled')).toBe(2);
     expect(count('/polled-b')).toBe(2);
@@ -228,10 +221,9 @@ describe('poll() with an activity source', () => {
     // Jump the clock 10 s without running timers, as a frozen JS thread would.
     vi.setSystemTime(Date.now() + 10_000);
     const jumpedAt = Date.now() - t0;
-    // The timer fires at its scheduled point (~INTERVAL - 5 from here) but doesn't fetch.
     await vi.advanceTimersByTimeAsync(INTERVAL);
     expect(count()).toBe(0);
-    // It fetches at the jitter point instead: 0.5 * 300.
+    // It fetches at the jitter point, 0.5 * 300, after its scheduled time.
     await vi.advanceTimersByTimeAsync(200);
     expect(count()).toBe(1);
     expect(Math.abs(starts[0].at - jumpedAt - (INTERVAL - 5 + 150))).toBeLessThanOrEqual(1);

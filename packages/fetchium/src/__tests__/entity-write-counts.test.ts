@@ -8,13 +8,6 @@ import { fetchQuery } from '../query.js';
 import { QueryClient } from '../QueryClient.js';
 import { testWithClient, setupTestClient, sleep } from './utils.js';
 
-/**
- * Entity Write Counts
- *
- * Pins how many store writes a streamed entity event causes, and that a single
- * write is enough for a later client to read.
- */
-
 class Item extends Entity {
   __typename = t.typename('Item');
   id = t.id;
@@ -38,7 +31,6 @@ class GetList extends RESTQuery {
   result = { list: t.entity(List) };
 }
 
-/** Every entity write, whether it replaced the record or merged into it. */
 function spyEntityWrites(store: { saveEntity: (...args: any[]) => void; mergeEntity: (...args: any[]) => void }) {
   const save = vi.spyOn(store, 'saveEntity');
   const merge = vi.spyOn(store, 'mergeEntity');
@@ -138,9 +130,7 @@ describe('Entity Write Counts', () => {
     });
     await sleep(5);
 
-    // The apply writes the new child. The live-array insert must not write it again.
     expect(itemSaves(saveEntity)).toHaveLength(1);
-    // The parent's ref set changed, so it is written once.
     expect(itemSaves(saveEntity, 'List')).toHaveLength(1);
   });
 
@@ -159,8 +149,7 @@ describe('Entity Write Counts', () => {
     });
 
     const saveEntity = spyEntityWrites(store);
-    // The item is already current in the store from the first query, so the
-    // apply declines its write. The insert must not put one back.
+    // i-1 is already current in the store, so the apply skips its write. The insert must not add one.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Item',
@@ -169,7 +158,7 @@ describe('Entity Write Counts', () => {
     await sleep(5);
 
     expect(itemSaves(saveEntity)).toHaveLength(0);
-    // Only the parent's ref set changed, and that write proves the insert ran.
+    // This write proves the insert ran.
     expect(itemSaves(saveEntity, 'List')).toHaveLength(1);
     expect(listQuery.value.list.items.map(i => i.id)).toEqual(['i-1']);
   });

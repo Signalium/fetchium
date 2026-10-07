@@ -62,7 +62,6 @@ export class GcManager {
   private _nextTickScheduled = false;
   private _onEvict: (key: number, type: GcKeyType) => void;
   private _multiplier: number;
-  /** Set by destroy(). Queries that deactivate afterwards schedule nothing. */
   private _destroyed = false;
 
   constructor(onEvict: (key: number, type: GcKeyType) => void, multiplier: number = 1) {

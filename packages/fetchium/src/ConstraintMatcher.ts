@@ -201,11 +201,7 @@ export class ConstraintMatcher {
     }
   }
 
-  /**
-   * With `dryRun`, reports through `onMatch` what the event would do (whether
-   * a binding matches, and whether one would retain the entity) without
-   * touching any collection.
-   */
+  /** With `dryRun`, only reports matches through `onMatch`, touching no collection. */
   routeEvent(
     typename: string,
     entityData: Record<string, unknown>,

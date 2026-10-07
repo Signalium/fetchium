@@ -9,14 +9,9 @@ import { fetchQuery } from '../query.js';
 import { QueryDefinition } from '../query.js';
 import { createMockFetch, sleep, testWithClient } from './utils.js';
 
-/**
- * Activation timing with a synchronous persistent store (e.g. MMKV on mobile).
- *
- * The activating read must see the cached value, so the first React render has
- * data. The first fetch starts on a microtask, never inside the activating read.
- */
+// With a sync store, the activating read sees cached data and the fetch starts on a microtask.
 
-/** Same store, but loadQuery resolves on a later microtask (extension-style). */
+/** loadQuery resolves on a later microtask, like an async store. */
 class AsyncLoadingQueryStore extends SyncQueryStore {
   override loadQuery(queryDef: QueryDefinition<any, any, any>, queryKey: number): CachedQuery | undefined {
     return Promise.resolve(super.loadQuery(queryDef, queryKey)) as unknown as CachedQuery | undefined;
@@ -36,7 +31,6 @@ function makeClient(store: SyncQueryStore, mockFetch: ReturnType<typeof createMo
   });
 }
 
-/** Persist one response for GetItem into `kv` through a throwaway client. */
 async function seedCache(kv: MemoryPersistentStore, QueryClass: new () => RESTQuery, response: unknown) {
   const mockFetch = createMockFetch();
   mockFetch.get('/item', response);
@@ -47,10 +41,7 @@ async function seedCache(kv: MemoryPersistentStore, QueryClass: new () => RESTQu
   client.destroy();
 }
 
-/**
- * Activates `read` inside a watched reactive context, as React render reads do,
- * and returns what the activating read observed plus a disposer.
- */
+/** Activates `read` in a watched context, as React render does, and returns its first result. */
 function activate<T>(client: QueryClient, read: () => T): { first: T; dispose: () => void } {
   let first: T | undefined;
   let captured = false;
@@ -119,10 +110,9 @@ describe('Activation with a synchronous store', () => {
 
     expect(first).toEqual({ isReady: true, isPending: false, value: 'cached' });
 
-    // The fetch never runs inside the activating read...
+    // Never inside the activating read.
     expect(mockFetch.calls).toHaveLength(0);
 
-    // ...and starts without waiting for a timer.
     await flushMicrotasks();
     expect(mockFetch.calls).toHaveLength(1);
     expect(relayRef!.isPending).toBe(true);

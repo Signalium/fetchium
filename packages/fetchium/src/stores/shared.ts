@@ -17,11 +17,7 @@ export const DEFAULT_MAX_COUNT = 50;
 export const DEFAULT_CACHE_TIME = 60 * 24; // 24 hours in minutes
 export const DEFAULT_GC_TIME = 5; // 5 minutes - in-memory eviction default
 
-/**
- * Merges the fields of a partial record over a stored one, at the JSON level
- * (proxies have already been serialized to `{ __entityRef }` markers), and
- * derives the merged record's references from the markers it contains.
- */
+/** Merges at the JSON level and derives refs from the `__entityRef` markers. */
 export function mergeStoredRecord(
   stored: string,
   partial: unknown,
@@ -32,8 +28,6 @@ export function mergeStoredRecord(
   } catch {
     return undefined;
   }
-  // A non-object record can't be merged into. The caller writes the fields as
-  // the record instead, which heals it.
   if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
   const value = {
     ...(record as Record<string, unknown>),

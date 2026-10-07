@@ -44,7 +44,6 @@ function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<u
 
 export abstract class TopicQueryAdapter extends QueryAdapter {
   private _topics = new Map<string, TopicState>();
-  /** Per topic, the subscribed queries' callbacks for a delivered event. */
   private _pushListeners = new Map<string, Set<() => void>>();
 
   /**
@@ -151,9 +150,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
   /**
    * Convenience wrapper — pushes a mutation event through the QueryClient
    * so that entities and live collections are updated reactively.
-   *
-   * Pass the `topic` the event arrived on to mark that topic's queries as
-   * current, so their `reactivationGraceMs` measures from this event.
+   * Pass `topic` so its queries' `reactivationGraceMs` counts from this event.
    */
   protected sendMutationEvent(event: MutationEvent, topic?: string): void {
     if (topic !== undefined) {
@@ -163,12 +160,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
     this.queryClient!.applyMutationEvent(event);
   }
 
-  /**
-   * Registers a subscribed query's callback for events delivered on `topic`.
-   * Returns a function that removes it.
-   *
-   * @internal
-   */
+  /** @internal */
   _addPushListener(topic: string, listener: () => void): () => void {
     let listeners = this._pushListeners.get(topic);
     if (listeners === undefined) {

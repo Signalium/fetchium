@@ -12,7 +12,6 @@ import { t } from '../typeDefs.js';
 
 const user = { id: '1', name: 'Alice' };
 
-/** An error shaped like a fetch wrapper's HTTP error (e.g. axios / request builders). */
 function httpError(status: number): Error {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
 }
@@ -147,7 +146,6 @@ describe('shouldRetry', () => {
   });
 
   describe('custom', () => {
-    /** Opts out of retrying client errors other than 408 and 429. */
     const skipClientErrors: ShouldRetry = (_error, _attempt, status) =>
       status === undefined || status < 400 || status >= 500 || status === 408 || status === 429;
 
