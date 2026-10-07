@@ -148,6 +148,8 @@ export class QueryClient {
   store: QueryStore;
 
   currentParseId: number = 0;
+  /** Set first by `destroy()`. Gates store writes and new requests. */
+  destroyed: boolean = false;
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
   /** With `store.onPersisted`, `_persisted` is set on acknowledgement, not by `save()`. */
@@ -207,6 +209,7 @@ export class QueryClient {
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
     this.entityMap = new EntityStore((key, data, refs, merge) => {
+      if (this.destroyed) return;
       if (merge) this.store.mergeEntity!(key, data, refs);
       else this.store.saveEntity(key, data, refs);
     });
@@ -286,6 +289,7 @@ export class QueryClient {
       return match;
     }
 
+    if (this.destroyed) throw new Error(`QueryClient was destroyed. No adapter for ${adapterClass.name}.`);
     let adapter: QueryAdapter;
     try {
       adapter = new (adapterClass as new () => QueryAdapter)();
@@ -357,6 +361,7 @@ export class QueryClient {
     updatedAt: number,
     entityRefs?: Map<EntityInstance, number>,
   ): void {
+    if (this.destroyed) return;
     const refKeys =
       entityRefs !== undefined && entityRefs.size > 0
         ? new Set<number>([...entityRefs.keys()].map(e => e.key))
@@ -365,11 +370,16 @@ export class QueryClient {
   }
 
   activateQuery(queryInstance: QueryInstance<any>): void {
+    if (this.destroyed) return;
     const { def, queryKey, storageKey, config } = queryInstance;
     this.store.activateQuery(def as any, storageKey);
 
     const gcTime = config?.gcTime ?? DEFAULT_GC_TIME;
     this.gcManager.cancel(queryKey, gcTime);
+  }
+
+  deleteQuery(queryKey: number): void {
+    if (!this.destroyed) this.store.deleteQuery(queryKey);
   }
 
   loadCachedQuery(queryDef: QueryDefinition<QueryParams | undefined, unknown, unknown>, queryKey: number) {
@@ -957,7 +967,6 @@ export class QueryClient {
     if (type === GcKeyType.Query) {
       const instance = this.queryInstances.get(key);
       if (instance === undefined) return;
-      instance.stopSubscription();
       // Nothing may settle its relay or reach the store after this.
       instance.abortForDestroy();
       const root = instance.rootEntity;
@@ -1021,6 +1030,7 @@ export class QueryClient {
   }
 
   destroy(): void {
+    this.destroyed = true;
     for (const key of [...this.suspenseHolds.keys()]) this.releaseSuspenseHold(key);
     this.unclaimedFailures.clear();
     for (const release of [...this.leases]) release();

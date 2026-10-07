@@ -240,6 +240,7 @@ export class QueryInstance<T extends Query> {
         };
 
         const update = (activating: boolean = false) => {
+          if (this.stoppedByDestroy()) return;
           const { wasPaused, isPaused, initialized } = this;
           this.wasPaused = isPaused;
 
@@ -404,6 +405,7 @@ export class QueryInstance<T extends Query> {
     if (isThenable(loaded)) {
       loaded.then(
         cached => {
+          if (this.stoppedByDestroy()) return;
           if (this.storageKey === storageKey) {
             this.hydrate(cached);
             this.startSubscriptionAndFetch();
@@ -412,6 +414,7 @@ export class QueryInstance<T extends Query> {
           }
         },
         error => {
+          if (this.stoppedByDestroy()) return;
           this.discardCorruptCache(error, storageKey);
           if (this.storageKey === storageKey) {
             this.startSubscriptionAndFetch();
@@ -480,7 +483,7 @@ export class QueryInstance<T extends Query> {
 
   private discardCorruptCache(error: unknown, storageKey: number = this.storageKey): void {
     const qc = this.queryClient;
-    qc.store.deleteQuery(storageKey);
+    qc.deleteQuery(storageKey);
     qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
   }
 
@@ -500,7 +503,7 @@ export class QueryInstance<T extends Query> {
 
   private startSubscriptionAndFetch(): void {
     // If deactivated meanwhile, update() fetches on reactivation.
-    if (!this._isActive || this.isPaused) {
+    if (this.stoppedByDestroy() || !this._isActive || this.isPaused) {
       return;
     }
 
@@ -530,7 +533,7 @@ export class QueryInstance<T extends Query> {
   private reconcileSubscription(): void {
     // A fetch aborted by deactivate() still reaches this from runQuery's
     // finally. Subscribing then would leave a subscription nothing tears down.
-    if (!this._isActive) return;
+    if (!this._isActive || this.queryClient.destroyed) return;
 
     const subscribeFn = this.config?.subscribe;
     if (subscribeFn === this.lastSubscribeFn) return;
@@ -597,9 +600,11 @@ export class QueryInstance<T extends Query> {
         async () => {
           attempt.start();
           try {
+            this.throwIfDestroyed();
             const freshData = await adapter.send(ctx, signal);
             // Params changed or client destroyed mid-request, and the adapter ignored the abort.
             if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
+            this.throwIfDestroyed();
             this.updatedAt = Date.now();
 
             const result = this.applyData(freshData, true);
@@ -683,7 +688,7 @@ export class QueryInstance<T extends Query> {
     const run = (): void => {
       if (this.pendingRestart !== run) return;
       this.pendingRestart = undefined;
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || this.queryClient.destroyed) {
         reject(controller.signal.reason ?? abortError());
         return;
       }
@@ -720,6 +725,7 @@ export class QueryInstance<T extends Query> {
   }
 
   private runQueryImmediately(): void {
+    if (this.stoppedByDestroy()) return;
     this.fetchStarts++;
     this.abortedByDeactivation = false;
     this.parkedRestart = undefined;
@@ -738,7 +744,7 @@ export class QueryInstance<T extends Query> {
    * task can cancel the fetch instead of starting and aborting it.
    */
   private runDebounced(extraDelay: number = 0, nextTask: boolean = false, afterFlush: boolean = false): void {
-    if (this.relayState.isPending) return;
+    if (this.stoppedByDestroy() || this.relayState.isPending) return;
 
     const delay = (this.config?.debounce ?? 0) + extraDelay;
 
@@ -803,6 +809,7 @@ export class QueryInstance<T extends Query> {
   abortForDestroy(): void {
     this.destroyCount++;
     this.cancelDebounced();
+    this.stopSubscription();
     this.startPending = false;
     this.firstFetchController = undefined;
     this.keptFetchSignal = undefined;
@@ -822,6 +829,20 @@ export class QueryInstance<T extends Query> {
     if (!inFlight && restart === undefined && parked === undefined && this._relayState?.isPending) {
       this._relayState.setError(abortError());
     }
+  }
+
+  /** After `destroy()`: starts nothing, and rejects a pending relay. */
+  private stoppedByDestroy(): boolean {
+    if (!this.queryClient.destroyed) return false;
+    if (this._relayState?.isPending) this._relayState.setError(abortError());
+    return true;
+  }
+
+  /** For an instance `destroy()` missed (collected, then read again). Aborting ends its retries too. */
+  private throwIfDestroyed(): void {
+    if (!this.queryClient.destroyed) return;
+    this.abortForDestroy();
+    throw abortError();
   }
 
   /** Records that the subscription delivered data. See `lastPushAt`. */
@@ -889,7 +910,7 @@ export class QueryInstance<T extends Query> {
   };
 
   private get hasNext(): boolean {
-    if (this.rootEntity === undefined || !this._executionCtx) return false;
+    if (this.rootEntity === undefined || !this._executionCtx || this.queryClient.destroyed) return false;
     const adapter = this.queryClient.getAdapter(this.def.statics.adapterClass);
     if (!adapter.hasNext) return false;
     this._executionCtx.resultData = this.rootEntity.data;
@@ -910,8 +931,10 @@ export class QueryInstance<T extends Query> {
     return withRetry(
       async () => {
         attempt.start();
+        this.throwIfDestroyed();
         const freshData = await adapter.sendNext!(ctx, signal);
         if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
+        this.throwIfDestroyed();
         this.updatedAt = Date.now();
 
         const result = this.applyData(freshData, true, true);
