@@ -10,9 +10,8 @@ import { testWithClient, setupTestClient } from './utils.js';
 /**
  * Entity Change Detection Tests
  *
- * A refetch or a poll that returns data the store already holds should be a
- * no-op: no consumer is notified and nothing is written. These tests pin that,
- * and the flip side — that a real change still notifies and still persists.
+ * A refetch or poll that returns data the store already holds notifies no one
+ * and writes nothing. A real change still notifies and persists.
  */
 
 /** Records `typename:id` for every entity that notifies while active. */
@@ -403,7 +402,7 @@ describe('Entity Change Detection', () => {
       (query.value as unknown as { __refetch(): void }).__refetch();
       await query;
 
-      // Copying key by key never applied a removal, so `b` used to survive.
+      // A key-by-key copy can't apply a removal, so `b` would survive one.
       expect((query.value as unknown as Result).config.attrs).toEqual({ a: '1' });
       expect(recorder.notified).toEqual(['Config:c-1']);
     });

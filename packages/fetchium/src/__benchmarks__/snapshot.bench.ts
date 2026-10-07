@@ -118,9 +118,9 @@ for (const { count, client, pull } of fixtures) {
   });
 }
 
-// Whole cold path — client construction, fetch, parse, apply, first snapshot.
-// The snapshot is a small part of it, and the samples are noisy (±10-20% rme),
-// so don't read a snapshot change off this.
+// Whole cold path: client construction, fetch, parse, apply, first snapshot.
+// The snapshot is a small part of it and samples are noisy (±10-20% rme), so
+// don't read a snapshot change off this.
 describe('cold query, first snapshot included', () => {
   for (const count of [100, 1000]) {
     bench(`${count} entities`, async () => {
