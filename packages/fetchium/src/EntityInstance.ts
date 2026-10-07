@@ -100,8 +100,8 @@ const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
 // React then never re-renders on data changes because the proxy reference is
 // stable. Reading the entity's fields establishes reactive dependencies on the
 // entity's notifier and produces a plain-object snapshot whose unchanged
-// subtrees keep stable references. Fields come from each proxy's
-// `EntitySnapshotSource`, not the proxy, which read every field twice.
+// subtrees keep stable references. Fields are read through each proxy's
+// `EntitySnapshotSource`, since walking the proxy reads every field twice.
 // ======================================================
 
 /** Trap-free access to one entity proxy's fields, registered by `createProxy`. */
@@ -361,7 +361,7 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   }
 
   if (origin !== undefined && origin.version === version && origin.keys === keys) {
-    // `data` is untouched, so only fields living elsewhere need re-reading.
+    // `data` is untouched, so only dynamic fields need re-reading.
     const before = prevObj!;
     const patch: Record<string, unknown> = {};
     walkFields(source, keys.dynamic, before, snap, patch);
@@ -472,8 +472,8 @@ function reportDrift(source: EntitySnapshotSource, key: string, what: string): v
  * field is not identity-stable, since snapshotting a child updates state it
  * pairs on.
  *
- * This costs dev builds the read the fast path saved, so the speedup shows up
- * in production builds only.
+ * The re-read cancels the fast path's savings, so the speedup only shows in
+ * production builds.
  */
 function verifyStaticFields(
   source: EntitySnapshotSource,
@@ -484,7 +484,7 @@ function verifyStaticFields(
   const verified: Record<string, unknown> = {};
   const readsBefore = __debug_snapshotFieldReads;
   walkFields(source, keys.static, before, snap, verified);
-  // This walk is verification, not work the fast path did.
+  // Verification reads don't count against the fast path.
   __debug_snapshotFieldReads = readsBefore;
   let drifted: Record<string, unknown> | undefined;
   for (const key of keys.static) {
@@ -810,17 +810,16 @@ function filterEntityArray(
 }
 
 // ======================================================
-// Static-field analysis — which fields a version check covers
+// Static-field analysis (which fields a version check covers)
 // ======================================================
 
 /**
  * Masks for a field that can change without its owning entity notifying.
  *
- * No `UNION` bit, but not because the mask covers it: `defineUnion` ORs its
- * members' *top-level* masks, so `t.union(t.entity(A), …)` does carry `ENTITY`
- * while `t.union(t.object({ child: t.entity(A) }), …)` does not. What catches
- * the nested case is `computeIsStaticFieldDef` recursing into the union's
- * member defs. Short-circuiting a union on its mask alone would go stale.
+ * `defineUnion` ORs only its members' top-level masks, so
+ * `t.union(t.object({ child: t.entity(A) }), …)` carries no `ENTITY` bit.
+ * `computeIsStaticFieldDef` catches that by recursing into member defs. Never
+ * short-circuit a union on its mask alone.
  *
  * `HAS_FORMAT` because a formatted value's snapshot can go through a custom
  * snapshot handler that reads other signals (a locale, say).
@@ -830,10 +829,10 @@ const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE | Mask.HAS_FORMAT;
 const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 
 /**
- * Is a field's snapshot a pure function of its entity's own `data`? One-sided:
- * only the shapes recognised here answer `true`, mirroring the allowlist
- * `getEntityDef` validates against, so an unfamiliar def costs a read rather
- * than serving a stale value.
+ * Whether a field's snapshot is a pure function of its entity's own `data`.
+ * Only the shapes recognised here (the allowlist `getEntityDef` validates
+ * against) answer `true`, so an unfamiliar def costs a re-read, never a stale
+ * value.
  */
 function isStaticFieldDef(def: unknown): boolean {
   // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
@@ -845,8 +844,8 @@ function isStaticFieldDef(def: unknown): boolean {
 
   const cached = staticFieldDefs.get(def);
   if (cached !== undefined) return cached;
-  // Break cycles as dynamic; a def only ever reached inside one keeps that
-  // answer, which costs a read and never goes stale.
+  // Treat cycles as dynamic. A def reached only through one keeps that answer,
+  // which costs a read but never goes stale.
   staticFieldDefs.set(def, false);
 
   const isStatic = computeIsStaticFieldDef(def);
@@ -947,7 +946,7 @@ function shapeKeys(
   return keys;
 }
 
-/** Plus a query's late-attached methods and getters, always dynamic. */
+/** Adds a query's late-attached methods and getters, which are always dynamic. */
 function withExtraKeys(
   base: EntityKeys,
   extraMethods: Record<string, unknown> | undefined,
@@ -975,7 +974,7 @@ function withExtraKeys(
 }
 
 // ======================================================
-// Field readers — module level so each proxy holds a pointer, not a closure
+// Field readers (module level so proxies share them, not per-proxy closures)
 // ======================================================
 
 function bindMethod(

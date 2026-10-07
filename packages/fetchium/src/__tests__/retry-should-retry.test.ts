@@ -262,8 +262,7 @@ describe('shouldRetry', () => {
     });
 
     it('does not pass an earlier response status for a later network error', async () => {
-      // Attempt 0 gets a 404 response; the later attempts fail with network
-      // errors, which must report no status rather than the earlier 404.
+      // Attempt 0 gets a 404, every later attempt a network error.
       const statuses: Array<number | undefined> = [];
       client.destroy();
       client = createClient((_error, _attempt, status) => {
@@ -280,8 +279,6 @@ describe('shouldRetry', () => {
     });
 
     it('does not pass the status of an earlier fetch for a refetch network error', async () => {
-      // Fetch 1 succeeds; the refetch fails with a network error, which must
-      // not inherit a status from the response assigned by fetch 1.
       const statuses: Array<number | undefined> = [];
       client.destroy();
       client = createClient((_error, _attempt, status) => {

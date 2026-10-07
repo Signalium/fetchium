@@ -14,13 +14,10 @@ import type { MutationEvent, QueryPromise } from '../types.js';
 import { testWithClient, setupTestClient } from './utils.js';
 
 /**
- * Identical Re-delivery
- *
- * A stream reconnect re-snapshots every topic, so every entity on screen is
- * re-delivered with the data the store already holds — as a query result, as a
- * mutation event, or as a topic event. None of those may notify an entity, bump
- * its version, write it, or notify a live collection. A real change still
- * notifies exactly once.
+ * A stream reconnect re-delivers every on-screen entity with the data the
+ * store already holds, as a query result, mutation event or topic event. None
+ * may notify an entity, bump its version, write it, or notify a live
+ * collection. A real change notifies exactly once.
  */
 
 /** Records `typename:id` for every entity notify. */
@@ -212,14 +209,12 @@ describe('Identical re-delivery', () => {
       expect(versions(client, keys)).toEqual(before);
       expect(saveEntity).not.toHaveBeenCalled();
       expect(live.tokens).not.toHaveBeenCalled();
-      // The live value's onUpdate reducer runs for the Token event and the
-      // value notifies: a reducer may mutate in place, so a returned identical
-      // reference doesn't prove nothing changed.
+      // The live value's reducer still runs and notifies, since it may mutate
+      // in place.
       expect(live.count).toHaveBeenCalledTimes(1);
 
       // A `create` for an entity the store already holds is the same no-op for
-      // the entity and the live array. (The live value's `onCreate` reducer
-      // still runs: it is told about a create, not about a change.)
+      // the entity and the live array. The live value's `onCreate` still runs.
       client.applyMutationEvent({ type: 'create', typename: 'Token', data: token(0) });
       client.applyMutationEvent({ type: 'create', typename: 'Owner', data: { id: 'o-1', name: 'Ann' } });
 

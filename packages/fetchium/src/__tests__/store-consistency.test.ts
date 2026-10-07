@@ -53,7 +53,7 @@ describe('Store consistency: _persisted vs store cascade deletion', () => {
     await relay1;
     expect(getDocument(kv, userKey)).toBeDefined();
 
-    // maxCount: 1 — the second key evicts Q1 and cascades to User 1.
+    // maxCount is 1, so the second key evicts Q1 and cascades to User 1.
     const relay2 = holdQuery(client, () => fetchQuery(GetProfile, { id: '2' }));
     await relay2;
     expect(getDocument(kv, userKey)).toBeUndefined();
@@ -166,7 +166,7 @@ describe('Store consistency: entity-array narrowing follows entity data', () => 
 
     const user = holdQuery(client, () => fetchQuery(GetUser, { id: 'u-1' }));
     await user;
-    // u-1 now satisfies UserFull; the refetch returns an identical array.
+    // u-1 now satisfies UserFull, but the refetch returns an identical array.
     await (team.value as any).__refetch();
     await sleep(5);
     expect(members()).toEqual(['u-1', 'u-2']);
