@@ -759,6 +759,7 @@ export class QueryInstance<T extends Query> {
   private runQueryImmediately(): void {
     if (this.stoppedByDestroy()) return;
     this.fetchStarts++;
+    this.cancelDebounced();
     this.abortedByDeactivation = false;
     this.parkedRestart = undefined;
     this.heldAbortSignal = undefined;
