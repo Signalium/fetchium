@@ -207,13 +207,13 @@ class MyStreamAdapter extends TopicQueryAdapter {
 
 The adapter has several protected helper methods:
 
-| Method                             | Description                                                                                                                                                        |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `fulfillTopic(topic, data)`        | Resolve the query with initial data. Can be called before or after the query activates.                                                                            |
-| `rejectTopic(topic, error)`        | Reject the query with an error. Can be called before or after the query activates.                                                                                 |
-| `sendMutationEvent(event, topic?)` | Push a `MutationEvent` through Fetchium's entity event system. Pass the `topic` it arrived on so that topic's query counts as current (see `reactivationGraceMs`). |
-| `clearTopic(topic)`                | Clear buffered state for a topic. Call this in `unsubscribe` to reset for the next subscription cycle.                                                             |
-| `clearAll()`                       | Clear all buffered topic state. Useful when resetting the connection.                                                                                              |
+| Method                             | Description                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `fulfillTopic(topic, data)`        | Resolve the query with initial data. Can be called before or after the query activates.                                  |
+| `rejectTopic(topic, error)`        | Reject the query with an error. Can be called before or after the query activates.                                       |
+| `sendMutationEvent(event, topic?)` | Push a `MutationEvent` through Fetchium's entity event system. Pass `topic` so its query counts the event as fresh data. |
+| `clearTopic(topic)`                | Clear buffered state for a topic. Call this in `unsubscribe` to reset for the next subscription cycle.                   |
+| `clearAll()`                       | Clear all buffered topic state. Useful when resetting the connection.                                                    |
 
 ### Registering the adapter
 
