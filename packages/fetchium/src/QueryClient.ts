@@ -336,6 +336,8 @@ export class QueryClient {
     } else {
       this.typenameRegistry.set(typename, [def]);
     }
+    // Builds V8's enum cache for the shape, which speeds up later iterations over it.
+    Object.keys(def.shape as object);
   }
 
   getEntityDefsForTypename(typename: string): ValidatorDef<any>[] | undefined {
