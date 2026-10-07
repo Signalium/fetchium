@@ -11,9 +11,8 @@ import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
 /**
- * A screen hidden behind `PauseSignalsProvider` pauses its queries; resuming
- * it reactivates them. With `reactivationGraceMs`, queries whose data is
- * younger than the grace resume without refetching.
+ * Resuming a screen paused by `PauseSignalsProvider` reactivates its queries.
+ * With `reactivationGraceMs`, data younger than the grace is not refetched.
  */
 
 class GetItem extends RESTQuery {

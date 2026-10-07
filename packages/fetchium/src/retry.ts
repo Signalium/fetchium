@@ -6,10 +6,11 @@ import type { ResolvedRetryConfig } from './query.js';
  *
  * @param error  What the attempt threw.
  * @param attempt  Index of the failed attempt, starting at 0 (the first request).
- * @param status  HTTP status of the failed attempt, when known: the status the
- *   adapter received (`ctx.response.status` for a REST query whose response
- *   body failed to parse or validate), or else `status`, `statusCode` or
- *   `response.status` on the error. Undefined for network errors.
+ * @param status  HTTP status of the failed attempt, when known: `status`,
+ *   `statusCode` or `response.status` on the error, or else the status of the
+ *   response the adapter received (`ctx.response.status`, for a REST error
+ *   response whose body failed to parse or validate). Undefined for network
+ *   errors.
  */
 export type ShouldRetry = (error: unknown, attempt: number, status: number | undefined) => boolean;
 

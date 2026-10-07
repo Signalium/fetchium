@@ -4,10 +4,9 @@ import type { ActivitySource, QueryContext } from '../query-types.js';
 const MIN_INTERVAL = 100;
 
 /**
- * A tick firing this much later than scheduled means its timer was frozen
- * (React Native suspends JS timers in the background), so every other poll is
- * overdue too. With a resume jitter configured, such a tick is spread instead
- * of fired. A busy JS thread delays timers by far less.
+ * A tick this late means its timer was frozen (React Native suspends JS timers
+ * in the background), so every other poll is overdue too and the tick gets
+ * jittered. A busy JS thread delays timers by far less.
  */
 const LATE_TICK_THRESHOLD = 1000;
 
@@ -98,7 +97,7 @@ export function poll(config: PollConfig): (this: any, onEvent: (event: MutationE
     const tick = async (): Promise<void> => {
       timer = undefined;
       if (!active) return;
-      // Inactive: leave the tick overdue; the activity listener reschedules it.
+      // Leave the tick overdue. The activity listener reschedules it on resume.
       if (!isAppActive()) return;
       if (jitterWindow > 0 && Date.now() - dueAt > LATE_TICK_THRESHOLD) {
         scheduleOverdue();

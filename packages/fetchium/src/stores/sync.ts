@@ -251,10 +251,9 @@ export class SyncQueryStore implements QueryStore {
         this.kv.setBuffer(queueKeyFor(queryDefId), queue);
       } else if (queue.length !== maxCount) {
         // `maxCount` changed since the queue was written. A view over the old
-        // buffer cannot grow past it, and a shorter view would silently strand
-        // the keys it drops: copy what fits and evict the rest properly. The
-        // key being activated is about to move to the front, so it is kept
-        // whichever slot it sits in.
+        // buffer can't grow, and a shorter one would strand the keys it drops:
+        // copy what fits and evict the rest. The key being activated moves to
+        // the front, so it is kept wherever it sits.
         const resized = new Uint32Array(maxCount);
         resized.set(queue.subarray(0, Math.min(queue.length, maxCount)));
         for (let i = maxCount; i < queue.length; i++) {

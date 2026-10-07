@@ -127,16 +127,14 @@ export class QueryInstance<T extends Query> {
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
   /**
-   * When the running subscription last delivered data: a stream pushed an
-   * event, or a topic adapter delivered one for this query's topic. The data
-   * was known current at that moment, so the reactivation grace measures from
-   * here when it is later than `updatedAt`. A subscription that delivers by
-   * refetching (poll()) moves `updatedAt` instead. Merely having a
-   * subscription running proves nothing: a poll that hasn't ticked yet, or one
-   * stopped while the app was in the background, kept nothing current.
+   * When the subscription last pushed data (a stream event, or a topic event
+   * for this query's topic). The reactivation grace measures from here when
+   * it is later than `updatedAt`. poll() delivers by refetching, so it moves
+   * `updatedAt` instead. A running subscription alone proves nothing: a poll
+   * that hasn't ticked, or one stopped in the background, kept nothing current.
    */
   private lastPushAt: number | undefined = undefined;
-  /** Counts fetches started by runQueryImmediately(). */
+  /** Bumped by every fetch or fetchNext start. A queued reactivation refetch uses it to detect it was overtaken. */
   private fetchStarts: number = 0;
   /** `fetchStarts` when the pending reactivation refetch was queued. */
   private reactivationQueuedAt: number = -1;
@@ -347,7 +345,7 @@ export class QueryInstance<T extends Query> {
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
               // The grace covers a relay resuming, not a network reconnect: data
-              // may have been missed while offline, including while inactive.
+              // may have been missed while offline, even while inactive.
               const withinGrace =
                 activating &&
                 !wasPaused &&
@@ -418,13 +416,11 @@ export class QueryInstance<T extends Query> {
         __hasNext: () => this.hasNext,
         __isFetchingNext: () => this._fetchNextPromise !== undefined,
       };
-      // The entity's key set just changed, but its consumers are not
-      // notified: this query's own consumers get the proxy through the relay
-      // and snapshot it afresh, and an existing consumer of a shared entity
-      // (a list showing the entity this query returns) has no use for another
-      // query's extras. Notifying would re-run every one of them, and give
-      // their snapshots a new identity, for data that did not change. They
-      // see the extras on their next recompute, as before.
+      // The entity's key set changed, but consumers are deliberately not
+      // notified. This query's consumers get the proxy through the relay and
+      // snapshot it fresh, and other consumers of a shared entity have no use
+      // for this query's extras. Notifying would re-run them all and change
+      // their snapshot identity for unchanged data.
     }
 
     return this.rootEntity.getProxy(def.statics.shape as unknown as EntityDef) as QueryResult<T>;
@@ -445,8 +441,8 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Runs once, from the relay's first activation. That activation happens
-   * inside the read that watched the relay (for React, during render).
+   * Runs once, from the relay's first activation, inside the read that watched
+   * the relay (for React, during render).
    *
    * When the store answers synchronously (SyncQueryStore), the cached value is
    * applied right here, so the activating read, and the first render, already
@@ -458,9 +454,9 @@ export class QueryInstance<T extends Query> {
    * With an asynchronous store (AsyncQueryStore), the cache resolves on a later
    * tick, outside the activating read, and everything runs from there.
    *
-   * A lease (`retain()` / `prefetch()`) doesn't wait for the microtask: it
-   * calls startPendingNow() once its activating read has returned, so the
-   * request goes out inside the call, ahead of any render already queued.
+   * A lease (`retain()` / `prefetch()`) skips the microtask: it calls
+   * startPendingNow() after its activating read, so the request goes out ahead
+   * of any render already queued.
    */
   private initialize(): void {
     this.initialized = true;
@@ -552,9 +548,10 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Runs, now, the start initialize() or a zero-delay runDebounced() left for
-   * a microtask, if it hasn't run yet. The microtask then does nothing. Called
-   * by a lease after its activating read, outside any reactive computation.
+   * Runs now any start that initialize(), a zero-delay runDebounced() or
+   * restartAbortedFetch() queued on a microtask, which then does nothing.
+   * Called by a lease after its activating read, outside any reactive
+   * computation.
    *
    * @internal
    */
@@ -581,8 +578,7 @@ export class QueryInstance<T extends Query> {
       if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
       this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
     } catch (error) {
-      // Unusable entry: treat it as a miss so the query still fetches, instead
-      // of trusting a timestamp whose data was never applied.
+      // The data was never applied, so drop its timestamp and let the query fetch.
       this.updatedAt = undefined;
       this.discardCorruptCache(error);
     }
@@ -590,8 +586,7 @@ export class QueryInstance<T extends Query> {
 
   /** Starts the subscription, then the first fetch if there is no fresh cached value. */
   private startSubscriptionAndFetch(): void {
-    // Deactivated in the meantime: update() fetches on reactivation, since the
-    // relay is still pending (or stale) with no fetch in flight.
+    // If deactivated meanwhile, update() fetches on reactivation.
     if (!this._isActive || this.isPaused) {
       return;
     }
@@ -602,7 +597,7 @@ export class QueryInstance<T extends Query> {
       // `send()` awaits.
       this.reconcileSubscription();
 
-      // Skip if something already started a fetch since activation (refetch()).
+      // refetch() may have started a fetch since activation.
       const fetchInFlight = this.relayState.isPending && this._abortController !== undefined;
       if (this.isStale && !fetchInFlight) {
         this.runQueryImmediately();
@@ -677,8 +672,8 @@ export class QueryInstance<T extends Query> {
     }
 
     const ctx = this.getOrCreateExecutionContext();
-    // Put back a subscription a deactivation or pause tore down before
-    // sending: a topic query's send() waits for data its subscription brings.
+    // Restore a subscription that a deactivation or pause tore down: a topic
+    // query's send() waits for data its subscription brings.
     this.reconcileSubscription();
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
@@ -759,9 +754,9 @@ export class QueryInstance<T extends Query> {
 
   /**
    * Replaces a fetch that a deactivation aborted, from inside the activating
-   * read. The relay takes the new promise now, so the doomed one can no longer
-   * settle it, but the subscription and the request start on a microtask (or
-   * when a lease starts them), outside the read: both run adapter code.
+   * read. The relay takes the new promise now so the doomed one can't settle
+   * it. The subscription and request run adapter code, so they start outside
+   * the read, on a microtask or when a lease starts them.
    */
   private restartAbortedFetch(afterFlush: boolean = false): void {
     this.fetchStarts++;
@@ -857,16 +852,15 @@ export class QueryInstance<T extends Query> {
    * Starts a refetch after the query's `debounce` (plus `extraDelay`). Calls
    * made before it starts are coalesced into one fetch.
    *
-   * With no delay the fetch starts on a microtask rather than a timer. That
-   * still runs outside the reactive computation that asked for it (a relay
-   * update) and still coalesces every call made in the same task, but doesn't
-   * wait for the next macrotask. On React Native a zero timer goes through the
-   * native timing module and can wait up to a frame.
+   * With no delay the fetch starts on a microtask, not a timer. It still runs
+   * outside the reactive computation that asked for it and still coalesces
+   * calls from the same task, without waiting a macrotask (on React Native a
+   * zero timer can wait up to a frame).
    *
    * `nextTask` keeps the zero-delay fetch on a timer. Invalidation uses it: a
-   * query invalidated in the same task its last watcher left is still active
-   * until Signalium's deactivation flush, and the timer lets that flush cancel
-   * the fetch rather than start and abort it.
+   * query invalidated in the task its last watcher left stays active until
+   * Signalium's deactivation flush, and the timer lets that flush cancel the
+   * fetch instead of starting and aborting it.
    */
   private runDebounced(extraDelay: number = 0, nextTask: boolean = false, afterFlush: boolean = false): void {
     if (this.relayState.isPending) return;
@@ -910,12 +904,11 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Starts a reactivation refetch after `delay` (plus the query's debounce).
-   * Called by the QueryClient's stagger flush, a task after the query was
-   * queued, so it rechecks that the query is still active. A fetch started
-   * since the query was queued (a `refetch()`, a poll tick, an invalidation),
-   * whether still in flight or already done, makes it redundant: it is
-   * skipped rather than aborting and repeating that fetch.
+   * Starts a reactivation refetch after `delay` plus the query's debounce.
+   * The stagger flush calls this a task after queueing, so it rechecks that
+   * the query is still active. Any fetch started since queueing (`refetch()`,
+   * a poll tick, an invalidation) makes it redundant, so it is skipped rather
+   * than aborting and repeating that fetch.
    */
   runReactivationRefetch(delay: number): void {
     if (!this._isActive || this.isPaused || this.relayState.isPending) return;
@@ -1073,11 +1066,10 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Retry options that report the HTTP status of a failed attempt. Adapters
-   * that expose their response as `ctx.response` (RESTQueryAdapter does) set
-   * it before the body is parsed and validated, so an error response whose
-   * body fails validation surfaces as a schema error, not an HTTP error. A
-   * response assigned during the failed attempt supplies its status.
+   * Retry options that report a failed attempt's HTTP status. RESTQueryAdapter
+   * sets `ctx.response` before parsing and validating the body, so an error
+   * response with an invalid body throws a schema error that carries no
+   * status. Only a response assigned during the failed attempt counts.
    */
   private attemptStatusTracker(ctx: Query): { start: () => void; options: WithRetryOptions } {
     const holder = ctx as unknown as { response?: unknown };
@@ -1109,9 +1101,9 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Data is younger than the reactivation grace, and the last fetch didn't
-   * fail. Data a subscription pushed to counts as fresh from its last push.
-   * Invalidation (`updatedAt = 0`) always falls outside.
+   * Data is younger than the reactivation grace and the last fetch didn't
+   * fail. Pushed data counts from its last push. Invalidation (`updatedAt = 0`)
+   * always falls outside.
    */
   private get isWithinReactivationGrace(): boolean {
     const { updatedAt } = this;

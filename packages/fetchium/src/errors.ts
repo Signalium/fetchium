@@ -171,10 +171,10 @@ export function typeError(path: string, expectedType: InternalObjectFieldTypeDef
 }
 
 /**
- * A cached query cannot be hydrated as-is: an entity it holds is already in
- * memory and its data does not satisfy the query's shape. Unlike a bad array
- * item, this drops the whole cached query (it is refetched) rather than the
- * item, since a list missing an item would resolve without a word.
+ * A cached query can't be hydrated as-is: an entity it holds is already in
+ * memory and doesn't satisfy the query's shape. Unlike a bad array item, this
+ * drops the whole cached query (which is refetched), since a list silently
+ * missing an item is worse.
  */
 export class CachedEntityMismatchError extends Error {
   constructor(message: string) {

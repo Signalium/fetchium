@@ -190,8 +190,8 @@ class OwnedObjectHandler implements ProxyHandler<Record<string, unknown>> {
 // React then never re-renders on data changes because the proxy reference is
 // stable. Reading the entity's fields establishes reactive dependencies on the
 // entity's notifier and produces a plain-object snapshot whose unchanged
-// subtrees keep stable references. Fields come from each proxy's
-// `EntitySnapshotSource`, not the proxy, which read every field twice.
+// subtrees keep stable references. Fields are read through each proxy's
+// `EntitySnapshotSource`, since walking the proxy reads every field twice.
 // ======================================================
 
 /** Trap-free access to one entity proxy's fields, registered by `createProxy`. */
@@ -250,11 +250,9 @@ function snapshotCameFrom(snapshotObj: unknown, sourceId: number): boolean {
 }
 
 /**
- * Dev builds hand out frozen snapshots. A consumer that mutates one (a
- * `sort()` in render, an assignment) then fails at its own call site with a
- * TypeError and a stack trace, instead of the fast path quietly carrying the
- * mutation forward. Production keeps the objects mutable: freezing costs a
- * call per new container and the contract is documented instead.
+ * Dev builds freeze snapshots, so a consumer that mutates one (a `sort()` in
+ * render) throws at its own call site instead of the fast path silently
+ * carrying the mutation forward. Production skips the per-container cost.
  */
 function freezeInDev<T extends object>(obj: T): T {
   return IS_DEV ? Object.freeze(obj) : obj;
@@ -325,10 +323,9 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
 }
 
 /**
- * Structural equality of two snapshot values (plain objects, arrays, and
- * primitives compared with `Object.is`). Used by the dev guard to tell a real
- * drift from a value that merely lost reference identity, e.g. a `Set` a
- * format parser returned, which Signalium's `snapshotSet` rebuilds each walk.
+ * Structural equality of two snapshot values. The dev guard uses it to tell
+ * real drift from a value that only lost identity, such as a format parser's
+ * `Set`, which Signalium's `snapshotSet` rebuilds each walk.
  */
 function sameSnapshotValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
@@ -340,9 +337,8 @@ function sameSnapshotValue(a: unknown, b: unknown): boolean {
   }
   if (a instanceof Set || b instanceof Set) {
     if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) return false;
-    // A rebuilt Set (Signalium's `snapshotSet` copies one every walk) keeps
-    // the insertion order, so pair members by position first and only search
-    // for a member that fails to line up. This keeps the common case linear.
+    // A rebuilt Set keeps insertion order, so pair members by position and
+    // only search for one that fails to line up. The common case stays linear.
     const bItems = [...b];
     // Indices of `b` already paired, tracked from the first misalignment on.
     let matched: Set<number> | undefined;
@@ -403,10 +399,10 @@ function walkFields(
 }
 
 /**
- * The pre-fast-path walk: `Object.keys` on the proxy and a read per key. Kept
- * for a proxy this module instance did not create — after a hot reload
- * re-evaluates this file, proxies made by the previous instance are still
- * live but absent from the new `snapshotSources`.
+ * Full walk: `Object.keys` on the proxy and a read per key. For proxies this
+ * module instance did not create: after a hot reload re-evaluates this file,
+ * the previous instance's proxies are still live but absent from
+ * `snapshotSources`.
  */
 function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn): unknown {
   const obj = current as Record<string, unknown>;
@@ -427,11 +423,9 @@ function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
   const source = snapshotSources.get(current);
   if (source === undefined) {
-    // A proxy from another instance of this module (hot reload re-evaluated
-    // this file and its registries, but the proxies are still live): walk it
-    // the old way rather than handing the proxy back, which would stop React
-    // from ever re-rendering on its changes. Every entity proxy answers
-    // `toJSON`; a bare `Entity` instance does not.
+    // A proxy from a previous instance of this module (hot reload): walk it.
+    // Handing the proxy back would stop React re-rendering on its changes.
+    // Every entity proxy answers `toJSON`; a bare `Entity` instance does not.
     if (PROXY_ID.has(current) || typeof (current as { toJSON?: unknown }).toJSON === 'function') {
       return snapshotProxyByWalking(current, prev, snap);
     }
@@ -457,7 +451,7 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   }
 
   if (origin !== undefined && origin.version === version && origin.keys === keys) {
-    // `data` is untouched, so only fields living elsewhere need re-reading.
+    // `data` is untouched, so only dynamic fields need re-reading.
     const before = prevObj!;
     const patch: Record<string, unknown> = {};
     walkFields(source, keys.dynamic, before, snap, patch);
@@ -472,19 +466,17 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
     }
 
     if (IS_DEV) {
-      // Dev builds re-read what the fast path skipped. A field that drifted is
-      // served from the re-read (the pre-fast-path behaviour) and reported,
-      // rather than thrown: a throw from inside a snapshot lands in Signalium's
-      // watcher flush, which has no catch, and stalls every consumer on the page.
+      // Re-read what the fast path skipped. A drifted field is served from the
+      // re-read and reported, not thrown: a throw inside a snapshot lands in
+      // Signalium's watcher flush, which has no catch, and stalls every consumer.
       const drifted = verifyStaticFields(source, keys, before, snap);
       if (drifted !== undefined) {
         if (result === undefined) result = { ...before };
         for (const key of Object.keys(drifted)) result[key] = drifted[key];
       }
-      // A consumer that added or deleted keys on the snapshot it was handed:
-      // rebuild with the shape's keys, in the shape's order, as a walk would.
-      // A frozen snapshot (every one this module hands out in dev) cannot
-      // have been altered, so only an unfrozen one pays for the key list.
+      // A consumer added or deleted keys on its snapshot: rebuild with the
+      // shape's keys in shape order. Dev snapshots are frozen and cannot have
+      // been altered, so only an unfrozen one pays for the key list.
       if (!Object.isFrozen(before) && !sameKeyList(Object.keys(before), keys.enumerable)) {
         const source_ = result ?? before;
         const rebuilt: Record<string, unknown> = {};
@@ -525,11 +517,9 @@ const reportedDrift = new Set<string>();
 export type SnapshotDriftHandler = (error: Error, queryClient: QueryClient) => void;
 
 /**
- * Dev-only default: log through the client's logger, then raise the error
- * outside the snapshot so it surfaces as an uncaught error (a red box in
- * React Native, "Uncaught Error" in a browser, a failed run under vitest)
- * without throwing from inside Signalium's watcher flush, which has no catch
- * and would stop every consumer on the page from updating.
+ * Dev-only default: log, then rethrow in a microtask so the error surfaces as
+ * uncaught (a red box in React Native, a failed vitest run) without throwing
+ * inside Signalium's watcher flush.
  */
 const defaultDriftHandler: SnapshotDriftHandler = (error, queryClient) => {
   queryClient.getContext().log?.error?.(error.message, error);
@@ -566,15 +556,14 @@ function reportDrift(source: EntitySnapshotSource, key: string, what: string): v
 /**
  * Checks the fast path's assumptions: `data` only changes through a `notify()`
  * that bumps `version`, and every field outside `keys.dynamic` is a pure
- * function of `data`. Re-reads the skipped fields and returns the ones whose
- * value differs structurally from the cached snapshot (identity alone is not
- * enough: a `Set` from a format parser is rebuilt on every walk), or
- * `undefined` when nothing drifted. Skipped fields only — re-reading a dynamic
+ * function of `data`. Re-reads the skipped fields and returns those that
+ * differ structurally from the cached snapshot, or `undefined` if none do.
+ * Skipped fields only — re-reading a dynamic
  * field is not identity-stable, since snapshotting a child updates state it
  * pairs on.
  *
- * This costs dev builds the read the fast path saved, so the speedup shows up
- * in production builds only.
+ * The re-read cancels the fast path's savings, so the speedup only shows in
+ * production builds.
  */
 function verifyStaticFields(
   source: EntitySnapshotSource,
@@ -585,7 +574,7 @@ function verifyStaticFields(
   const verified: Record<string, unknown> = {};
   const readsBefore = __debug_snapshotFieldReads;
   walkFields(source, keys.static, before, snap, verified);
-  // This walk is verification, not work the fast path did.
+  // Verification reads don't count against the fast path.
   __debug_snapshotFieldReads = readsBefore;
   let drifted: Record<string, unknown> | undefined;
   for (const key of keys.static) {
@@ -626,9 +615,9 @@ export class EntityInstance {
   /** Set while an apply is still reifying this instance's fields; its data is not yet a record. */
   _applying: boolean = false;
   /**
-   * The data came from streamed events only (the entity was created by one),
-   * so it may lack fields a record of it on disk has: a write merges over
-   * that record. Cleared by the first full payload applied to the entity.
+   * The data came only from streamed events, so it may lack fields the stored
+   * record has: a write merges over that record. Cleared by the first full
+   * payload applied to the entity.
    */
   _partial: boolean = false;
   /** With `_partial`: the fields the events carried, i.e. the ones a write merges. */
@@ -721,10 +710,9 @@ export class EntityInstance {
 
   /**
    * This entity's next write drops its reference to `child`, which can delete
-   * the child's record. A store that processes writes later (`onPersisted`)
-   * does that after anything an apply decides meanwhile, so the child is
-   * written again rather than trusted. A synchronous store reports the
-   * deletion (`onDelete`) as it happens.
+   * the child's record. An acknowledging store does that after anything an
+   * apply decides meanwhile, so the child is written again rather than
+   * trusted. A synchronous store reports the deletion through `onDelete`.
    */
   private writeDropsRef(child: EntityInstance): void {
     if (this._queryClient.storeAcksWrites) child.recordDropped();
@@ -781,11 +769,10 @@ export class EntityInstance {
     if (this._saving) return;
     this._saving = true;
     try {
-      // A record's references must point at records that exist: a child the
-      // store holds no record of (never written, dropped, or a failed write)
-      // is written first. While an apply is still reifying a child (a payload
-      // that links back to an ancestor), neither it nor this entity can be
-      // written yet: both are written, in that order, once the apply is done.
+      // A record's references must point at existing records, so a child the
+      // store has no record of is written first. A child an apply is still
+      // reifying (a payload that links back to an ancestor) can't be written
+      // yet: both are written, child first, once the apply is done.
       const refs = this.entityRefs;
       if (refs !== undefined) {
         let deferred = false;
@@ -799,8 +786,7 @@ export class EntityInstance {
             try {
               child.save();
             } catch (e) {
-              // This entity's record (if any) still lacks the reference: the
-              // next apply must write it again.
+              // This entity's record still lacks the reference.
               this.markUnwritten();
               throw e;
             }
@@ -814,26 +800,24 @@ export class EntityInstance {
         }
       }
       this._deferredWrite = false;
-      // Mark after the store call: a store that throws leaves the record stale
-      // or missing, so the flag is cleared and the next apply writes again. A
-      // store that acknowledges writes later (`onPersisted`) marks it itself
-      // once the write has been processed. An entity built from events hands
-      // the store only the fields they carried, to merge over its record.
-      // Counted before the call: a store may acknowledge synchronously.
-      // With no record to merge over, the fields this entity holds are the
-      // whole record, so it stops being partial and later writes skip the
-      // merge's read of the stored record.
+      // With no record to merge over, the fields held are the whole record:
+      // stop being partial so later writes skip the merge's read.
       if (this._partial && !this._recorded && (storeHolds ?? client.store.hasEntity?.(this.key)) === false) {
         this._partial = false;
         this._partialKeys = undefined;
       }
+      // Counted before the call: a store may acknowledge synchronously.
       if (client.storeAcksWrites) this._pendingWrites++;
+      // A partial entity hands the store only the fields its events carried.
       try {
         client.entityMap.save(this, this._partial ? this._partialKeys : undefined);
       } catch (e) {
         this.markUnwritten();
         throw e;
       }
+      // Marked after the call, so a store that throws leaves it unset and the
+      // next apply writes again. An acknowledging store marks it in
+      // `acknowledgeWrite`.
       if (!client.storeAcksWrites) this._persisted = this._recorded = true;
     } finally {
       this._saving = false;
@@ -846,12 +830,10 @@ export class EntityInstance {
   }
 
   /**
-   * The store processed a write of this entity's record. Only a write this
-   * instance dispatched counts: an acknowledgement can also belong to a write
-   * queued by a previous instance of the same entity (one that was collected
-   * and re-hydrated from the store while the write was in flight), and that
-   * write carried a value this instance never had. The record is current
-   * once every dispatched write has landed.
+   * The store processed a write of this entity's record. Only writes this
+   * instance dispatched count: an acknowledgement can belong to a write from a
+   * previous instance (collected and re-hydrated while it was in flight),
+   * carrying data this instance never had.
    */
   acknowledgeWrite(): void {
     if (this._pendingWrites === 0) return;
@@ -918,17 +900,16 @@ function filterEntityArray(
 }
 
 // ======================================================
-// Static-field analysis — which fields a version check covers
+// Static-field analysis (which fields a version check covers)
 // ======================================================
 
 /**
  * Masks for a field that can change without its owning entity notifying.
  *
- * No `UNION` bit, but not because the mask covers it: `defineUnion` ORs its
- * members' *top-level* masks, so `t.union(t.entity(A), …)` does carry `ENTITY`
- * while `t.union(t.object({ child: t.entity(A) }), …)` does not. What catches
- * the nested case is `computeIsStaticFieldDef` recursing into the union's
- * member defs. Short-circuiting a union on its mask alone would go stale.
+ * `defineUnion` ORs only its members' top-level masks, so
+ * `t.union(t.object({ child: t.entity(A) }), …)` carries no `ENTITY` bit.
+ * `computeIsStaticFieldDef` catches that by recursing into member defs. Never
+ * short-circuit a union on its mask alone.
  *
  * `HAS_FORMAT` because a formatted value's snapshot can go through a custom
  * snapshot handler that reads other signals (a locale, say).
@@ -938,10 +919,10 @@ const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE | Mask.HAS_FORMAT;
 const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 
 /**
- * Is a field's snapshot a pure function of its entity's own `data`? One-sided:
- * only the shapes recognised here answer `true`, mirroring the allowlist
- * `getEntityDef` validates against, so an unfamiliar def costs a read rather
- * than serving a stale value.
+ * Whether a field's snapshot is a pure function of its entity's own `data`.
+ * Only the shapes recognised here (the allowlist `getEntityDef` validates
+ * against) answer `true`, so an unfamiliar def costs a re-read, never a stale
+ * value.
  */
 function isStaticFieldDef(def: unknown): boolean {
   // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
@@ -953,8 +934,8 @@ function isStaticFieldDef(def: unknown): boolean {
 
   const cached = staticFieldDefs.get(def);
   if (cached !== undefined) return cached;
-  // Break cycles as dynamic; a def only ever reached inside one keeps that
-  // answer, which costs a read and never goes stale.
+  // Treat cycles as dynamic. A def reached only through one keeps that answer,
+  // which costs a read but never goes stale.
   staticFieldDefs.set(def, false);
 
   const isStatic = computeIsStaticFieldDef(def);
@@ -1055,7 +1036,7 @@ function shapeKeys(
   return keys;
 }
 
-/** Plus a query's late-attached methods and getters, always dynamic. */
+/** Adds a query's late-attached methods and getters, which are always dynamic. */
 function withExtraKeys(
   base: EntityKeys,
   extraMethods: Record<string, unknown> | undefined,
@@ -1083,7 +1064,7 @@ function withExtraKeys(
 }
 
 // ======================================================
-// Field readers — module level so each proxy holds a pointer, not a closure
+// Field readers (module level so proxies share them, not per-proxy closures)
 // ======================================================
 
 function bindMethod(
@@ -1103,12 +1084,10 @@ function bindMethod(
 }
 
 /**
- * The members a narrowed array leaves out are dependencies of the read: one
- * of them gaining the def's fields notifies itself, and that is what must
- * recompute the consumer. Members already in the array are read through the
- * array by any consumer that cares about their fields, and a member never
- * loses eligibility, so consuming them here would only add recomputes (and
- * cost a lookup per member on every read of the field).
+ * Members a narrowed array leaves out are dependencies of the read: one that
+ * gains the def's fields notifies itself, which must recompute the consumer.
+ * Included members are read through the array and never lose eligibility, so
+ * consuming them would only add recomputes.
  */
 function consumeExcluded(excluded: EntityInstance[]): void {
   for (let i = 0; i < excluded.length; i++) excluded[i].consume();
@@ -1204,11 +1183,10 @@ function createProxy(
 
   function entityKeys(): EntityKeys {
     // The client replaces its key cache when another class registers for
-    // this typename, and the new split must reach snapshots already in
-    // flight. A cache's entries are never overwritten, so the base can only
-    // have changed when the cache object did: an identity check, rather than
-    // a WeakMap lookup on every snapshot of every entity. Both extras slots
-    // matter too: these lists decide what a snapshot walks and re-reads.
+    // this typename, and live proxies must pick up the new split. Entries are
+    // never overwritten, so checking the cache's identity is enough and avoids
+    // a WeakMap lookup per snapshot. Both extras slots matter too: these lists
+    // decide what a snapshot walks and re-reads.
     const baseCache = queryClient.shapeKeyCache;
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;

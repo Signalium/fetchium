@@ -157,10 +157,8 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
    * Convenience wrapper — pushes a mutation event through the QueryClient
    * so that entities and live collections are updated reactively.
    *
-   * Pass the `topic` the event was delivered on to tell that topic's queries
-   * their subscription is live and current. With the client's
-   * `reactivationGraceMs`, a query that reactivates within the grace of the
-   * last such event is not refetched.
+   * Pass the `topic` the event arrived on to mark that topic's queries as
+   * current, so their `reactivationGraceMs` measures from this event.
    */
   protected sendMutationEvent(event: MutationEvent, topic?: string): void {
     if (topic !== undefined) {
@@ -172,7 +170,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
   /**
    * Registers a subscribed query's callback for events delivered on `topic`.
-   * Returns its removal.
+   * Returns a function that removes it.
    *
    * @internal
    */

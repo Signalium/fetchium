@@ -75,11 +75,10 @@ export class ParseContext {
   /** Verdicts of the trust-memory check, per instance and def, for one parse. */
   trusted: TrustMemo | undefined = undefined;
   /**
-   * Whether a nested object or record is always parsed into a copy. On for
-   * input the client does not own and may see again (an event payload, a
-   * mutation's effects, a consumer's snapshot fed back). Off for a fetch
-   * result or a cached record, which is copied only where a parsed value
-   * differs from what it holds: unchanged input costs no allocation.
+   * Whether nested objects and records always parse into a copy. On for input
+   * the client doesn't own and may see again (an event payload, mutation
+   * effects, a snapshot fed back). Off for a fetch result or cached record,
+   * which is copied only where a parsed value differs from it.
    */
   copyInput: boolean = true;
 
@@ -396,8 +395,9 @@ function parseUnionData(
 
 function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseContext, path: string): unknown[] {
   // Without `ctx.copyInput`, an array whose items all parse to themselves is
-  // returned as is; the copy starts at the first item that differs or fails.
-  // An empty one is always a new array: a live array grows the one it holds.
+  // returned as is, and the copy starts at the first item that differs or
+  // fails. An empty array is always new, since a live array grows the one it
+  // holds.
   let result: unknown[] | undefined = ctx.copyInput || array.length === 0 ? [] : undefined;
 
   for (let i = 0; i < array.length; i++) {
@@ -421,10 +421,9 @@ function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseC
 }
 
 // Neither walker writes into its input. With `ctx.copyInput` they parse into
-// a shallow copy, as `parseArrayData` builds a new array; without it the copy
-// is made only once a parsed value differs from the input's, and input whose
-// values all parse to themselves is returned as is. Either way the result
-// keeps every key the input had, as before.
+// a shallow copy. Without it, the copy is made only once a parsed value
+// differs, and input whose values all parse to themselves is returned as is.
+// The result keeps every key the input had.
 
 function parseRecordData(
   record: Record<string, unknown>,
@@ -511,8 +510,8 @@ function parseEntityData(
   if (preloadedEntities !== undefined) {
     const existing = queryClient.entityMap.getEntity(key);
 
-    // The fields of an entity built from streamed events that the record on
-    // disk has and the events did not carry.
+    // For an entity built from events: the fields they carried. The record
+    // supplies the rest.
     let fillKeys: Set<string> | undefined;
     const preloaded = preloadedEntities.get(key);
 
@@ -522,13 +521,11 @@ function parseEntityData(
       fillKeys = existing._partialKeys;
       obj = preloaded;
     } else if (existing !== undefined) {
-      // The entity is already live in memory, so the cache has nothing newer
-      // to offer: the in-memory data is what every consumer already sees.
-      // Re-parsing that data would run already-parsed values (formatted
-      // values, parse results, child proxies) through the parser again, in
-      // place, and corrupt them. An empty partial entry merges nothing and
-      // hands the query the existing proxy. The data must still satisfy this
-      // query's shape, or the cached query is not usable as-is.
+      // A live entity is newer than the cache. Re-parsing its data would run
+      // already-parsed values (formatted values, parse results, child
+      // proxies) through the parser again and corrupt them. An empty partial
+      // entry merges nothing and hands the query the existing proxy. The data
+      // must still satisfy this query's shape, or the cached query is unusable.
       ctx.trusted ??= new Map();
       if (!dataSatisfiesDef(existing.data, entityShape as unknown as ValidatorDef<unknown>, queryClient, ctx.trusted)) {
         throw new CachedEntityMismatchError(
@@ -617,11 +614,10 @@ function parseEntityData(
 
 /**
  * Whether already-parsed entity data can be handed to a query declaring `def`
- * without being parsed again. Unlike `entitySatisfiesShape` (a top-level
- * presence check used for narrowing) this descends into nested objects, arrays,
- * records, unions and child entities, because a cached query that resolves with
- * a required nested field missing is worse than one that refetches. Where a
- * value cannot be judged it is accepted, matching the parser's leniency.
+ * without re-parsing. Unlike `entitySatisfiesShape` (a top-level presence
+ * check for narrowing), this descends into nested values and child entities:
+ * a cached query missing a required nested field is worse than a refetch.
+ * Values that can't be judged are accepted, matching the parser's leniency.
  */
 export function dataSatisfiesDef(
   data: Record<string, unknown>,
@@ -746,10 +742,10 @@ function valueSatisfiesDef(value: unknown, fieldDef: unknown, queryClient: Query
 }
 
 /**
- * An entity field holds a proxy. One whose instance has left memory is served
- * as it is (the data it still holds), as a re-parse would have handed it out
- * too; a live one must satisfy the def, with verdicts shared across the parse
- * and a cycle counted as satisfied.
+ * An entity field holds a proxy. One whose instance has left memory is
+ * accepted, since a re-parse would hand out its data too. A live one must
+ * satisfy the def. Verdicts are shared across the parse, and a cycle counts as
+ * satisfied.
  */
 function entitySatisfies(
   value: object,
@@ -772,10 +768,9 @@ function entitySatisfies(
 }
 
 /**
- * Members of an entity array whose typename has more than one registered
- * class are narrowed on read to the ones satisfying the field's def, so a
- * member that does not satisfy it is not a mismatch: it is left out either
- * way.
+ * When the item typename has several registered classes, the array is
+ * narrowed on read to members that satisfy the def, so a member that doesn't
+ * is not a mismatch.
  */
 function arraySatisfies(value: unknown[], itemDef: unknown, queryClient: QueryClient, visiting: TrustMemo): boolean {
   let narrowed = false;
