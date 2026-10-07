@@ -28,11 +28,9 @@ export interface ApplyResult {
 }
 
 /**
- * Whether an apply writes to the store. `true` writes every entity that needs
- * it, and `false` writes nothing (cache hydration). `'existing'` writes only
- * entities already in memory. Ones this apply creates are written when a
- * written record references them (`EntityInstance.save` writes missing
- * children first), or by the caller once it knows the root is retained.
+ * `false` writes nothing (cache hydration). `'existing'` writes only entities
+ * already in memory. Created ones are written once a written record references
+ * them, or by the caller once it knows the root is retained.
  */
 export type PersistMode = boolean | 'existing';
 
@@ -60,9 +58,6 @@ export function applyEntityRefs(
     throw e;
   }
 
-  // Entities a written record referenced while they were still being reified
-  // (a payload that links back to an ancestor) are complete now, and so are
-  // the records that reference them.
   queryClient.flushDeferredWrites();
 
   return { data, entityRefs };
@@ -88,8 +83,7 @@ function reifyAndApply(
     return applyEntity(entity, seen, queryClient, persist, entityRefs, appendMode, created);
   }
 
-  // Assign only slots whose value changes: values the parser did not declare
-  // (and so did not copy) may belong to the caller and be frozen.
+  // Assign only on change: values the parser didn't copy may be frozen.
   if (Array.isArray(value)) {
     for (let i = 0; i < value.length; i++) {
       const item = value[i];
@@ -135,10 +129,7 @@ function applyEntity(
   const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial } = entity;
   const shapeFields = entityShape.shape;
 
-  // An entity can appear in several slots of one payload (under `author` and
-  // `mentions`), all sharing one parsed object. Applying it again would find
-  // its children already reified, count none and release every child ref, so
-  // only count this slot's reference.
+  // Already applied from another slot: re-applying would release every child ref.
   const applied = queryClient.entityMap.getEntity(key);
   if (applied !== undefined && applied.parseId === queryClient.currentParseId) {
     parentEntityRefs.set(applied, (parentEntityRefs.get(applied) ?? 0) + 1);
@@ -158,9 +149,7 @@ function applyEntity(
 
   // A refetch or poll that returns identical data neither notifies nor writes.
   let changed = true;
-  // Until the fields are reified the data is not a record yet: a write that
-  // reaches this instance through a reference from inside its own subtree is
-  // deferred to the end of the walk.
+  // A write reaching this instance from inside its own subtree is deferred.
   entityInstance._applying = true;
   try {
     if (isUpdate) {
@@ -179,32 +168,20 @@ function applyEntity(
         created,
       );
       if ((persist === true && rawKeys === undefined) || fillsPartial) {
-        // A full payload (a fetch), or the record's fields merged in, makes
-        // the data a complete record again.
         entityInstance._partial = false;
         entityInstance._partialKeys = undefined;
       } else if (entityInstance._partial && rawKeys !== undefined) {
-        // Stays partial even after events carry every field of this class:
-        // another class sharing the typename may have written fields this one
-        // doesn't declare, and only a merge keeps them.
+        // Stays partial: another class sharing the typename may hold undeclared fields.
         for (const k of rawKeys) entityInstance._partialKeys!.add(k);
       }
     } else {
       initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
       if (eventKeys !== undefined) {
-        // Streamed events are partial: what this entity holds is what its
-        // events carried, not necessarily the whole record.
         entityInstance._partial = true;
         entityInstance._partialKeys = new Set(eventKeys);
-        // A record always carries its typename and id, whether or not the
-        // event did (the parser fills the literal in).
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
-        // Partial even if the event carried every field of this class, for the
-        // same reason (the other class may not be registered this session).
-        // With no record to merge into, the first write makes it whole.
       } else if (persist === false) {
-        // Hydrated from the store: its record exists.
         entityInstance._recorded = true;
       }
       if (persist === 'existing') created?.add(entityInstance);
@@ -232,10 +209,8 @@ function applyEntity(
 
   const newRefs = childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
-  // An entity hydrated from the store was never written, so there is no write
-  // to skip. One with a write still queued has its current data on the way.
-  // Skipping is only safe while the store has no deletion queued, which could
-  // drop the record this apply trusts.
+  // An entity hydrated from the store was never written, so there is no write to skip.
+  // A queued store deletion could drop the record this apply trusts.
   const needsPersist =
     changed ||
     refsChanged ||
@@ -276,8 +251,6 @@ function mergeFields(
 
     const raw = data[fieldKey];
     if (shouldReify(raw)) {
-      // Assign only on change: an object the parser kept as is (from a fetch
-      // result) may belong to the adapter and be frozen.
       const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
       if (reified !== raw) data[fieldKey] = reified;
     }
@@ -320,8 +293,7 @@ function mergeFields(
           !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
-        // An unchanged object kept from a fetch result may be frozen by the
-        // adapter: merge into a copy.
+        // May be frozen by the adapter.
         const target = Object.isFrozen(oldVal) ? { ...oldVal } : oldVal;
         if (nestedShape !== undefined) {
           if (
@@ -346,8 +318,8 @@ function mergeFields(
             existingData[fieldKey] = oldVal;
           }
         } else if (sameKeys(oldVal, newVal)) {
-          // Shapeless object (e.g. a record) with the same keys: copy field by field, keeping the
-          // existing value — and its identity — wherever it already matches.
+          // Shapeless object (e.g. a record) with the same keys: copy only the
+          // fields that differ, so matching values keep their identity.
           let merged = false;
           for (const k of Object.keys(newVal)) {
             if (!sameValue(oldVal[k], newVal[k])) {
@@ -389,7 +361,6 @@ export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>)
  * they were built from, arrays and plain objects element by element.
  */
 export function sameValue(a: unknown, b: unknown): boolean {
-  // `Object.is`: re-applying NaN is not a change, and `-0` over `0` is one.
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (a instanceof FormattedValue || b instanceof FormattedValue) {
@@ -459,8 +430,6 @@ function initFields(
 
     const raw = data[fieldKey];
     if (shouldReify(raw)) {
-      // Assign only on change: an object the parser kept as is (from a fetch
-      // result) may belong to the adapter and be frozen.
       const reified = reifyAndApply(raw, seen, queryClient, persist, childRefs, appendMode, created);
       if (reified !== raw) data[fieldKey] = reified;
     }

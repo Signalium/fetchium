@@ -159,11 +159,7 @@ function snapshotCameFrom(snapshotObj: unknown, sourceId: number): boolean {
   return snapshotOrigins.get(snapshotObj)?.sourceId === sourceId;
 }
 
-/**
- * Dev builds freeze snapshots, so a consumer that mutates one (a `sort()` in
- * render) throws at its own call site instead of the fast path silently
- * carrying the mutation forward. Production skips the per-container cost.
- */
+/** Dev-only: a consumer that mutates a snapshot throws at its call site. */
 function freezeInDev<T extends object>(obj: T): T {
   return IS_DEV ? Object.freeze(obj) : obj;
 }
@@ -207,8 +203,7 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
       }
       const next = snapshotRawValue(item, prevItem, snap);
       result[i] = next;
-      // `Object.is`, not `!==`: a NaN slot must not mark the array changed on
-      // every walk, or the snapshot never reaches a stable identity.
+      // `Object.is`, so a NaN slot doesn't change identity on every walk.
       if (!changed && !Object.is(next, prevArr![i])) changed = true;
     }
     return changed ? freezeInDev(result) : prevArr!;
@@ -232,11 +227,7 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
   return snap(value, prev);
 }
 
-/**
- * Structural equality of two snapshot values. The dev guard uses it to tell
- * real drift from a value that only lost identity, such as a format parser's
- * `Set`, which Signalium's `snapshotSet` rebuilds each walk.
- */
+/** Dev guard: tells real drift from a value that only lost identity, like a rebuilt `Set`. */
 function sameSnapshotValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
@@ -247,10 +238,8 @@ function sameSnapshotValue(a: unknown, b: unknown): boolean {
   }
   if (a instanceof Set || b instanceof Set) {
     if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) return false;
-    // A rebuilt Set keeps insertion order, so pair members by position and
-    // only search for one that fails to line up. The common case stays linear.
+    // Pair by position, searching only after the first misalignment.
     const bItems = [...b];
-    // Indices of `b` already paired, tracked from the first misalignment on.
     let matched: Set<number> | undefined;
     let i = 0;
     for (const item of a) {
@@ -308,12 +297,7 @@ function walkFields(
   }
 }
 
-/**
- * Full walk: `Object.keys` on the proxy and a read per key. For proxies this
- * module instance did not create: after a hot reload re-evaluates this file,
- * the previous instance's proxies are still live but absent from
- * `snapshotSources`.
- */
+/** For proxies from a previous instance of this module (hot reload), absent from `snapshotSources`. */
 function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn): unknown {
   const obj = current as Record<string, unknown>;
   const keys = Object.keys(obj);
@@ -333,15 +317,11 @@ function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
   const source = snapshotSources.get(current);
   if (source === undefined) {
-    // A proxy from a previous instance of this module (hot reload): walk it.
-    // Handing the proxy back would stop React re-rendering on its changes.
-    // Every entity proxy answers `toJSON`; a bare `Entity` instance does not.
+    // Hot-reloaded proxy. Returning it as-is would stop React re-rendering on its changes.
     if (PROXY_ID.has(current) || typeof (current as { toJSON?: unknown }).toJSON === 'function') {
       return snapshotProxyByWalking(current, prev, snap);
     }
-    // An `Entity` that never went through `createProxy` has no fields to read —
-    // its own properties are the shape's type defs. Hand it back untouched, the
-    // way Signalium treats any class it has no handler for.
+    // A bare `Entity` has no fields to read, only the shape's type defs.
     return current;
   }
 
@@ -376,17 +356,13 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
     }
 
     if (IS_DEV) {
-      // Re-read what the fast path skipped. A drifted field is served from the
-      // re-read and reported, not thrown: a throw inside a snapshot lands in
-      // Signalium's watcher flush, which has no catch, and stalls every consumer.
+      // Report drift, don't throw: Signalium's watcher flush has no catch.
       const drifted = verifyStaticFields(source, keys, before, snap);
       if (drifted !== undefined) {
         if (result === undefined) result = { ...before };
         for (const key of Object.keys(drifted)) result[key] = drifted[key];
       }
-      // A consumer added or deleted keys on its snapshot: rebuild with the
-      // shape's keys in shape order. Dev snapshots are frozen and cannot have
-      // been altered, so only an unfrozen one pays for the key list.
+      // A consumer altered the snapshot's keys. Frozen ones can't have been.
       if (!Object.isFrozen(before) && !sameKeyList(Object.keys(before), keys.enumerable)) {
         const source_ = result ?? before;
         const rebuilt: Record<string, unknown> = {};
@@ -421,16 +397,12 @@ function sameKeyList(a: string[], b: string[]): boolean {
   return true;
 }
 
-/** Dev-only: (typename, field) pairs already reported, so a drift is raised once. */
+/** Dev-only: drifts already raised, keyed `typename.field`. */
 const reportedDrift = new Set<string>();
 
 export type SnapshotDriftHandler = (error: Error, queryClient: QueryClient) => void;
 
-/**
- * Dev-only default: log, then rethrow in a microtask so the error surfaces as
- * uncaught (a red box in React Native, a failed vitest run) without throwing
- * inside Signalium's watcher flush.
- */
+/** Rethrows in a microtask so the error surfaces as uncaught, outside Signalium's watcher flush. */
 const defaultDriftHandler: SnapshotDriftHandler = (error, queryClient) => {
   queryClient.getContext().log?.error?.(error.message, error);
   queueMicrotask(() => {
@@ -440,10 +412,7 @@ const defaultDriftHandler: SnapshotDriftHandler = (error, queryClient) => {
 
 let snapshotDriftHandler: SnapshotDriftHandler = defaultDriftHandler;
 
-/**
- * Dev-only test hook: replace how a stale snapshot is raised, and forget which
- * fields were already raised. `undefined` restores the default handler.
- */
+/** Dev-only test hook. Also clears the raised set. `undefined` restores the default. */
 export function __setSnapshotDriftHandler(handler: SnapshotDriftHandler | undefined): void {
   snapshotDriftHandler = handler ?? defaultDriftHandler;
   reportedDrift.clear();
@@ -466,11 +435,8 @@ function reportDrift(source: EntitySnapshotSource, key: string, what: string): v
 /**
  * Checks the fast path's assumptions: `data` only changes through a `notify()`
  * that bumps `version`, and every field outside `keys.dynamic` is a pure
- * function of `data`. Re-reads the skipped fields and returns those that
- * differ structurally from the cached snapshot, or `undefined` if none do.
- * Skipped fields only — re-reading a dynamic
- * field is not identity-stable, since snapshotting a child updates state it
- * pairs on.
+ * function of `data`. Returns the static fields that drifted, if any.
+ * Dynamic fields are skipped, since re-reading them is not identity-stable.
  *
  * The re-read cancels the fast path's savings, so the speedup only shows in
  * production builds.
@@ -520,21 +486,17 @@ export class EntityInstance {
   refCount: number = 0;
   /** Whether this instance has been written to the store. */
   _persisted: boolean = false;
-  /** Writes handed to a store that acknowledges them, not yet acknowledged. */
+  /** Writes sent to an acknowledging store, not yet acknowledged. */
   _pendingWrites: number = 0;
-  /** Set while an apply is still reifying this instance's fields; its data is not yet a record. */
+  /** An apply is still reifying this instance's fields. */
   _applying: boolean = false;
-  /**
-   * The data came only from streamed events, so it may lack fields the stored
-   * record has: a write merges over that record. Cleared by the first full
-   * payload applied to the entity.
-   */
+  /** Data came only from events, so a write merges over the stored record. */
   _partial: boolean = false;
-  /** With `_partial`: the fields the events carried, i.e. the ones a write merges. */
+  /** With `_partial`: the fields a write merges. */
   _partialKeys: Set<string> | undefined = undefined;
-  /** A write requested while a child was still being reified; performed when that apply is done. */
+  /** A write waiting for a child's apply to finish. */
   _deferredWrite: boolean = false;
-  /** The store is known to hold a record of this entity (hydrated from it, or written to it). */
+  /** The store is known to hold a record of this entity. */
   _recorded: boolean = false;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
@@ -619,10 +581,8 @@ export class EntityInstance {
   }
 
   /**
-   * This entity's next write drops its reference to `child`, which can delete
-   * the child's record. An acknowledging store does that after anything an
-   * apply decides meanwhile, so the child is written again rather than
-   * trusted. A synchronous store reports the deletion through `onDelete`.
+   * The write may delete the child's record after the current apply, so it is
+   * rewritten rather than trusted. Sync stores report deletes via `onDelete`.
    */
   private writeDropsRef(child: EntityInstance): void {
     if (this._queryClient.storeAcksWrites) child.recordDropped();
@@ -673,16 +633,14 @@ export class EntityInstance {
     return false;
   }
 
-  /** `storeHolds`: what the store's `hasEntity` just said about this entity, if the caller asked. */
+  /** `storeHolds`: the store's `hasEntity` answer, if the caller already has it. */
   save(storeHolds?: boolean): void {
     const client = this._queryClient;
     if (this._saving) return;
     this._saving = true;
     try {
-      // A record's references must point at existing records, so a child the
-      // store has no record of is written first. A child an apply is still
-      // reifying (a payload that links back to an ancestor) can't be written
-      // yet: both are written, child first, once the apply is done.
+      // References must point at existing records, so unrecorded children are
+      // written first. A child still being reified defers both writes.
       const refs = this.entityRefs;
       if (refs !== undefined) {
         let deferred = false;
@@ -696,7 +654,6 @@ export class EntityInstance {
             try {
               child.save();
             } catch (e) {
-              // This entity's record still lacks the reference.
               this.markUnwritten();
               throw e;
             }
@@ -710,24 +667,20 @@ export class EntityInstance {
         }
       }
       this._deferredWrite = false;
-      // With no record to merge over, the fields held are the whole record:
-      // stop being partial so later writes skip the merge's read.
+      // No record to merge over, so the fields held are the whole record.
       if (this._partial && !this._recorded && (storeHolds ?? client.store.hasEntity?.(this.key)) === false) {
         this._partial = false;
         this._partialKeys = undefined;
       }
       // Counted before the call: a store may acknowledge synchronously.
       if (client.storeAcksWrites) this._pendingWrites++;
-      // A partial entity hands the store only the fields its events carried.
       try {
         client.entityMap.save(this, this._partial ? this._partialKeys : undefined);
       } catch (e) {
         this.markUnwritten();
         throw e;
       }
-      // Marked after the call, so a store that throws leaves it unset and the
-      // next apply writes again. An acknowledging store marks it in
-      // `acknowledgeWrite`.
+      // After the call, so a throwing store leaves it unset.
       if (!client.storeAcksWrites) this._persisted = this._recorded = true;
     } finally {
       this._saving = false;
@@ -739,12 +692,7 @@ export class EntityInstance {
     if (this._partial) this._partialKeys?.add(fieldKey);
   }
 
-  /**
-   * The store processed a write of this entity's record. Only writes this
-   * instance dispatched count: an acknowledgement can belong to a write from a
-   * previous instance (collected and re-hydrated while it was in flight),
-   * carrying data this instance never had.
-   */
+  /** Ignores acks for writes a previous instance of this entity dispatched. */
   acknowledgeWrite(): void {
     if (this._pendingWrites === 0) return;
     if (--this._pendingWrites === 0) this._persisted = this._recorded = true;
@@ -756,11 +704,7 @@ export class EntityInstance {
     this.markUnwritten();
   }
 
-  /**
-   * Its record is stale: the next apply writes it even if it finds nothing
-   * changed. Writes still queued hold older data, so their acknowledgements
-   * no longer mark it persisted.
-   */
+  /** Forces the next apply to write. Queued writes hold older data, so their acks are dropped. */
   markUnwritten(): void {
     this._persisted = false;
     this._pendingWrites = 0;
@@ -785,7 +729,7 @@ function sameMembers(a: unknown[], b: unknown[]): boolean {
 interface NarrowedArray {
   source: unknown[];
   filtered: unknown[];
-  /** Members that do not (yet) satisfy the def; the only ones whose membership can change. */
+  /** Members not (yet) satisfying the def, the only ones whose membership can change. */
   excluded: EntityInstance[];
   parseId: number;
 }
@@ -890,21 +834,14 @@ export interface EntityKeys {
   enumerableSet: Set<string>;
 }
 
-/**
- * A field whose def carries no shape: a primitive, a format, `t.typename`, or
- * a set of literals. Its value can only be a primitive or a format's parsed
- * value, so no other class sharing the typename can put an entity under it.
- */
+/** No class sharing the typename can put an entity under a shapeless field. */
 function isShapelessFieldDef(def: unknown): boolean {
   if (typeof def === 'number' || typeof def === 'string') return true;
   if (def instanceof Set) return true;
   return def instanceof ValidatorDef && (def.shape === undefined || def.shape === null);
 }
 
-/**
- * Cached per client (`queryClient.shapeKeyCache`): the split depends on which
- * other classes share the typename, and that set grows as queries register.
- */
+/** Cached per client: the split depends on which classes share the typename. */
 function shapeKeys(
   validatorDef: ValidatorDef<unknown>,
   shapeFields: Record<string, unknown>,
@@ -923,9 +860,7 @@ function shapeKeys(
       if (!own.includes(methodKey)) own.push(methodKey);
     }
   }
-  // The data object is shared by every class with this typename, so a nested
-  // object that is entity-free in this class may hold a child entity written
-  // through another class's shape. Only shapeless fields stay static then.
+  // Another class sharing the typename may write an entity into a nested object.
   const typename = validatorDef.typenameValue;
   const shared = typename !== undefined && (queryClient.getEntityDefsForTypename(typename)?.length ?? 0) > 1;
   const dynamic = enumerable.filter(
@@ -993,12 +928,7 @@ function bindMethod(
   return bound;
 }
 
-/**
- * Members a narrowed array leaves out are dependencies of the read: one that
- * gains the def's fields notifies itself, which must recompute the consumer.
- * Included members are read through the array and never lose eligibility, so
- * consuming them would only add recomputes.
- */
+/** An excluded member that gains the def's fields must recompute the consumer. */
 function consumeExcluded(excluded: EntityInstance[]): void {
   for (let i = 0; i < excluded.length; i++) excluded[i].consume();
 }
@@ -1092,11 +1022,7 @@ function createProxy(
   let keys: EntityKeys | undefined;
 
   function entityKeys(): EntityKeys {
-    // The client replaces its key cache when another class registers for
-    // this typename, and live proxies must pick up the new split. Entries are
-    // never overwritten, so checking the cache's identity is enough and avoids
-    // a WeakMap lookup per snapshot. Both extras slots matter too: these lists
-    // decide what a snapshot walks and re-reads.
+    // The client replaces its key cache when a class registers for this typename.
     const baseCache = queryClient.shapeKeyCache;
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;

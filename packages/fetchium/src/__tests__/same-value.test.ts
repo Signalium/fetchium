@@ -43,8 +43,6 @@ describe('sameValue', () => {
   });
 
   it('treats NaN as unchanged and -0 as a change (Object.is semantics)', () => {
-    // Re-applying a NaN field must not notify on every refetch, and the sign
-    // of zero is observable through `Object.is` on a proxy read.
     expect(sameValue(Number.NaN, Number.NaN)).toBe(true);
     expect(sameValue(0, -0)).toBe(false);
   });

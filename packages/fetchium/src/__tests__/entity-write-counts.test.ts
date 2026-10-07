@@ -38,7 +38,6 @@ class GetList extends RESTQuery {
   result = { list: t.entity(List) };
 }
 
-/** Every entity write, whether it replaced the record or merged into it. */
 function spyEntityWrites(store: { saveEntity: (...args: any[]) => void; mergeEntity: (...args: any[]) => void }) {
   const save = vi.spyOn(store, 'saveEntity');
   const merge = vi.spyOn(store, 'mergeEntity');
@@ -159,8 +158,7 @@ describe('Entity Write Counts', () => {
     });
 
     const saveEntity = spyEntityWrites(store);
-    // The item is already current in the store from the first query, so the
-    // apply declines its write. The insert must not put one back.
+    // i-1 is already current in the store, so the apply skips its write. The insert must not add one.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Item',

@@ -66,7 +66,7 @@ export interface LiveCollectionParent {
   addChildRef(child: EntityInstance, persist?: boolean): void;
   removeChildRef(child: EntityInstance, persist?: boolean): void;
   save(): void;
-  /** A live field's membership changed outside an apply (an event was routed into it). */
+  /** A live field's membership changed outside an apply. */
   liveFieldChanged?(fieldKey: string): void;
 }
 

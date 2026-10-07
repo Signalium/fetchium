@@ -687,14 +687,12 @@ describe('Entity Snapshots', () => {
     try {
       client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 5 } });
 
-      // The guard reports out of band instead of throwing inside the snapshot,
-      // and hands out what a full walk would have produced.
       const snap = read() as unknown as { tokens: { symbol: string }[] };
       expect(snap.tokens[0].symbol).toBe('MUTATED');
       expect(raised).toHaveLength(1);
       expect(raised[0].message).toMatch(/stale entity snapshot: Token:tok-0 field 'symbol'/);
 
-      // Raised once per field: a second recompute stays quiet.
+      // Raised once per field.
       client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 6 } });
       read();
       expect(raised).toHaveLength(1);
@@ -717,7 +715,6 @@ describe('Entity Snapshots', () => {
     expect(Object.isFrozen(snap)).toBe(true);
     expect(Object.isFrozen(snap.tokens)).toBe(true);
     expect(Object.isFrozen(snap.tokens[0])).toBe(true);
-    // The classic "sort in render" bug throws where it happens, not later.
     expect(() => snap.tokens.sort()).toThrow(TypeError);
     expect(() => {
       snap.tokens[0].symbol = 'X';

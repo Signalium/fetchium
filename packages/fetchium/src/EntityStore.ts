@@ -6,7 +6,6 @@ import { ValidatorDef } from './typeDefs.js';
 export class EntityStore {
   private instances = new Map<number, EntityInstance>();
   private persistEntity: (key: number, data: Record<string, unknown>, refKeys?: Set<number>, merge?: boolean) => void;
-  /** Whether the store can merge fields over a record it holds. */
   mergesEntities: boolean = false;
 
   constructor(
@@ -62,11 +61,7 @@ export class EntityStore {
     this.instances.clear();
   }
 
-  /**
-   * With `mergeKeys`, only those fields are handed to the store, to be merged
-   * over the record it holds (the rest of the instance's data is what streamed
-   * events left unset, not what the record says).
-   */
+  /** With `mergeKeys`, only those fields are sent, merged over the stored record. */
   save(instance: EntityInstance, mergeKeys?: Set<string>): void {
     let refKeys: Set<number> | undefined;
     if (instance.entityRefs) {

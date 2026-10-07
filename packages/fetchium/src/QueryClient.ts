@@ -165,13 +165,9 @@ export class QueryClient {
   currentParseId: number = 0;
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
-  /** With `store.onPersisted`, `_persisted` is set by the store's acknowledgement, not by `save()`. */
+  /** With `store.onPersisted`, `_persisted` is set on acknowledgement, not by `save()`. */
   storeAcksWrites: boolean = false;
-  /**
-   * Per-client static/dynamic key split for each entity shape (see
-   * `shapeKeys` in EntityInstance.ts). Replaced wholesale when a typename
-   * gains a second class, since the split depends on the other classes.
-   */
+  /** Replaced when a typename gains a class, since the static/dynamic split depends on it. */
   shapeKeyCache = new WeakMap<ValidatorDef<any>, EntityKeys>();
 
   /** See `QueryClientConfig.reactivationGraceMs`. */
@@ -246,7 +242,6 @@ export class QueryClient {
       this.entityMap.getEntity(key)?.recordDropped();
     });
     if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
-    // A store that processes writes later says when a record is really there.
     this.storeAcksWrites = typeof this.store.onPersisted === 'function';
     const offPersisted = this.store.onPersisted?.(key => {
       this.entityMap.getEntity(key)?.acknowledgeWrite();
@@ -338,11 +333,7 @@ export class QueryClient {
   // Typename Registry (per-client)
   // ======================================================
 
-  /**
-   * Whether every write handed to the store has been processed, so a skipped
-   * write cannot be undone by a deletion the store has queued but not yet run.
-   * A synchronous store is always settled.
-   */
+  /** No queued store deletion can undo a skipped write. */
   storeIsSettled(): boolean {
     const store = this.store;
     if (store.hasQueuedDeletes !== undefined) return !store.hasQueuedDeletes();
@@ -362,8 +353,6 @@ export class QueryClient {
       existing.push(def);
       this.mergedDefCache.delete(typename);
       this.getMergedDef(typename);
-      // The snapshot fast path's static/dynamic split for this typename's
-      // classes now has to account for the new class's fields.
       this.shapeKeyCache = new WeakMap();
     } else {
       this.typenameRegistry.set(typename, [def]);
@@ -713,9 +702,7 @@ export class QueryClient {
   /**
    * Parse data: validates, formats, produces parsed entity data objects.
    * Does NOT touch the entity store. Call applyRefs() after to commit entities.
-   *
-   * `copyInput: false` (a fetch result or a cached record, handed over to the
-   * client) copies a nested object only where a parsed value differs from it.
+   * `copyInput: false` copies a nested object only where a parsed value differs.
    */
   parseData(
     obj: unknown,
@@ -774,7 +761,6 @@ export class QueryClient {
     return this.entityMap.getEntity(proxyKey!)!;
   }
 
-  /** `existing`: the instance the caller already looked up under `key`, if any. */
   prepareEntity(
     key: number,
     obj: Record<string, unknown>,
@@ -824,10 +810,7 @@ export class QueryClient {
       return;
     }
 
-    // The apply writes entities the event updates, not ones it creates. A
-    // created entity is written once a written record references it, or below
-    // once the root is known to be retained. Only an event with a new root can
-    // create entities that need collecting here.
+    // Entities the event creates are written only once something retains them.
     const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
@@ -844,7 +827,6 @@ export class QueryClient {
         this.context.log?.warn?.('Failed to apply mutation event', e);
       }
       if (existing === undefined) {
-        // Half applied: nothing built from it can stay.
         const createdRoot = this.entityMap.getEntity(key);
         if (createdRoot !== undefined) this.evictCreated(createdRoot, created!);
       }
@@ -859,13 +841,8 @@ export class QueryClient {
       return;
     }
 
-    // The created root (and what it created) is written when a live array is
-    // about to retain it, or when the store already holds a record of it: a
-    // collected query's cache can still hold this entity, and the event is
-    // that record's only chance to stay fresh. An event is partial, so the
-    // write merges over the record. It comes before routing so that a failed
-    // write routes nothing. A store that can't say what it holds (no
-    // `hasEntity`) is not written, so it never accumulates unreferenced records.
+    // Write a created root if a live array will retain it or the store already
+    // holds it. Before routing, so a failed write routes nothing.
     let matched = false;
     let retains = false;
     this.routeEvent(
@@ -881,8 +858,6 @@ export class QueryClient {
       undefined,
       /* dryRun */ true,
     );
-    // The store is asked only when no live array retains the root, and only
-    // when there is something to write; its answer is handed to save().
     let held: boolean | undefined;
     if (!entity._persisted && entity._pendingWrites === 0) {
       if (!retains) held = this.store.hasEntity?.(key);
@@ -897,31 +872,20 @@ export class QueryClient {
       }
     }
 
-    // The dry run found no collection to route into: routing again would
-    // only recompute the constraint hashes.
     if (matched) this.routeEvent(typename, entity.data, key, type, eventSource);
     else this.evictUnlessAdopted(entity, created!);
   }
 
-  /**
-   * Evicts the root an event created unless an entity that existed before the
-   * event now references it. References from entities the same event created
-   * (the root included) don't count: they were only reachable through the root.
-   */
+  /** References from entities the same event created don't count as adoption. */
   private evictUnlessAdopted(root: EntityInstance, created: Set<EntityInstance>): void {
     let createdHolders = 0;
     for (const c of created) if (c.entityRefs?.has(root)) createdHolders++;
     if (root.refCount <= createdHolders) this.evictCreated(root, created);
   }
 
-  /**
-   * Evicts the root an event created, along with every entity the event
-   * created that is no longer referenced. They were never written, and
-   * lingering until `gcTime` would let a later event write them as orphans.
-   */
+  /** Also evicts unreferenced entities the event created, so a later event can't write them as orphans. */
   private evictCreated(root: EntityInstance, created: Set<EntityInstance>): void {
     root.evict();
-    // Evicting one releases what it held; repeat until nothing more is free.
     let evicted = true;
     while (evicted) {
       evicted = false;
@@ -934,10 +898,6 @@ export class QueryClient {
     }
   }
 
-  /**
-   * Entities whose write was requested while an apply was still reifying
-   * them; written once that apply is done.
-   */
   private deferredWrites: Set<EntityInstance> | undefined;
 
   /** @internal */
@@ -945,11 +905,7 @@ export class QueryClient {
     (this.deferredWrites ??= new Set()).add(entity);
   }
 
-  /**
-   * Writes the deferred entities in the order they were deferred: children
-   * before their parents. If a write fails, the rest are marked so the next
-   * apply writes them.
-   */
+  /** Children were deferred before parents, so insertion order is write order. */
   /** @internal */
   flushDeferredWrites(): void {
     const deferred = this.deferredWrites;
@@ -970,10 +926,6 @@ export class QueryClient {
     }
   }
 
-  /**
-   * After a failed apply, what it deferred may be half reified, so nothing is
-   * written. Those records are stale and the next apply writes them.
-   */
   /** @internal */
   discardDeferredWrites(): void {
     const deferred = this.deferredWrites;
