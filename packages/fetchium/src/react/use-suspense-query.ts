@@ -20,8 +20,8 @@ import { useQuery } from './use-query.js';
  * Wrap the change in `startTransition` to keep showing the previous result.
  *
  * Call it from a plain function component. Like `useQuery`, it can't run
- * inside a Signalium `component()` (that is a reactive context), where
- * `fetchQuery` is the way to read queries.
+ * inside a Signalium `component()` (a reactive context); use `fetchQuery`
+ * there.
  */
 export function useSuspenseQuery<T extends Query>(
   QueryClass: new () => T,
@@ -35,9 +35,9 @@ export function useSuspenseQuery<T extends Query>(
     throw new Error('QueryClient not found');
   }
 
-  // Decide before useQuery: a render that suspends is discarded without a
-  // commit, so a subscription taken by it would never be cleaned up. The
-  // client holds the query active while suspended instead.
+  // Decide before useQuery: a suspended render is discarded without a commit,
+  // so a subscription it took would never be cleaned up. The client holds the
+  // query active while suspended instead.
   const { promise, failed, error, key } = client.suspendOnColdMiss(
     QueryDefinition.for(QueryClass),
     args[0] as QueryParams | undefined,

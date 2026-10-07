@@ -67,9 +67,8 @@ export interface QueryClientConfig {
    * Decides whether a failed query attempt (or a mutation attempt, when the
    * mutation enables retries) is retried. Receives the error, the attempt index
    * (starting at 0) and the attempt's HTTP status when known. A query's or
-   * mutation's own `retry.shouldRetry` overrides it. Optional: without it,
-   * every failed attempt is retried, whatever its status. Use it to stop
-   * retrying errors you know are permanent, such as a 4xx from an endpoint.
+   * mutation's own `retry.shouldRetry` overrides it. Without it, every failed
+   * attempt is retried. Use it to stop retrying permanent errors such as a 4xx.
    */
   shouldRetry?: ShouldRetry;
   /**
@@ -183,13 +182,13 @@ export class QueryClient {
   /** Release functions of outstanding `retain()` / `prefetch()` leases. */
   private leases = new Set<() => void>();
   /**
-   * While a lease's callback first runs: the queries it reached that left
-   * their first fetch (or a zero-delay refetch) for a microtask. The lease
-   * starts them before returning. See `retain()`.
+   * Set during a lease's first run: the queries it reached whose first fetch
+   * (or zero-delay refetch) is queued on a microtask. The lease starts them
+   * before returning. See `retain()`.
    */
   private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
   /**
-   * Leases taken by `retain()` calls inside a reactive computation, by the
+   * Leases taken by `retain()` inside a reactive computation, keyed by the
    * computation, with the run that took them. See `retain()`.
    */
   private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
@@ -402,8 +401,8 @@ export class QueryClient {
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
     }
 
-    // Already active with its start still queued (a reader activated it earlier
-    // in this task): the lease starts it too.
+    // A reader may have activated it earlier in this task with its start still
+    // queued. The lease starts it too.
     this.leaseStarts?.add(queryInstance);
 
     return queryInstance.relay;
@@ -436,16 +435,16 @@ export class QueryClient {
    * the query deactivates and its `gcTime` starts as usual. `release` is
    * idempotent.
    *
-   * The fetches the first run of `fn` needs start before `retain` returns: a
-   * request goes out inside the call, ahead of anything already queued on the
-   * microtask queue (such as a render React scheduled for the same tap). A
-   * query that depends on another's result (`fn` reads an id, then fetches by
-   * it) starts once that result arrives, as with any reader. Call `retain`
-   * from an event handler or effect, not from inside a reactive computation:
-   * starting a fetch runs adapter code, and a computation that reruns would
-   * take a new lease on every run. Called from one anyway, it warns in
-   * development, starts its fetches on their usual microtask, and releases the
-   * leases the computation's previous run took.
+   * The first run's fetches start before `retain` returns, ahead of anything
+   * already on the microtask queue (such as a render React scheduled for the
+   * same tap). A query that depends on another's result starts once that
+   * result arrives, as with any reader.
+   *
+   * Call `retain` from an event handler or effect, not a reactive computation:
+   * starting a fetch runs adapter code, and a rerunning computation would take
+   * a new lease each run. Called from one anyway, it warns in development,
+   * starts its fetches on their usual microtask, and releases the leases the
+   * computation's previous run took.
    */
   retain(fn: () => unknown, options?: RetainOptions): () => void {
     const owner = currentReactiveOwner();
@@ -522,17 +521,16 @@ export class QueryClient {
   /**
    * Starts `QueryClass` with `params` now and keeps it active for `ttl`
    * milliseconds (default {@link DEFAULT_PREFETCH_TTL}), or until the returned
-   * `release` is called. The `ttl` is an upper bound: the lease goes when it
-   * runs out even if the fetch is still in flight (offline, or a topic that is
-   * never fulfilled), which aborts that fetch unless a reader has joined it.
-   * Meant for the moment a user commits to a navigation
-   * (a tap): the destination's reader, mounting within the window, reuses the
-   * in-flight or finished fetch instead of starting its own, and renders the
-   * data on its first render if it has arrived.
+   * `release` is called. Meant for the tap that commits to a navigation: the
+   * destination's reader, mounting within the window, reuses the in-flight or
+   * finished fetch and renders the data on its first render if it has arrived.
    *
-   * Cached data counts: with a synchronous store a cached, fresh result is
-   * applied without a request. A stale one is shown and refetched, as on any
-   * activation.
+   * The `ttl` is an upper bound. The lease ends even if the fetch is still in
+   * flight (offline, or a topic never fulfilled), which aborts it unless a
+   * reader has joined.
+   *
+   * With a synchronous store a fresh cached result is applied without a
+   * request. A stale one is shown and refetched, as on any activation.
    */
   prefetch<T extends Query>(
     QueryClass: new () => T,
@@ -550,14 +548,14 @@ export class QueryClient {
    * never produced a value (a cold miss), or `undefined` when it has one to
    * render (in memory, or hydrated now from a synchronous store).
    *
-   * A cold miss takes a hold that keeps the query active while the render is
-   * suspended, since React discards a suspended render without subscribing.
-   * The reader's commit releases it (`releaseSuspenseHold`); otherwise it
-   * releases itself `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose
-   * last fetch failed is refetched once per hold: when that attempt fails too,
-   * `error` is set and the hold is dropped, so the caller can throw it. A
-   * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
+   * A cold miss takes a hold that keeps the query active while suspended,
+   * since React discards a suspended render without subscribing. The reader's
+   * commit releases it (`releaseSuspenseHold`), or it releases itself
+   * `SUSPENSE_HOLD_TTL` after the fetch settles. A query whose last fetch
+   * failed is refetched once per hold. If that attempt fails too, `error` is
+   * returned for the caller to throw and the hold is dropped. A failure no
+   * render claims within `UNCLAIMED_FAILURE_TTL` also drops the hold, so a
+   * later mount makes a new attempt.
    *
    * @internal
    */
@@ -818,7 +816,7 @@ export class QueryClient {
 
   /**
    * Called by a query that queued its start (or a zero-delay refetch) on a
-   * microtask. During a lease's first run, the lease starts it before returning.
+   * microtask, so a lease in its first run can start it before returning.
    *
    * @internal
    */

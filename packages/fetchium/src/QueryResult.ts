@@ -212,9 +212,9 @@ export class QueryInstance<T extends Query> {
 
             // If the relay shows pending but the abort controller is gone, the
             // previous fetch was aborted during deactivation (or never started).
-            // runDebounced() would bail out because isPending is still true from
-            // the doomed promise, which may also never settle (a topic query's
-            // send() waits on a subscription that is gone).
+            // runDebounced() would bail out on the doomed promise's isPending,
+            // and that promise may never settle (a topic query's send() waits on
+            // a subscription that is gone).
             if (this.relayState.isPending && this._abortController === undefined) {
               this.restartAbortedFetch();
             } else {
@@ -311,9 +311,9 @@ export class QueryInstance<T extends Query> {
    * With an asynchronous store (AsyncQueryStore), the cache resolves on a later
    * tick, outside the activating read, and everything runs from there.
    *
-   * A lease (`retain()` / `prefetch()`) doesn't wait for the microtask: it
-   * calls startPendingNow() once its activating read has returned, so the
-   * request goes out inside the call, ahead of any render already queued.
+   * A lease (`retain()` / `prefetch()`) skips the microtask: it calls
+   * startPendingNow() after its activating read, so the request goes out ahead
+   * of any render already queued.
    */
   private initialize(): void {
     this.initialized = true;
@@ -353,9 +353,10 @@ export class QueryInstance<T extends Query> {
   };
 
   /**
-   * Runs, now, the start initialize() or a zero-delay runDebounced() left for
-   * a microtask, if it hasn't run yet. The microtask then does nothing. Called
-   * by a lease after its activating read, outside any reactive computation.
+   * Runs now any start that initialize(), a zero-delay runDebounced() or
+   * restartAbortedFetch() queued on a microtask, which then does nothing.
+   * Called by a lease after its activating read, outside any reactive
+   * computation.
    *
    * @internal
    */
@@ -477,8 +478,8 @@ export class QueryInstance<T extends Query> {
     }
 
     const ctx = this.getOrCreateExecutionContext();
-    // Put back a subscription a deactivation or pause tore down before
-    // sending: a topic query's send() waits for data its subscription brings.
+    // Restore a subscription that a deactivation or pause tore down: a topic
+    // query's send() waits for data its subscription brings.
     this.reconcileSubscription();
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
@@ -517,9 +518,9 @@ export class QueryInstance<T extends Query> {
 
   /**
    * Replaces a fetch that a deactivation aborted, from inside the activating
-   * read. The relay takes the new promise now, so the doomed one can no longer
-   * settle it, but the subscription and the request start on a microtask (or
-   * when a lease starts them), outside the read: both run adapter code.
+   * read. The relay takes the new promise now so the doomed one can't settle
+   * it. The subscription and request run adapter code, so they start outside
+   * the read, on a microtask or when a lease starts them.
    */
   private restartAbortedFetch(): void {
     this.fetchStarts++;
@@ -564,16 +565,15 @@ export class QueryInstance<T extends Query> {
    * Starts a refetch after the query's `debounce` (plus `extraDelay`). Calls
    * made before it starts are coalesced into one fetch.
    *
-   * With no delay the fetch starts on a microtask rather than a timer. That
-   * still runs outside the reactive computation that asked for it (a relay
-   * update) and still coalesces every call made in the same task, but doesn't
-   * wait for the next macrotask. On React Native a zero timer goes through the
-   * native timing module and can wait up to a frame.
+   * With no delay the fetch starts on a microtask, not a timer. It still runs
+   * outside the reactive computation that asked for it and still coalesces
+   * calls from the same task, without waiting a macrotask (on React Native a
+   * zero timer can wait up to a frame).
    *
    * `nextTask` keeps the zero-delay fetch on a timer. Invalidation uses it: a
-   * query invalidated in the same task its last watcher left is still active
-   * until Signalium's deactivation flush, and the timer lets that flush cancel
-   * the fetch rather than start and abort it.
+   * query invalidated in the task its last watcher left stays active until
+   * Signalium's deactivation flush, and the timer lets that flush cancel the
+   * fetch instead of starting and aborting it.
    */
   private runDebounced(extraDelay: number = 0, nextTask: boolean = false): void {
     if (this.relayState.isPending) return;
@@ -739,11 +739,10 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Retry options that report the HTTP status of a failed attempt. Adapters
-   * that expose their response as `ctx.response` (RESTQueryAdapter does) set
-   * it before the body is parsed and validated, so an error response whose
-   * body fails validation surfaces as a schema error, not an HTTP error. A
-   * response assigned during the failed attempt supplies its status.
+   * Retry options that report a failed attempt's HTTP status. RESTQueryAdapter
+   * sets `ctx.response` before parsing and validating the body, so an error
+   * response with an invalid body throws a schema error that carries no
+   * status. Only a response assigned during the failed attempt counts.
    */
   private attemptStatusTracker(ctx: Query): { start: () => void; options: WithRetryOptions } {
     const holder = ctx as unknown as { response?: unknown };

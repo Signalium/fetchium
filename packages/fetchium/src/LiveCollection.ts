@@ -450,9 +450,8 @@ export class LiveValueInstance {
         this._value = this._onDelete(this._value, entity ?? entityData);
         break;
     }
-    // Notify after every reducer run, even one that returns the value it was
-    // given: a reducer may mutate the value in place (push onto an array and
-    // return it), and a reference check can't tell that from a no-op.
+    // Notify even when the reducer returns the same reference: it may have
+    // mutated the value in place.
     this._notifier.notify();
   }
 
