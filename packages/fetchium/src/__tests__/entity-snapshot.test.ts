@@ -14,22 +14,7 @@ import { fetchQuery } from '../query.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { setupTestClient, sleep } from './utils.js';
 
-/**
- * Entity Snapshot Tests
- *
- * `useQuery` -> `useReactive` deep-snapshots the query result so React sees a
- * plain, structurally-shared object tree. These tests pin the contract that
- * walk relies on: the snapshot's key set matches the proxy's own enumerable
- * keys, nothing proxied leaks into the result, and unchanged subtrees keep
- * their identity across re-snapshots.
- */
-
-/**
- * Holds a `useReactive`-style snapshot signal open for the whole test, so
- * mutation events can be applied between reads. `testWithClient` can't be used
- * here: it runs its body as one reactive consumer, and dirtying a signal that
- * consumer already read is an error.
- */
+/** Not `testWithClient`: dirtying a signal its consumer already read is an error. */
 function snapshotHarness<T>(client: QueryClient, start: () => T) {
   return withContexts([[QueryClientContext, client]], () => {
     const query = start();
@@ -38,7 +23,6 @@ function snapshotHarness<T>(client: QueryClient, start: () => T) {
     snapshots.addListener(() => {});
     return {
       query,
-      /** The snapshot of the resolved query result, as a component would see it. */
       read: () => (snapshots.value as { value: Record<string, unknown> }).value,
     };
   });
@@ -104,8 +88,7 @@ describe('Entity Snapshots', () => {
     const tokenSnap = (snap.tokens as Record<string, unknown>[])[0];
     expect(Object.keys(tokenSnap)).toEqual(Object.keys(tokenProxy));
 
-    // Entity methods are reported non-enumerable by the proxy, so they stay
-    // out of the snapshot; the query's own methods are enumerable and stay in.
+    // Entity methods are non-enumerable. Query methods are enumerable.
     expect(Object.keys(tokenSnap)).not.toContain('doubled');
     expect(typeof snap.__refetch).toBe('function');
   });
@@ -146,9 +129,7 @@ describe('Entity Snapshots', () => {
     expect(after).not.toBe(before);
     expect(afterTokens[2]).not.toBe(beforeTokens[2]);
     expect(afterTokens[2].price).toBe(999);
-    // The changed entity's untouched nested object keeps its identity...
     expect(afterTokens[2].metadata).toBe(beforeTokens[2].metadata);
-    // ...and so does every entity that didn't change.
     for (const i of [0, 1, 3, 4]) {
       expect(afterTokens[i], `token ${i}`).toBe(beforeTokens[i]);
     }
@@ -371,9 +352,7 @@ describe('Entity Snapshots', () => {
     const after = read() as unknown as { feed: { events: { id: string }[] } };
     expect(after.feed.events.map(e => e.id)).toEqual(['e-3', 'e-2', 'e-1']);
 
-    // Signalium pairs array items with the previous array's item at the same
-    // index, so after the insert every row is diffed against its neighbour's
-    // snapshot. Existing rows must still keep their identity.
+    // Signalium pairs items by index, so each row is offered its neighbour's snapshot.
     expect(after.feed.events[1]).toBe(before.feed.events[0]);
     expect(after.feed.events[2]).toBe(before.feed.events[1]);
   });
@@ -405,8 +384,6 @@ describe('Entity Snapshots', () => {
     const before = read();
     const beforeTokens = before.tokens as Record<string, unknown>[];
 
-    // Two updates in a row: the second must not be swallowed by a snapshot
-    // that already decided the entity was unchanged.
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-0', symbol: 'FIRST' } });
     const middle = read();
     expect((middle.tokens as Record<string, unknown>[])[0].symbol).toBe('FIRST');
@@ -422,11 +399,7 @@ describe('Entity Snapshots', () => {
   it('re-reads nested entities behind wrappers, plain objects and arrays', async () => {
     const { client, mockFetch } = getClient();
 
-    // Shapes modelled on a real schema: primitive unions and enums collapse to
-    // bare masks, while an entity can sit behind optional/nullable wrappers,
-    // inside a plain object, or inside an array. The fast path re-reads only
-    // entity-bearing fields, so misclassifying one shows up as a nested entity
-    // update that never reaches the parent.
+    // A misclassified entity field shows up as a child update missing from the parent.
     const NumberLike = t.union(t.string, t.number);
     const OptionalNullableString = t.optional(t.nullable(t.string));
 
@@ -486,7 +459,7 @@ describe('Entity Snapshots', () => {
     expect(before.row.boxed.child.price).toBe(2);
     expect(before.row.list[0].price).toBe(3);
 
-    // Each of these changes only a child entity — Row itself never notifies.
+    // Only children change. Row itself never notifies.
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'w', price: 11 } });
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'b', price: 22 } });
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'l', price: 33 } });
@@ -495,8 +468,6 @@ describe('Entity Snapshots', () => {
     expect(after.row.wrapped.price).toBe(11);
     expect(after.row.boxed.child.price).toBe(22);
     expect(after.row.list[0].price).toBe(33);
-    // The parent's own inert fields are untouched, and the plain-object subtree
-    // that changed nothing keeps its identity.
     expect(after.row.count).toBe('7');
     expect(after.row.deep).toBe(before.row.deep);
     expect(after.row.boxed.note).toBe('n');
@@ -560,21 +531,15 @@ describe('Entity Snapshots', () => {
     client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-7', price: 777 } });
     read();
 
-    // The root's own data didn't change, so it re-reads only its dynamic
-    // fields; of the 20 tokens only tok-7 is walked. The behavioral tests stay
-    // green without the fast path, so only these counts catch its loss.
+    // Only these counts catch a lost fast path.
     expect(__debug_snapshotFullWalks).toBe(1);
     expect(__debug_snapshotFieldReads).toBeLessThan(firstReads / 5);
   });
 
-  // TODO: drop this once `signalium/utils` exports its structural walkers and
-  // `snapshotRawValue` can call them instead of reimplementing them.
+  // TODO: drop once `signalium/utils` exports its structural walkers.
   it('walks nested plain data the same way Signalium would', async () => {
     const { client, mockFetch } = getClient();
 
-    // `snapshotRawValue` reimplements Signalium's unexported array and object
-    // walks. If the two ever diverge, structural sharing silently changes and
-    // only a re-render profile would show it.
     class Doc extends Entity {
       __typename = t.typename('Doc');
       id = t.id;
@@ -608,8 +573,6 @@ describe('Entity Snapshots', () => {
     const theirs = snapshot(raw('first'), undefined) as Body;
     expect(ours).toEqual(theirs);
 
-    // Same structural sharing on a change: the untouched subtrees keep
-    // identity in both implementations, the changed one does not.
     client.applyMutationEvent({ type: 'update', typename: 'Doc', data: { id: 'd-1', body: raw('second') } });
     const oursNext = (read().doc as { body: Body }).body;
     const theirsNext = snapshot(raw('second'), theirs) as Body;
@@ -652,8 +615,6 @@ describe('Entity Snapshots', () => {
     const before = read() as unknown as Snap;
     expect(before.board.slots.map(s => s?.id ?? null)).toEqual([null, 's-1', 's-2']);
 
-    // Dropping the empty leading slot shifts both entities left, and the slot
-    // they land on previously held `null` rather than a sibling's snapshot.
     mockFetch.get('/board', {
       board: { __typename: 'Board', id: 'b-1', slots: [slot('s-1'), slot('s-2')] },
     });
@@ -674,10 +635,7 @@ describe('Entity Snapshots', () => {
     await query;
     read();
 
-    // The failure the fast path cannot otherwise detect: `data` changed without
-    // a notify, or a field wrongly judged static. Touching a sibling is what
-    // makes the snapshot recompute; tok-0 then takes the fast path while its
-    // version still claims nothing moved.
+    // Mutate tok-0 without a notify, then touch a sibling to force a recompute.
     const instance = client.entityMap.getEntity(hashValue(['Token', 'tok-0']))!;
     const original = instance.data.symbol;
     instance.data.symbol = 'MUTATED';
@@ -685,8 +643,7 @@ describe('Entity Snapshots', () => {
 
     expect(() => read()).toThrow(/stale entity snapshot/);
 
-    // Put the entity back and let the version move, so the watcher's own
-    // recompute doesn't rethrow after the test has finished.
+    // Restore and notify so the watcher doesn't rethrow after the test.
     instance.data.symbol = original;
     instance.notify();
     read();
