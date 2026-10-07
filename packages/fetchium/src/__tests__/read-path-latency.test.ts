@@ -8,15 +8,8 @@ import { t } from '../typeDefs.js';
 import { fetchQuery } from '../query.js';
 import { createMockFetch, sleep } from './utils.js';
 
-/**
- * Read-path latency, counted in macrotask turns. Each turn drains the
- * microtask queue, checks the condition, then yields one `setTimeout(0)`.
- * Turn 0 means the condition held before any timer ran.
- *
- * On React Native a zero timer goes through the native timing module and can
- * wait up to a frame, so a turn saved here is up to ~16 ms on device. The
- * logged `ms` values are Node timers (about 1 ms per turn).
- */
+// Latency in macrotask turns: each turn drains microtasks, checks, then yields one setTimeout(0).
+// Turn 0 means no timer ran. On React Native a zero timer can wait a frame.
 
 async function flushMicrotasks(count = 30): Promise<void> {
   for (let i = 0; i < count; i++) await Promise.resolve();
@@ -70,7 +63,6 @@ function setup() {
   return { client, mockFetch };
 }
 
-/** Watches `read` and runs it synchronously, so activation happens now. */
 function watchNow<T>(client: QueryClient, read: () => T): { w: { value: T }; unsub: () => void } {
   const w = withContexts([[QueryClientContext, client]], () => watcher(read));
   const unsub = w.addListener(() => {});
@@ -103,7 +95,6 @@ describe('read-path latency (macrotask turns)', () => {
     expect(mockFetch.calls).toHaveLength(1);
 
     const { w, unsub } = watchNow(client, () => fetchQuery(GetFreshItem).value);
-    // Same synchronous read that activated the query: no microtask, no timer.
     expect(w.value).toMatchObject({ n: 1 });
     await sleep(10);
     expect(mockFetch.calls).toHaveLength(1);
@@ -117,7 +108,6 @@ describe('read-path latency (macrotask turns)', () => {
 
     const started = performance.now();
     const { w, unsub } = watchNow(client, () => fetchQuery(GetItem).value);
-    // The cached value shows immediately while the refetch runs.
     expect(w.value).toMatchObject({ n: 1 });
     const turns = await turnsUntil(() => mockFetch.calls.length === 2);
     console.log(
@@ -145,7 +135,7 @@ describe('read-path latency (macrotask turns)', () => {
     console.log(
       `[latency] staggered reactivation -> first refetch start: ${turns} turns, ${(performance.now() - started).toFixed(2)} ms`,
     );
-    // One timer for the stagger flush, which groups the task's reactivations.
+    // One timer for the stagger flush.
     expect(turns).toBe(1);
     unsub();
   });
@@ -164,8 +154,7 @@ describe('read-path latency (macrotask turns)', () => {
     console.log(
       `[latency] param change -> fetch start: ${turns} turns, ${(performance.now() - started).toFixed(2)} ms`,
     );
-    // The relay update reruns in Signalium's flush (one timer), and the fetch
-    // starts on a microtask of that flush.
+    // One timer for Signalium's flush. The fetch starts on its microtask.
     expect(turns).toBe(1);
     expect(mockFetch.calls[1].url).toContain('/users/2');
     unsub();
@@ -195,11 +184,9 @@ describe('read-path latency (macrotask turns)', () => {
     mockFetch.get('/item', { n: 2 }, { delay: 30 });
     const { unsub } = watchNow(client, () => fetchQuery(GetItem).value);
     unsub();
-    // Before the response (30 ms).
     await sleep(10);
-    // Signalium deactivates on its next flush (a timer), after the refetch's
-    // microtask has started it. This wasted request is the trade-off for not
-    // waiting a timer on every reactivation.
+    // Deactivation lands a timer after the refetch's microtask started it.
+    // Accepted to avoid a timer on every reactivation.
     expect(mockFetch.calls).toHaveLength(1);
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
     await sleep(30);

@@ -13,14 +13,9 @@ import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import type { MutationEvent, QueryPromise } from '../types.js';
 import { testWithClient, setupTestClient } from './utils.js';
 
-/**
- * A stream reconnect re-delivers every on-screen entity with the data the
- * store already holds, as a query result, mutation event or topic event. None
- * may notify an entity, bump its version, write it, or notify a live
- * collection. A real change notifies exactly once.
- */
+// Re-delivering data the store already holds must not notify, bump versions,
+// write, or notify live collections. A real change notifies exactly once.
 
-/** Records `typename:id` for every entity notify. */
 function recordNotifies() {
   const notified: string[] = [];
   const original = EntityInstance.prototype.notify;
@@ -96,7 +91,6 @@ function versions(client: QueryClient, keys: number[]) {
   return keys.map(k => client.entityMap.getEntity(k)!.version);
 }
 
-/** Spies on the notifiers of a wallet's live array and live value. */
 function liveNotifies(client: QueryClient) {
   const data = client.entityMap.getEntity(walletKey)!.data;
   const tokens = data.tokens as LiveCollectionBinding;
@@ -106,10 +100,6 @@ function liveNotifies(client: QueryClient) {
     count: vi.spyOn((count.instance as unknown as { _notifier: { notify(): void } })._notifier, 'notify'),
   };
 }
-
-// ======================================================
-// Query results
-// ======================================================
 
 class GetWallet extends RESTQuery {
   path = '/wallet';
@@ -187,10 +177,6 @@ describe('Identical re-delivery', () => {
     });
   });
 
-  // ======================================================
-  // Mutation events
-  // ======================================================
-
   describe('(b) mutation event', () => {
     it('is a no-op for a full update carrying identical data, nested values included', async () => {
       const { client, store } = await loadWallet(2);
@@ -209,12 +195,10 @@ describe('Identical re-delivery', () => {
       expect(versions(client, keys)).toEqual(before);
       expect(saveEntity).not.toHaveBeenCalled();
       expect(live.tokens).not.toHaveBeenCalled();
-      // The live value's reducer still runs and notifies, since it may mutate
-      // in place.
+      // The live value's reducer may mutate in place, so it still notifies.
       expect(live.count).toHaveBeenCalledTimes(1);
 
-      // A `create` for an entity the store already holds is the same no-op for
-      // the entity and the live array. The live value's `onCreate` still runs.
+      // A `create` for an entity the store already holds is the same no-op.
       client.applyMutationEvent({ type: 'create', typename: 'Token', data: token(0) });
       client.applyMutationEvent({ type: 'create', typename: 'Owner', data: { id: 'o-1', name: 'Ann' } });
 
@@ -222,7 +206,6 @@ describe('Identical re-delivery', () => {
       expect(versions(client, keys)).toEqual(before);
       expect(saveEntity).not.toHaveBeenCalled();
       expect(live.tokens).not.toHaveBeenCalled();
-      // The unchanged nested object keeps its identity.
       expect(client.entityMap.getEntity(tokenKey(0))!.data.metadata).toBe(metadata);
     });
 
@@ -258,10 +241,6 @@ describe('Identical re-delivery', () => {
     });
   });
 });
-
-// ======================================================
-// Topic events
-// ======================================================
 
 class MockTopicAdapter extends TopicQueryAdapter {
   snapshots = new Map<string, unknown>();
@@ -326,7 +305,7 @@ describe('(c) topic events', () => {
     expect(versions(client, keys)).toEqual(before);
     expect(saveEntity).not.toHaveBeenCalled();
     expect(live.tokens).not.toHaveBeenCalled();
-    // Each Token event runs the live value's reducer, which notifies (see (b)).
+    // The live value's reducer notifies once per Token event.
     expect(live.count).toHaveBeenCalledTimes(3);
   });
 
