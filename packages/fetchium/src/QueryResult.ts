@@ -118,6 +118,8 @@ export class QueryInstance<T extends Query> {
   private hasSignalParams: boolean = false;
   /** The first fetch's controller and its start window. See `openStartWindow()`. */
   private firstFetchController: AbortController | undefined = undefined;
+  /** Bumped by `abortForDestroy()`, so a late response from before it is dropped. */
+  private destroyCount: number = 0;
   private firstFetchWindow: number = 0;
   /**
    * A deactivation aborted the in-flight fetch, so the relay settles with an
@@ -679,6 +681,7 @@ export class QueryInstance<T extends Query> {
     const signal = this._abortController?.signal ?? new AbortController().signal;
     const attempt = this.attemptStatusTracker(ctx);
     const storageKey = this.storageKey;
+    const destroyCount = this.destroyCount;
 
     try {
       const result = await withRetry(
@@ -686,9 +689,9 @@ export class QueryInstance<T extends Query> {
           attempt.start();
           try {
             const freshData = await adapter.send(ctx, signal);
-            // The params changed in flight and the adapter ignored the abort.
-            // The data belongs to the old params.
-            if (this.storageKey !== storageKey) throw abortError();
+            // The adapter ignored the abort and the params changed, or the
+            // client was destroyed, while the request was in flight.
+            if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
             this.updatedAt = Date.now();
 
             const result = this.applyData(freshData, true);
@@ -939,6 +942,7 @@ export class QueryInstance<T extends Query> {
    * @internal
    */
   abortForDestroy(): void {
+    this.destroyCount++;
     this.cancelDebounced();
     this.startPending = false;
     this.firstFetchController = undefined;
@@ -1045,13 +1049,14 @@ export class QueryInstance<T extends Query> {
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const attempt = this.attemptStatusTracker(ctx);
     const storageKey = this.storageKey;
+    const destroyCount = this.destroyCount;
 
     return withRetry(
       async () => {
         attempt.start();
         const freshData = await adapter.sendNext!(ctx, signal);
-        // As in runQuery(): a page for params that changed meanwhile.
-        if (this.storageKey !== storageKey) throw abortError();
+        // As in runQuery().
+        if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
         this.updatedAt = Date.now();
 
         const result = this.applyData(freshData, true, true);
