@@ -311,7 +311,7 @@ export class LiveArrayInstance {
 
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
-      // Only the parent's ref set needs persisting; the child's record is current.
+      // Only the parent's ref set changed. The child's record is already current.
       this._parent.addChildRef(child);
     }
 
