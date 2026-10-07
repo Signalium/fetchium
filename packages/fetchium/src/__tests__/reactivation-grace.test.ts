@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { withContexts } from 'signalium';
+import { signal, withContexts } from 'signalium';
 import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
@@ -524,6 +524,39 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(50);
       expect(fetchCount('/a')).toBe(2);
     });
+
+    it('does not apply when a Signal param changed while the query was inactive', async () => {
+      class GetUser extends RESTQuery {
+        params = { id: t.id };
+        path = `/users/${this.params.id}`;
+        result = { name: t.string };
+      }
+      mockFetch.get('/users/1', { name: 'User 1' });
+      mockFetch.get('/users/2', { name: 'User 2' });
+      const client = makeClient({ reactivationGraceMs: 15_000 });
+      const id = signal('1');
+
+      let name: string | undefined;
+      const visit = () => {
+        const { unsub } = withContexts([[QueryClientContext, client]], () =>
+          createTestWatcher(() => (name = fetchQuery(GetUser, { id }).value?.name)),
+        );
+        unsubs.push(unsub);
+        return unsub;
+      };
+
+      const unsub = visit();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(name).toBe('User 1');
+      unsub();
+      await vi.advanceTimersByTimeAsync(10);
+
+      id.value = '2';
+      visit();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(fetchCount('/users/2')).toBe(1);
+      expect(name).toBe('User 2');
+    });
   });
 
   describe('reactivationStaggerMs', () => {
@@ -760,6 +793,28 @@ describe('reactivation grace and stagger', () => {
       await vi.advanceTimersByTimeAsync(5_000);
       expect(settled).toBe('resolved');
       expect(fetchCount('/c')).toBe(1);
+    });
+
+    it('does not delay an invalidation made before the stagger queue flushes', async () => {
+      const client = makeClient({ reactivationStaggerMs: 3_000 });
+      await loadThenDeactivate(client, GetA, GetB);
+      starts.length = 0;
+
+      let invalidated = false;
+      const { unsub } = withContexts([[QueryClientContext, client]], () =>
+        createTestWatcher(() => {
+          // A microtask lands after reactivation queues both refetches, before the queue flushes.
+          if (!invalidated) queueMicrotask(() => client.invalidateQueries([GetB]));
+          invalidated = true;
+          return [fetchQuery(GetA).value, fetchQuery(GetB).value];
+        }),
+      );
+      unsubs.push(unsub);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(starts.map(s => s.path).sort()).toEqual(['/a', '/b']);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(fetchCount('/b')).toBe(1);
     });
 
     it('does not delay an initial fetch', async () => {
