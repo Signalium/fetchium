@@ -287,18 +287,14 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Runs once, from the relay's first activation. That activation happens
-   * inside the read that watched the relay (for React, during render).
+   * Runs once, from the relay's first activation, inside the read that watched
+   * the relay (for React, during render).
    *
-   * When the store answers synchronously (SyncQueryStore), the cached value is
-   * applied right here, so the activating read, and the first render, already
-   * see it. Subscribing and fetching wait for the next microtask: both call
-   * into adapter and app code that may read or write signals, which must not
-   * run while the relay's computation is the current consumer. A microtask
-   * rather than a timer keeps the first fetch off the macrotask queue.
-   *
-   * With an asynchronous store (AsyncQueryStore), the cache resolves on a later
-   * tick, outside the activating read, and everything runs from there.
+   * A synchronous store's cached value is applied here, so the activating read
+   * already sees it. Subscribing and fetching wait a microtask, not a timer:
+   * they call adapter and app code that must not touch signals while the
+   * relay's computation is the current consumer. With an async store, the
+   * cache resolves on a later tick and everything runs from there.
    */
   private initialize(): void {
     this.initialized = true;
@@ -344,8 +340,7 @@ export class QueryInstance<T extends Query> {
       if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
       this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
     } catch (error) {
-      // Unusable entry: treat it as a miss so the query still fetches, instead
-      // of trusting a timestamp whose data was never applied.
+      // The data was never applied, so drop its timestamp and let the query fetch.
       this.updatedAt = undefined;
       this.discardCorruptCache(error);
     }
@@ -353,8 +348,7 @@ export class QueryInstance<T extends Query> {
 
   /** Starts the subscription, then the first fetch if there is no fresh cached value. */
   private startSubscriptionAndFetch(): void {
-    // Deactivated in the meantime: update() fetches on reactivation, since the
-    // relay is still pending (or stale) with no fetch in flight.
+    // If deactivated meanwhile, update() fetches on reactivation.
     if (!this._isActive || this.isPaused) {
       return;
     }
@@ -365,7 +359,7 @@ export class QueryInstance<T extends Query> {
       // `send()` awaits.
       this.reconcileSubscription();
 
-      // Skip if something already started a fetch since activation (refetch()).
+      // refetch() may have started a fetch since activation.
       const fetchInFlight = this.relayState.isPending && this._abortController !== undefined;
       if (this.isStale && !fetchInFlight) {
         this.runQueryImmediately();

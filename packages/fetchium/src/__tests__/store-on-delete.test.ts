@@ -58,7 +58,7 @@ describe('QueryStore.onDelete', () => {
     store.saveQuery(queryDef('GET:/x', 1), q1, { __entityRef: e1 }, Date.now(), new Set([e1]));
     expect(deleted).toEqual([]);
 
-    // maxCount: 1 — q2 evicts q1, cascading to e1.
+    // maxCount is 1, so q2 evicts q1 and cascades to e1.
     store.saveQuery(queryDef('GET:/x', 1), q2, { __entityRef: 0 }, Date.now(), new Set());
     expect(deleted).toEqual([q1, e1]);
   });
@@ -107,7 +107,7 @@ describe('QueryStore.onDelete', () => {
     await sleep(20);
     expect(deleted).toEqual([]);
 
-    // maxCount: 1 — the second key must evict the first, not wait for DEFAULT_MAX_COUNT.
+    // The def's maxCount of 1 applies, not DEFAULT_MAX_COUNT.
     writer.saveQuery(queryDef('GET:/z', 1), q2, { __entityRef: 0 }, Date.now(), new Set());
     await sleep(20);
     expect(deleted).toEqual([q1]);
@@ -198,7 +198,7 @@ describe('stores without onDelete', () => {
 
     await (query.value as any).__refetch();
     await sleep(5);
-    // Deletions happen in the writer; the reader cannot know, so it keeps writing.
+    // Deletions happen in the writer, so the reader cannot skip writes.
     expect(saveEntity.mock.calls.length).toBe(afterLoad * 2);
     client.destroy();
   });
