@@ -60,6 +60,7 @@ export class QueryInstance<T extends Query> {
   private pendingRestart: (() => void) | undefined = undefined;
   /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
+  private rejectedByConfig: boolean = false;
   /** Not set by poll(): it delivers by refetching, which moves `updatedAt`. */
   private lastPushAt: number | undefined = undefined;
   /** Lets a queued reactivation refetch detect that another fetch overtook it. */
@@ -201,13 +202,22 @@ export class QueryInstance<T extends Query> {
 
           const configError = this.configError;
           if (configError !== undefined) {
+            this.stopSubscription();
+            this.rejectedByConfig = true;
             this.relayState.setError(configError as Error);
             return;
           }
 
+          const recovering = this.rejectedByConfig;
+          this.rejectedByConfig = false;
+
           if (!this.initialized) {
             this.queryClient.activateQuery(this);
             this.initialize();
+          } else if (recovering) {
+            if (wasPaused || activating) this.queryClient.activateQuery(this);
+            this.reconcileSubscription();
+            this.runDebounced();
           } else if (wasPaused || activating) {
             this.queryClient.activateQuery(this);
 

@@ -599,6 +599,23 @@ describe('a getConfig() that throws after a signal change', () => {
     }
   }
 
+  class GetFragileStreamed extends RESTQuery {
+    path = '/streamed';
+    result = { n: t.number };
+    getConfig() {
+      if (configBroken.value) throw new Error('bad config');
+      return {
+        staleTime: 0,
+        subscribe: () => {
+          subscribed++;
+          return () => {
+            unsubscribed++;
+          };
+        },
+      };
+    }
+  }
+
   function trackUnhandled(): { errors: unknown[]; stop: () => void } {
     const errors: unknown[] = [];
     const onError = (error: unknown) => errors.push(error);
@@ -679,5 +696,41 @@ describe('a getConfig() that throws after a signal change', () => {
     reader.unsub();
     unhandled.stop();
     expect(unhandled.errors).toEqual([]);
+  });
+
+  it('stops a running subscription when getConfig starts throwing', async () => {
+    const { client } = setup();
+    let fragile: ReturnType<typeof fetchQuery<GetFragileStreamed>> | undefined;
+    const reader = mountReader(client, () => (fragile = fetchQuery(GetFragileStreamed)).value);
+    await sleep(10);
+    expect(subscribed).toBe(1);
+
+    configBroken.value = true;
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+    expect(unsubscribed).toBe(1);
+    reader.unsub();
+    // Let the reader tear down before afterEach clears the error.
+    await sleep(10);
+  });
+
+  it('recovers when getConfig stops throwing: refetches and resubscribes', async () => {
+    const { client, mockFetch } = setup();
+    let fragile: ReturnType<typeof fetchQuery<GetFragileStreamed>> | undefined;
+    const reader = mountReader(client, () => (fragile = fetchQuery(GetFragileStreamed)).value);
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    configBroken.value = true;
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+
+    configBroken.value = false;
+    await sleep(10);
+    expect(fragile!.isResolved).toBe(true);
+    expect(fragile!.value).toMatchObject({ n: 2 });
+    expect(mockFetch.calls).toHaveLength(2);
+    expect(subscribed).toBe(2);
+    reader.unsub();
   });
 });
