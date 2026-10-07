@@ -327,6 +327,24 @@ describe('shouldRetry', () => {
 
       expect(mockFetch.calls).toHaveLength(1);
     });
+
+    it('passes the status of a mutation 4xx whose body is not JSON', async () => {
+      const statuses: Array<number | undefined> = [];
+      client.destroy();
+      client = createClient((error, attempt, status) => {
+        statuses.push(status);
+        return skipClientErrors(error, attempt, status);
+      });
+      mockFetch.post('/users', null, { status: 422, jsonError: new SyntaxError('Unexpected token <') });
+
+      await testWithClient(client, async () => {
+        const mut = getMutation(CreateUser);
+        await expect(mut.run({ name: 'Test' })).rejects.toBeInstanceOf(SyntaxError);
+      });
+
+      expect(mockFetch.calls).toHaveLength(1);
+      expect(statuses).toEqual([422]);
+    });
   });
 });
 
