@@ -424,9 +424,9 @@ describe('Entity Snapshots', () => {
 
     // Shapes modelled on a real schema: primitive unions and enums collapse to
     // bare masks, while an entity can sit behind optional/nullable wrappers,
-    // inside a plain object, or inside an array. Only the entity-bearing
-    // fields may be re-read from a version short-circuit, so a misjudgement
-    // here shows up as a nested entity update that never reaches the parent.
+    // inside a plain object, or inside an array. The fast path re-reads only
+    // entity-bearing fields, so misclassifying one shows up as a nested entity
+    // update that never reaches the parent.
     const NumberLike = t.union(t.string, t.number);
     const OptionalNullableString = t.optional(t.nullable(t.string));
 
@@ -561,8 +561,8 @@ describe('Entity Snapshots', () => {
     read();
 
     // The root's own data didn't change, so it re-reads only its dynamic
-    // fields; of the 20 tokens only tok-7 is walked. Nothing here is asserted
-    // by the behavioral tests — losing the fast path keeps them all green.
+    // fields; of the 20 tokens only tok-7 is walked. The behavioral tests stay
+    // green without the fast path, so only these counts catch its loss.
     expect(__debug_snapshotFullWalks).toBe(1);
     expect(__debug_snapshotFieldReads).toBeLessThan(firstReads / 5);
   });

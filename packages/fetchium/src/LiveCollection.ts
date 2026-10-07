@@ -75,9 +75,9 @@ export interface LiveCollectionParent {
 export interface LiveInstance {
   getValue(): unknown;
   getRawValue(): unknown;
-  /** Returns whether the value/membership actually changed. */
+  /** Returns whether the value or membership changed. */
   reset(raw: unknown): boolean;
-  /** Returns whether anything was actually added. */
+  /** Returns whether anything was added. */
   append(raw: unknown): boolean;
   onEvent(
     entityKey: number,
@@ -463,10 +463,9 @@ export class LiveValueInstance {
   }
 
   /**
-   * Shaped differently from `LiveArrayInstance.reset`, which returns before
-   * touching anything: the dedup sets have to be cleared either way, or a
-   * repeated `create` would apply its reducer twice. Only the notify is
-   * conditional.
+   * Unlike `LiveArrayInstance.reset`, this can't return early: the dedup sets
+   * must be cleared even when the value is unchanged, or a repeated `create`
+   * would apply its reducer twice. Only the notify is conditional.
    */
   reset(value: unknown): boolean {
     const changed = this._value !== value;
