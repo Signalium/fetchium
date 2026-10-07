@@ -11,10 +11,8 @@ import { testWithClient, setupTestClient, sleep } from './utils.js';
 /**
  * Entity Write Counts
  *
- * A streamed entity event used to write the entity twice: once through
- * `applyEntityRefs(persist: true)` and again through an unconditional save in
- * `applyMutationEvent`. These pin the write count so the duplicate can't come
- * back, and pin that a single write is still enough for a later client to read.
+ * Pins how many store writes a streamed entity event causes, and that a single
+ * write is enough for a later client to read.
  */
 
 class Item extends Entity {
@@ -74,8 +72,6 @@ describe('Entity Write Counts', () => {
 
     const saveEntity = vi.spyOn(store, 'saveEntity');
 
-    // A subscription re-broadcasting what the store already holds: the apply
-    // declines the write, and nothing writes on its behalf afterwards.
     for (let i = 0; i < 10; i++) {
       client.applyMutationEvent({ type: 'update', typename: 'Item', data: { id: 'i-1', name: 'A' } });
     }
@@ -131,10 +127,9 @@ describe('Entity Write Counts', () => {
     });
     await sleep(5);
 
-    // The apply writes the new child once. The parent is written because its
-    // ref set changed. Neither should write the child a second time.
+    // The apply writes the new child. The live-array insert must not write it again.
     expect(itemSaves(saveEntity)).toHaveLength(1);
-    // The parent's ref set genuinely changed, so it is written — once.
+    // The parent's ref set changed, so it is written once.
     expect(itemSaves(saveEntity, 'List')).toHaveLength(1);
   });
 
@@ -153,8 +148,7 @@ describe('Entity Write Counts', () => {
     });
 
     const saveEntity = vi.spyOn(store, 'saveEntity');
-    // The item is already current in the store from the first query, so the
-    // apply declines its write. The insert must not put one back.
+    // i-1 is already current in the store, so the apply skips its write. The insert must not add one.
     client.applyMutationEvent({
       type: 'update',
       typename: 'Item',
@@ -181,9 +175,7 @@ describe('Entity Write Counts', () => {
     await sleep(5);
     client.destroy();
 
-    // One write has to be enough for the read path to find it, not just enough
-    // to put bytes on disk. Serve something different so a value of
-    // 'Persisted' can only have come from the store.
+    // Serve a different value, slowly, so 'Persisted' can only come from the store.
     mockFetch.reset();
     mockFetch.get(
       '/items',
@@ -198,8 +190,7 @@ describe('Entity Write Counts', () => {
 
     await testWithClient(client2, async () => {
       const query = fetchQuery(GetItems);
-      // Force a pull so the store hydration starts. The refetch is far slower
-      // than this tick, so only the store read can satisfy the assertion.
+      // Pull the value to start store hydration.
       void query.value;
       await sleep();
       expect((query.value as unknown as { items: { name: string }[] }).items[0].name).toBe('Persisted');

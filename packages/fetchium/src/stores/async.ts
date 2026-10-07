@@ -76,7 +76,7 @@ export class AsyncQueryStore implements QueryStore {
   private queueProcessorPromise?: Promise<void>;
   private resolveQueueWait?: () => void;
   private deleteListeners: Array<(key: number) => void> = [];
-  // Only the writer sees deletions; a reader offers no hook, so the client writes every apply.
+  // Only the writer sees deletions. Readers leave this undefined, so their client writes every apply.
   onDelete?: (listener: (key: number) => void) => void;
 
   constructor(config: AsyncQueryStoreConfig) {

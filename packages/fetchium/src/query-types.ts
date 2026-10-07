@@ -64,10 +64,10 @@ export interface QueryConfigOptions {
   refreshStaleOnReconnect?: boolean; // default: true
   /**
    * Milliseconds. When the query reactivates (a watcher returns, or a paused
-   * scope resumes) and its data is younger than this, it is not refetched even
-   * if stale. Data a subscription pushed to (a stream event, or a topic event
-   * sent with its topic) counts as fresh from the last push. Overrides `QueryClientConfig.reactivationGraceMs`. Does
-   * not affect network reconnects, `refetch()`, or invalidation.
+   * scope resumes) with data younger than this, it is not refetched even if
+   * stale. Data a subscription pushed to counts as fresh from the last push.
+   * Overrides `QueryClientConfig.reactivationGraceMs`. Does not affect network
+   * reconnects, `refetch()`, or invalidation.
    */
   reactivationGraceMs?: number;
   subscribe?: (this: any, onEvent: (event: import('./types.js').MutationEvent) => void) => () => void;
