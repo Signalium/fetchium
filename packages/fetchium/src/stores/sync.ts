@@ -17,6 +17,7 @@ import {
   FIELD_NAMES_SINCE_KEY,
   storedRecordRest,
   entityRefsInJson,
+  notifyListeners,
 } from './shared.js';
 
 export interface SyncPersistentStore {
@@ -509,8 +510,7 @@ export class SyncQueryStore implements QueryStore {
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));
-    // A listener may unsubscribe while being notified.
-    for (const listener of this.deleteListeners.slice()) listener(id);
+    notifyListeners(this.deleteListeners, id);
 
     const refIds = kv.getBuffer(refIdsKeyFor(id));
     kv.delete(refIdsKeyFor(id)); // Clean up the refIds key

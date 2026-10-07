@@ -110,8 +110,10 @@ export interface QueryStore {
    * Writes the fields streamed events supplied, merged over the stored record
    * if one exists (references derived from the merged value). Without it the
    * client calls `saveEntity`, dropping fields the events did not carry.
+   * With `ifStored`, nothing is written when no record is stored, and a store
+   * with `onDelete` reports the key as dropped.
    */
-  mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>): void;
+  mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void;
 
   activateQuery(queryDef: QueryDefinition<any, any, any>, storageKey: number): void;
 
@@ -148,8 +150,8 @@ export interface QueryStore {
 
   /**
    * Whether the store holds a record for this key, or `undefined` if it can't
-   * tell yet. An event for an entity not in memory is written only when this
-   * returns `true`.
+   * tell yet. An event for an entity not in memory is written as an `ifStored`
+   * merge unless this returns `false`. Without `mergeEntity`, only when `true`.
    */
   hasEntity?(key: number): boolean | undefined;
 

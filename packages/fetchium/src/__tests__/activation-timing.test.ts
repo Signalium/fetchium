@@ -1,6 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { reactive, signal, watcher, withContexts } from 'signalium';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
+import { AsyncQueryStore, type AsyncPersistentStore } from '../stores/async.js';
+import { poll } from '../subscriptions/polling.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { NetworkManager } from '../NetworkManager.js';
@@ -115,6 +117,47 @@ class GetItemByIdFresh extends RESTQuery {
 
 function persisted(kv: MemoryPersistentStore, params: { id: string }): boolean {
   return kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItemById, params))) !== undefined;
+}
+
+/** Records the writes made once `armed` is set. */
+class RecordingKv extends MemoryPersistentStore {
+  armed = false;
+  writes: string[] = [];
+  override setString(key: string, value: string): void {
+    if (this.armed) this.writes.push(key);
+    super.setString(key, value);
+  }
+  override setNumber(key: string, value: number): void {
+    if (this.armed) this.writes.push(key);
+    super.setNumber(key, value);
+  }
+  override setBuffer(key: string, value: Uint32Array): void {
+    if (this.armed) this.writes.push(key);
+    super.setBuffer(key, value);
+  }
+  override delete(key: string): void {
+    if (this.armed) this.writes.push(`delete ${key}`);
+    super.delete(key);
+  }
+}
+
+/** An async view of `kv` whose reads take `delay` ms. */
+function slowReads(kv: MemoryPersistentStore, delay: number): AsyncPersistentStore {
+  const read = async <T>(get: () => T): Promise<T> => {
+    await sleep(delay);
+    return get();
+  };
+  return {
+    has: key => read(() => kv.has(key)),
+    getString: key => read(() => kv.getString(key)),
+    getNumber: key => read(() => kv.getNumber(key)),
+    getBuffer: key => read(() => kv.getBuffer(key)),
+    setString: async (key, value) => kv.setString(key, value),
+    setNumber: async (key, value) => kv.setNumber(key, value),
+    setBuffer: async (key, value) => kv.setBuffer(key, value),
+    delete: async key => kv.delete(key),
+    getAllKeys: async () => kv.getAllKeys(),
+  };
 }
 
 describe('Activation and deactivation in one task', () => {
@@ -1024,5 +1067,142 @@ describe('Responses that arrive after the client or the params moved on', () => 
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: '/items/2' });
     dispose();
     client.destroy();
+  });
+
+  describe('after destroy()', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** destroy() drops the adapters, so catch a request through a default one on the global fetch too. */
+    function setup(delay: number, networkManager?: NetworkManager) {
+      const kv = new RecordingKv();
+      const f = createFetch(delay, { ignoreAbort: true });
+      vi.stubGlobal('fetch', f.fetch);
+      vi.stubGlobal('location', { origin: 'http://localhost' });
+      return { kv, f, client: makeClient(kv, f.fetch, networkManager) };
+    }
+
+    it('drops a late response from a collected query that a kept relay reactivated', async () => {
+      vi.stubGlobal('window', globalThis);
+      class GetItemGc0 extends RESTQuery {
+        path = '/item';
+        result = { value: t.string };
+        config = { gcTime: 0 };
+      }
+      const { kv, f, client } = setup(20);
+
+      let kept: any;
+      const first = activate(client, () => (kept = fetchQuery(GetItemGc0)).isPending);
+      await sleep(40);
+      first();
+      await sleep(20);
+      expect(client.queryInstances.size).toBe(0);
+
+      activate(client, () => kept.isPending);
+      await sleep(5);
+      expect(f.calls.length).toBe(2);
+      client.destroy();
+      kv.armed = true;
+      await sleep(40);
+
+      expect(kv.writes).toEqual([]);
+      expect(await outcome(kept, 0)).toBe('rejected:AbortError');
+    });
+
+    it('stops a poll() subscription', async () => {
+      class GetPolled extends RESTQuery {
+        path = '/item';
+        result = { value: t.string };
+        config = { subscribe: poll({ interval: 50 }) };
+      }
+      const { kv, f, client } = setup(5);
+
+      activate(client, () => fetchQuery(GetPolled).isPending);
+      await sleep(20);
+      client.destroy();
+      kv.armed = true;
+      await sleep(120);
+
+      expect(f.calls.length).toBe(1);
+      expect(kv.writes).toEqual([]);
+    });
+
+    it('ignores __refetch() and builds no default adapter', async () => {
+      const { kv, f, client } = setup(5);
+
+      let relay: any;
+      activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+      await sleep(20);
+      client.destroy();
+      kv.armed = true;
+      relay.value.__refetch();
+      await sleep(30);
+
+      expect(f.calls.length).toBe(1);
+      expect(kv.writes).toEqual([]);
+      expect(() => client.getAdapter(RESTQueryAdapter)).toThrow(/destroyed/);
+    });
+
+    it('rejects a query a mounted reader creates after destroy() without fetching', async () => {
+      const { kv, f, client } = setup(5);
+      const tick = signal(0);
+
+      let relay: any;
+      activate(client, () => {
+        void tick.value;
+        return (relay = fetchQuery(GetItem)).isPending;
+      });
+      await sleep(20);
+      client.destroy();
+      kv.armed = true;
+      tick.value = 1;
+      await sleep(40);
+
+      expect(f.calls.length).toBe(1);
+      expect(kv.writes).toEqual([]);
+      expect(await outcome(relay, 0)).toBe('rejected:AbortError');
+    });
+
+    it('does not refetch when a shared NetworkManager reconnects', async () => {
+      const networkManager = new NetworkManager(true);
+      const { kv, f, client } = setup(5, networkManager);
+
+      activate(client, () => fetchQuery(GetItem).isPending);
+      await sleep(20);
+      client.destroy();
+      kv.armed = true;
+      networkManager.setNetworkStatus(false);
+      await sleep(5);
+      networkManager.setNetworkStatus(true);
+      await sleep(40);
+
+      expect(f.calls.length).toBe(1);
+      expect(kv.writes).toEqual([]);
+    });
+
+    it('does not fetch when an asynchronous cache load finishes after destroy()', async () => {
+      const { kv, f } = setup(5);
+      const store = new AsyncQueryStore({
+        isWriter: true,
+        delegate: slowReads(kv, 10),
+        connect: () => ({ sendMessage: () => {} }),
+      });
+      const client = new QueryClient({
+        store,
+        adapters: [new RESTQueryAdapter({ fetch: f.fetch as any, baseUrl: 'http://localhost' })],
+      });
+
+      let relay: any;
+      activate(client, () => (relay = fetchQuery(GetItem)).isPending);
+      await sleep(0);
+      client.destroy();
+      kv.armed = true;
+      await sleep(60);
+
+      expect(f.calls.length).toBe(0);
+      expect(kv.writes).toEqual([]);
+      expect(await outcome(relay, 0)).toBe('rejected:AbortError');
+    });
   });
 });

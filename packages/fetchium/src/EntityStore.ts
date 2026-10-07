@@ -63,7 +63,7 @@ export class EntityStore {
   }
 
   /** With `mergeKeys`, only those fields are sent, merged over the stored record. */
-  save(instance: EntityInstance, mergeKeys?: Set<string>): void {
+  save(instance: EntityInstance, mergeKeys?: Set<string>, ifStored?: boolean): void {
     let refKeys: Set<number> | undefined;
     if (instance.entityRefs) {
       refKeys = new Set<number>();
@@ -75,13 +75,13 @@ export class EntityStore {
     if (merge) {
       value = {};
       for (const k of mergeKeys) value[k] = instance.data[k];
-      this.persistEntity(instance.key, value, refKeys, true);
+      this.persistEntity(instance.key, value, refKeys, true, ifStored);
       return;
     }
     if (instance._checkStoredRecord) {
       if (this.readEntity === undefined) {
         // The writer keeps the record's other fields, so the flag stays for every write.
-        this.persistEntity(instance.key, value, refKeys, false, undefined, Object.keys(value));
+        this.persistEntity(instance.key, value, refKeys, false, false, undefined, Object.keys(value));
         return;
       }
       // Cleared after the read so a read that throws is retried.
@@ -94,7 +94,7 @@ export class EntityStore {
       refKeys ??= new Set<number>();
       for (let i = 0; i < rest.refIds.length; i++) refKeys.add(rest.refIds[i]);
     }
-    this.persistEntity(instance.key, value, refKeys, false, rest?.json);
+    this.persistEntity(instance.key, value, refKeys, false, false, rest?.json);
   }
 }
 
@@ -103,6 +103,7 @@ type PersistEntity = (
   data: Record<string, unknown>,
   refKeys: Set<number> | undefined,
   merge: boolean,
+  ifStored?: boolean,
   rest?: string,
   ownedKeys?: string[],
 ) => void;

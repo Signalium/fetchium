@@ -686,3 +686,151 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
     }
   });
 });
+
+describe('a getConfig() that throws after a signal change', () => {
+  const configBroken = signal(false);
+
+  class GetFragile extends RESTQuery {
+    path = '/item';
+    result = { n: t.number };
+    getConfig() {
+      if (configBroken.value) throw new Error('bad config');
+      return { staleTime: 0 };
+    }
+  }
+
+  class GetFragileStreamed extends RESTQuery {
+    path = '/streamed';
+    result = { n: t.number };
+    getConfig() {
+      if (configBroken.value) throw new Error('bad config');
+      return {
+        staleTime: 0,
+        subscribe: () => {
+          subscribed++;
+          return () => {
+            unsubscribed++;
+          };
+        },
+      };
+    }
+  }
+
+  function trackUnhandled(): { errors: unknown[]; stop: () => void } {
+    const errors: unknown[] = [];
+    const onError = (error: unknown) => errors.push(error);
+    process.on('uncaughtException', onError);
+    process.on('unhandledRejection', onError);
+    return {
+      errors,
+      stop: () => {
+        process.off('uncaughtException', onError);
+        process.off('unhandledRejection', onError);
+      },
+    };
+  }
+
+  async function expectSchedulerRunning(): Promise<void> {
+    const s = signal(0);
+    const w = watcher(() => s.value);
+    let fired = 0;
+    const unsub = w.addListener(() => fired++);
+    await sleep(10);
+    const before = fired;
+    s.value = 1;
+    await sleep(10);
+    expect(fired).toBeGreaterThan(before);
+    unsub();
+  }
+
+  afterEach(() => {
+    configBroken.value = false;
+  });
+
+  it('a retained request that breaks a later query getConfig still releases at ttl, and the later query rejects', async () => {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/streamed', { n: 1 });
+    mockFetch.get('/item', { n: 2 });
+    const fetchBreakingConfig = (url: string, init?: RequestInit) => {
+      if (url.endsWith('/streamed')) configBroken.value = true;
+      return mockFetch(url, init);
+    };
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: fetchBreakingConfig as any, baseUrl: 'http://localhost' })],
+    });
+    clients.push(client);
+    const unhandled = trackUnhandled();
+
+    let fragile: ReturnType<typeof fetchQuery<GetFragile>> | undefined;
+    const release = client.retain(() => [fetchQuery(GetStreamed), (fragile = fetchQuery(GetFragile))], { ttl: 30 });
+    expect(release).toBeTypeOf('function');
+    expect(subscribed).toBe(1);
+
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+    expect((fragile!.error as Error).message).toBe('bad config');
+
+    await sleep(40);
+    expect(unsubscribed).toBe(1);
+
+    await expectSchedulerRunning();
+    unhandled.stop();
+    expect(unhandled.errors).toEqual([]);
+  });
+
+  it('a reader gets the error on its relay, and other watchers keep running', async () => {
+    const { client } = setup();
+    const unhandled = trackUnhandled();
+    let fragile: ReturnType<typeof fetchQuery<GetFragile>> | undefined;
+    const reader = mountReader(client, () => (fragile = fetchQuery(GetFragile)).value);
+    await sleep(10);
+    expect(fragile!.isResolved).toBe(true);
+
+    configBroken.value = true;
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+    expect((fragile!.error as Error).message).toBe('bad config');
+
+    await expectSchedulerRunning();
+    reader.unsub();
+    unhandled.stop();
+    expect(unhandled.errors).toEqual([]);
+  });
+
+  it('stops a running subscription when getConfig starts throwing', async () => {
+    const { client } = setup();
+    let fragile: ReturnType<typeof fetchQuery<GetFragileStreamed>> | undefined;
+    const reader = mountReader(client, () => (fragile = fetchQuery(GetFragileStreamed)).value);
+    await sleep(10);
+    expect(subscribed).toBe(1);
+
+    configBroken.value = true;
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+    expect(unsubscribed).toBe(1);
+    reader.unsub();
+    // Let the reader tear down before afterEach clears the error.
+    await sleep(10);
+  });
+
+  it('recovers when getConfig stops throwing: refetches and resubscribes', async () => {
+    const { client, mockFetch } = setup();
+    let fragile: ReturnType<typeof fetchQuery<GetFragileStreamed>> | undefined;
+    const reader = mountReader(client, () => (fragile = fetchQuery(GetFragileStreamed)).value);
+    await sleep(10);
+    expect(mockFetch.calls).toHaveLength(1);
+
+    configBroken.value = true;
+    await sleep(10);
+    expect(fragile!.isRejected).toBe(true);
+
+    configBroken.value = false;
+    await sleep(10);
+    expect(fragile!.isResolved).toBe(true);
+    expect(fragile!.value).toMatchObject({ n: 2 });
+    expect(mockFetch.calls).toHaveLength(2);
+    expect(subscribed).toBe(2);
+    reader.unsub();
+  });
+});

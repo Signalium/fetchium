@@ -8,7 +8,7 @@ import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { fetchQuery } from '../query.js';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { AsyncQueryStore, type AsyncPersistentStore } from '../stores/async.js';
+import { AsyncQueryStore, type AsyncPersistentStore, type StoreMessage } from '../stores/async.js';
 import { valueKeyFor, refCountKeyFor, refIdsKeyFor, queueKeyFor, updatedAtKeyFor } from '../stores/shared.js';
 import { createMockFetch, setupTestClient, sleep } from './utils.js';
 
@@ -1214,7 +1214,7 @@ describe('AsyncQueryStore writer', () => {
     expect(asyncDoc(delegate, K('User', 'u404'))).toBeUndefined();
   });
 
-  it('does not write an event for an entity it cannot yet say it holds, and refreshes it once it can', async () => {
+  it('refreshes a record it holds from an event that lands before it has read its keys', async () => {
     const delegate = new AsyncDelegate(1);
     const mockFetch = createMockFetch();
     mockFetch.get('/user/u1', {
@@ -1246,28 +1246,96 @@ describe('AsyncQueryStore writer', () => {
     await holdQuery(client, () => fetchQuery(GetUser, { id: 'u2' }));
     expect(store.hasEntity!(K('User', 'u1'))).toBeUndefined();
     expect(store.hasEntity!(K('User', 'u2'))).toBe(true);
-    const event = () => ({
-      type: 'update' as const,
-      typename: 'User',
-      data: { __typename: 'User', id: 'u1', name: 'Alicia', karma: 10 },
-    });
-    client.applyMutationEvent(event());
+    const update = (data: Record<string, unknown>) =>
+      client.applyMutationEvent({ type: 'update', typename: 'User', data: { __typename: 'User', karma: 10, ...data } });
+    // Not written: the badge it creates would be, whether or not a record of u1 exists.
+    update({ id: 'u1', name: 'Al', badge: { __typename: 'Badge', id: 'b2', label: 'new' } });
+    update({ id: 'u1', name: 'Alicia' });
+    update({ id: 'u404', name: 'Nobody' });
     expect(client.entityMap.getEntity(K('User', 'u1'))).toBeUndefined();
     releaseScan();
     await scanned(store);
     await drain(store);
-    // Not written: nothing referenced it and the store could not say it held it.
-    expect(asyncDoc(delegate, K('User', 'u1'))).toMatchObject({ name: 'Alice' });
-    expect(store.hasEntity!(K('User', 'u1'))).toBe(true);
 
-    client.applyMutationEvent(event());
-    await drain(store);
     expect(asyncDoc(delegate, K('User', 'u1'))).toMatchObject({
       name: 'Alicia',
       karma: 10,
       badge: { __entityRef: K('Badge', 'b1') },
     });
     expect(asyncDoc(delegate, K('Badge', 'b1'))).toMatchObject({ label: 'gold' });
+    expect(asyncDoc(delegate, K('User', 'u404'))).toBeUndefined();
+    expect(asyncDoc(delegate, K('Badge', 'b2'))).toBeUndefined();
+    expect(store.hasEntity!(K('User', 'u404'))).toBe(false);
+  });
+
+  it('a reader sends an event for an entity on disk but not in memory to the writer as a merge', async () => {
+    const delegate = new AsyncDelegate();
+    let toWriter: (msg: StoreMessage) => void = () => {};
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate,
+      connect: handle => ((toWriter = handle), { sendMessage: () => {} }),
+    });
+    const reader = new AsyncQueryStore({ isWriter: false, connect: () => ({ sendMessage: msg => toWriter(msg) }) });
+    const mockFetch = createMockFetch();
+    mockFetch.get('/user/u1', {
+      user: {
+        __typename: 'User',
+        id: 'u1',
+        name: 'Alice',
+        karma: 10,
+        badge: { __typename: 'Badge', id: 'b1', label: 'gold' },
+      },
+    });
+    const client = makeClient(reader, mockFetch);
+    await holdQuery(client, () => fetchQuery(GetUser, { id: 'u1' }));
+    await drain(writer);
+    client.entityMap.getEntity(K('User', 'u1'))!.evict();
+
+    const update = (id: string, name: string) =>
+      client.applyMutationEvent({ type: 'update', typename: 'User', data: { __typename: 'User', id, name, karma: 3 } });
+    update('u1', 'Alicia');
+    update('u404', 'Nobody');
+    await drain(writer);
+
+    expect(asyncDoc(delegate, K('User', 'u1'))).toMatchObject({
+      name: 'Alicia',
+      karma: 3,
+      badge: { __entityRef: K('Badge', 'b1') },
+    });
+    expect(asyncDoc(delegate, K('User', 'u404'))).toBeUndefined();
+  });
+
+  it("a reader's write of an entity created under one in memory is written whole, so the reference resolves", async () => {
+    const delegate = new AsyncDelegate();
+    let toWriter: (msg: StoreMessage) => void = () => {};
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate,
+      connect: handle => ((toWriter = handle), { sendMessage: () => {} }),
+    });
+    const reader = new AsyncQueryStore({ isWriter: false, connect: () => ({ sendMessage: msg => toWriter(msg) }) });
+    const mockFetch = createMockFetch();
+    mockFetch.get('/user/u1', { user: { __typename: 'User', id: 'u1', name: 'Alice', karma: 10 } });
+    const client = makeClient(reader, mockFetch);
+    await holdQuery(client, () => fetchQuery(GetUser, { id: 'u1' }));
+    await drain(writer);
+
+    client.applyMutationEvent({
+      type: 'update',
+      typename: 'User',
+      data: {
+        __typename: 'User',
+        id: 'u1',
+        name: 'Alice',
+        karma: 10,
+        badge: { __typename: 'Badge', id: 'b9', label: 'x' },
+      },
+    });
+    await drain(writer);
+
+    expect(asyncDoc(delegate, K('User', 'u1'))).toMatchObject({ badge: { __entityRef: K('Badge', 'b9') } });
+    expect(asyncDoc(delegate, K('Badge', 'b9'))).toEqual({ __typename: 'Badge', id: 'b9', label: 'x' });
   });
 
   it('ignores what it does not understand on the channel and keeps processing', async () => {
