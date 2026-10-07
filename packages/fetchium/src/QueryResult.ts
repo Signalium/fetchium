@@ -277,16 +277,7 @@ export class QueryInstance<T extends Query> {
     );
   }
 
-  /**
-   * Runs once, from the relay's first activation, inside the read that watched
-   * the relay (for React, during render).
-   *
-   * A synchronous store's cached value is applied here, so the activating read
-   * already sees it. Subscribing and fetching wait a microtask, not a timer:
-   * they call adapter and app code that must not touch signals while the
-   * relay's computation is the current consumer. With an async store, the
-   * cache resolves on a later tick and everything runs from there.
-   */
+  /** Runs once, inside the read that first activates the relay. */
   private initialize(): void {
     this.initialized = true;
 
@@ -312,6 +303,7 @@ export class QueryInstance<T extends Query> {
       );
     } else {
       this.hydrate(loaded);
+      // Adapter and app code must not touch signals while the relay is the current consumer.
       queueMicrotask(() => this.startSubscriptionAndFetch());
     }
   }
@@ -322,7 +314,6 @@ export class QueryInstance<T extends Query> {
     qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
   }
 
-  /** Resolves the relay with a cached value. */
   private hydrate(cached: CachedQuery | undefined): void {
     if (cached === undefined) return;
 
@@ -331,13 +322,12 @@ export class QueryInstance<T extends Query> {
       if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
       this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
     } catch (error) {
-      // The data was never applied, so drop its timestamp and let the query fetch.
+      // Never applied, so drop the timestamp and let the query fetch.
       this.updatedAt = undefined;
       this.discardCorruptCache(error);
     }
   }
 
-  /** Starts the subscription, then the first fetch if there is no fresh cached value. */
   private startSubscriptionAndFetch(): void {
     // If deactivated meanwhile, update() fetches on reactivation.
     if (!this._isActive || this.isPaused) {
@@ -594,7 +584,7 @@ export class QueryInstance<T extends Query> {
   // ======================================================
 
   private get isStale(): boolean {
-    // Never loaded, or invalidated (`markStale()`), whatever the staleTime.
+    // 0 means invalidated, whatever the staleTime.
     if (this.updatedAt === undefined || this.updatedAt === 0) {
       return true;
     }

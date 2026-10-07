@@ -13,11 +13,7 @@ import { watcher, withContexts } from 'signalium';
 import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 import { useQuery } from '../use-query.js';
 
-/**
- * With a synchronous persistent store, a component mounting a query whose data
- * is already cached renders that data on its first render, not a loading
- * frame followed by a re-render.
- */
+// A sync store's cached data shows on the first render, with no loading frame.
 
 class GetFreshItem extends RESTQuery {
   path = '/item';
