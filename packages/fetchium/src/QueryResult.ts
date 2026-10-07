@@ -204,6 +204,7 @@ export class QueryInstance<T extends Query> {
               const withinGrace =
                 activating &&
                 !wasPaused &&
+                !paramsDidChange &&
                 this.queryClient.networkManager.reconnects === this.reconnectsAtDeactivate &&
                 this.isWithinReactivationGrace;
               if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
@@ -461,6 +462,8 @@ export class QueryInstance<T extends Query> {
     if (this.relayState.isPending) return;
 
     const debounce = this.config?.debounce ?? 0;
+    // Drops a queued reactivation refetch, which would replace this timer.
+    this.reactivationQueuedAt = -1;
 
     clearTimeout(this.debounceTimer);
 
