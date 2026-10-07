@@ -100,8 +100,11 @@ export interface QueryStore {
   /**
    * `rest`: JSON object body (`"a":1,"b":{…}`) of fields another class of the
    * typename wrote. Write it ahead of `value`'s fields. `refIds` covers it.
+   *
+   * `ownedKeys`: sent instead of `rest` by a client without `readEntity`. The
+   * stored record's fields outside these keys are kept, and their references counted.
    */
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void;
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string, ownedKeys?: string[]): void;
 
   /**
    * Writes the fields streamed events supplied, merged over the stored record

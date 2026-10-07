@@ -8,6 +8,7 @@ import {
   lastUsedKeyFor,
   mergeStoredRecord,
   queueKeyFor,
+  recordRestOutside,
   refCountKeyFor,
   refIdsKeyFor,
   updatedAtKeyFor,
@@ -64,6 +65,8 @@ export type StoreMessage =
       merge?: boolean;
       /** See `QueryStore.saveEntity`. */
       rest?: string;
+      /** See `QueryStore.saveEntity`. Ignored by older writers. */
+      ownedKeys?: string[];
     }
   | { type: StoreMessageType.ActivateQuery; queryDefId: string; queryKey: number; cacheTime: number; maxCount?: number }
   | { type: StoreMessageType.DeleteQuery; queryKey: number };
@@ -96,6 +99,20 @@ function isStoreMessage(msg: unknown): msg is StoreMessage {
     type === StoreMessageType.ActivateQuery ||
     type === StoreMessageType.DeleteQuery
   );
+}
+
+/** The stored record's fields outside `ownedKeys`, or undefined if there are none. */
+function storedRecordOutside(stored: string, ownedKeys: string[]) {
+  let record: unknown;
+  try {
+    record = JSON.parse(stored);
+  } catch {
+    return undefined;
+  }
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
+  const owned: Record<string, unknown> = Object.create(null);
+  for (const key of ownedKeys) owned[key] = true;
+  return recordRestOutside(record as Record<string, unknown>, owned);
 }
 
 /** Callers notify over a copy, since a listener may unsubscribe while being notified. */
@@ -315,7 +332,7 @@ export class AsyncQueryStore implements QueryStore {
         );
         break;
       case StoreMessageType.SaveEntity:
-        await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true, msg.rest);
+        await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true, msg.rest, msg.ownedKeys);
         for (const listener of this.persistedListeners.slice()) listener(msg.entityKey);
         break;
       case StoreMessageType.ActivateQuery:
@@ -410,7 +427,7 @@ export class AsyncQueryStore implements QueryStore {
     this.dispatch(message);
   }
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void {
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string, ownedKeys?: string[]): void {
     const message: Extract<StoreMessage, { type: StoreMessageType.SaveEntity }> = {
       type: StoreMessageType.SaveEntity,
       entityKey,
@@ -418,6 +435,7 @@ export class AsyncQueryStore implements QueryStore {
       refIds: refIds ? Array.from(refIds) : undefined,
     };
     if (rest !== undefined && rest !== '') message.rest = rest;
+    if (ownedKeys !== undefined) message.ownedKeys = ownedKeys;
     this.dispatch(message);
   }
 
@@ -474,6 +492,7 @@ export class AsyncQueryStore implements QueryStore {
     refIds: number[] | undefined,
     merge: boolean,
     rest?: string,
+    ownedKeys?: string[],
   ): Promise<void> {
     if (merge) {
       const stored = await this.delegate!.getString(valueKeyFor(entityKey));
@@ -483,7 +502,18 @@ export class AsyncQueryStore implements QueryStore {
         return;
       }
     }
-    await this.setValue(entityKey, value, refIds ? new Set(refIds) : undefined, rest);
+    const refs = refIds ? new Set(refIds) : undefined;
+    if (ownedKeys !== undefined) {
+      const stored = await this.delegate!.getString(valueKeyFor(entityKey));
+      const kept = stored !== undefined ? storedRecordOutside(stored, ownedKeys) : undefined;
+      if (kept !== undefined) {
+        const keptRefs = refs ?? new Set<number>();
+        for (const id of kept.refIds) keptRefs.add(id);
+        await this.setValue(entityKey, value, keptRefs, kept.json);
+        return;
+      }
+    }
+    await this.setValue(entityKey, value, refs, rest);
   }
 
   private async writerActivateQuery(

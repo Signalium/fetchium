@@ -10,7 +10,8 @@ import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
 import { AsyncQueryStore, type StoreMessage } from '../stores/async.js';
 import { valueKeyFor, refIdsKeyFor, refCountKeyFor } from '../stores/shared.js';
 import { hashValue } from 'signalium/utils';
-import { sleep } from './utils.js';
+import { sleep, testWithClient } from './utils.js';
+import { GcManager } from '../GcManager.js';
 
 // A cached query is served when an in-memory entity lacks fields the cache can
 // fill, but never with values the fresher in-memory entity contradicts.
@@ -772,6 +773,192 @@ describe('D. writes keep the fields another class sharing the typename declared'
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  function asyncWriter() {
+    const data = new Map<string, unknown>();
+    const failReads = new Map<string, number>();
+    const reads: string[] = [];
+    const delegate = {
+      has: async (k: string) => data.has(k),
+      getString: async (k: string) => {
+        reads.push(k);
+        const n = failReads.get(k) ?? 0;
+        if (n > 0) {
+          failReads.set(k, n - 1);
+          throw new Error('read failed');
+        }
+        return data.get(k) as string | undefined;
+      },
+      setString: async (k: string, v: string) => void data.set(k, v),
+      getNumber: async (k: string) => data.get(k) as number | undefined,
+      setNumber: async (k: string, v: number) => void data.set(k, v),
+      getBuffer: async (k: string) => data.get(k) as Uint32Array | undefined,
+      setBuffer: async (k: string, v: Uint32Array) => void data.set(k, v),
+      delete: async (k: string) => void data.delete(k),
+      getAllKeys: async () => [...data.keys()],
+    };
+    const store = () =>
+      new AsyncQueryStore({
+        isWriter: true,
+        delegate,
+        connect: handleMessage => ({ sendMessage: msg => handleMessage(msg) }),
+      });
+    const drain = async (s: AsyncQueryStore) => {
+      for (let i = 0; i < 500 && !s.isSettled(); i++) await sleep(2);
+    };
+    const record = (typename: string, id: string) => {
+      const raw = data.get(valueKeyFor(hashValue([typename, id]))) as string | undefined;
+      return raw === undefined ? undefined : JSON.parse(raw);
+    };
+    return { data, failReads, reads, store, drain, record };
+  }
+
+  function makeQuietClient(store: AsyncQueryStore, f: ReturnType<typeof makeFetch>) {
+    const client = new QueryClient({
+      store,
+      adapters: [new RESTQueryAdapter({ fetch: f.fetch as any, baseUrl: 'http://localhost' })],
+      log: { warn: () => {}, error: () => {} },
+    } as any);
+    clients.push(client);
+    return client;
+  }
+
+  async function asyncSession(
+    env: ReturnType<typeof asyncWriter>,
+    f: ReturnType<typeof makeFetch>,
+    run: (c: QueryClient) => Promise<void>,
+  ) {
+    const s = env.store();
+    const c = makeQuietClient(s, f);
+    await run(c);
+    await sleep(10);
+    await env.drain(s);
+    c.destroy();
+    clients = clients.filter(x => x !== c);
+  }
+
+  const itemValueKey = valueKeyFor(hashValue(['Item', 'i1']));
+  const keptOnDisk = (env: ReturnType<typeof asyncWriter>, name: string) => {
+    expect(env.record('Item', 'i1')).toEqual({
+      __typename: 'Item',
+      id: 'i1',
+      name,
+      details: { rating: 5 },
+      vendor: { __entityRef: vendorKey('v1') },
+    });
+    expect(env.data.get(refIdsKeyFor(hashValue(['Item', 'i1'])))).toEqual(new Uint32Array([vendorKey('v1')]));
+    expect(env.record('Vendor', 'v1')).toBeDefined();
+  };
+  const keptAfterRestart = async (env: ReturnType<typeof asyncWriter>, f: ReturnType<typeof makeFetch>) => {
+    f.set('/item', itemDetail('v2', 6), 1000);
+    await asyncSession(env, f, async c => {
+      const item: any = start(c, () => fetchQuery(GetItem));
+      await item;
+      expect(item.value.item.details.rating).toBe(5);
+      expect(item.value.item.vendor.name).toBe('v1');
+    });
+  };
+
+  it('D10 with the detail out of memory, a failed async hydration read then a fetch keeps the detail fields, on disk and after a restart', async () => {
+    class GetItemBriefly extends RESTQuery {
+      path = '/item';
+      result = { item: t.entity(ItemDetail) };
+      config = { gcTime: 0 };
+    }
+    const env = asyncWriter();
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    await asyncSession(env, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+
+    await asyncSession(env, f, async c => {
+      c.gcManager = new GcManager((c as any).handleEviction);
+      await testWithClient(c, async () => {
+        await fetchQuery(GetItemBriefly);
+      });
+      await sleep(20);
+      expect(c.entityMap.hasEntity(hashValue(['Item', 'i1']))).toBe(false);
+      f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
+      env.failReads.set(itemValueKey, 1);
+      await Promise.resolve(start(c, () => fetchQuery(GetItems))).catch(() => {});
+      expect(env.failReads.get(itemValueKey)).toBe(0);
+    });
+    keptOnDisk(env, 'I2');
+    await keptAfterRestart(env, f);
+  });
+
+  it('D11 as D10 with the detail class registered by another entity, and a failed writer read retried at the next write', async () => {
+    class GetOtherItem extends RESTQuery {
+      path = '/other-item';
+      result = { item: t.entity(ItemDetail) };
+    }
+    const env = asyncWriter();
+    const f = makeFetch();
+    f.set('/item', itemDetail('v1'));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    f.set('/other-item', { item: { ...itemDetail('v9').item, id: 'i9' } });
+    await asyncSession(env, f, async c => {
+      await start(c, () => fetchQuery(GetItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+
+    const s = env.store();
+    const c = makeQuietClient(s, f);
+    await start(c, () => fetchQuery(GetOtherItem));
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I2' }] });
+    env.failReads.set(itemValueKey, 1);
+    const list: any = start(c, () => fetchQuery(GetItems));
+    await Promise.resolve(list).catch(() => {});
+    await sleep(10);
+    await env.drain(s);
+    expect(env.failReads.get(itemValueKey)).toBe(0);
+    keptOnDisk(env, 'I2');
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I3' }] });
+      env.failReads.set(itemValueKey, 1);
+      await list.value.__refetch();
+      await sleep(10);
+      await env.drain(s);
+      expect(env.failReads.get(itemValueKey)).toBe(0);
+      keptOnDisk(env, 'I2');
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I4' }] });
+    await list.value.__refetch();
+    await sleep(10);
+    await env.drain(s);
+    keptOnDisk(env, 'I4');
+    c.destroy();
+    await keptAfterRestart(env, f);
+  });
+
+  it('D12 an async write reads the record first only for a class that lacks fields another class of its typename declares', async () => {
+    class GetOtherItem extends RESTQuery {
+      path = '/other-item';
+      result = { item: t.entity(ItemDetail) };
+    }
+    const env = asyncWriter();
+    const f = makeFetch();
+    f.set('/reading/page', { reading: readingPayload, label: 'x' });
+    f.set('/other-item', { item: { ...itemDetail('v9').item, id: 'i9' } });
+    f.set('/items', { items: [{ __typename: 'Item', id: 'i1', name: 'I' }] });
+    const readingValueKey = valueKeyFor(hashValue(['Reading', 'r1']));
+    await asyncSession(env, f, async c => {
+      await start(c, () => fetchQuery(GetReadingPage));
+      await start(c, () => fetchQuery(GetOtherItem));
+      await start(c, () => fetchQuery(GetItems));
+    });
+    expect(env.record('Reading', 'r1')).toBeDefined();
+    expect(env.reads.filter(k => k === readingValueKey).length).toBe(0);
+    expect(env.reads.filter(k => k === itemValueKey).length).toBe(1);
   });
 
   it('D5 the stores write the kept fields with the record, the async writer included', async () => {

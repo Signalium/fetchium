@@ -79,8 +79,13 @@ export class EntityStore {
       return;
     }
     if (instance._checkStoredRecord) {
+      if (this.readEntity === undefined) {
+        // The writer keeps the record's other fields, so the flag stays for every write.
+        this.persistEntity(instance.key, value, refKeys, false, undefined, Object.keys(value));
+        return;
+      }
       // Cleared after the read so a read that throws is retried.
-      const stored = this.readEntity?.(instance.key);
+      const stored = this.readEntity(instance.key);
       instance._checkStoredRecord = false;
       if (stored !== undefined) instance.noteRecord(stored);
     }
@@ -99,4 +104,5 @@ type PersistEntity = (
   refKeys: Set<number> | undefined,
   merge: boolean,
   rest?: string,
+  ownedKeys?: string[],
 ) => void;

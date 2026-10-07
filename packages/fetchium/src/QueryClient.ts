@@ -206,8 +206,9 @@ export class QueryClient {
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
-    this.entityMap = new EntityStore((key, data, refs, merge, rest) => {
+    this.entityMap = new EntityStore((key, data, refs, merge, rest, ownedKeys) => {
       if (merge) this.store.mergeEntity!(key, data, refs);
+      else if (ownedKeys !== undefined) this.store.saveEntity(key, data, refs, undefined, ownedKeys);
       else if (rest !== undefined) this.store.saveEntity(key, data, refs, rest);
       else this.store.saveEntity(key, data, refs);
     });
