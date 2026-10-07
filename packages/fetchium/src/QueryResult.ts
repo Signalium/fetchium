@@ -73,7 +73,22 @@ export class QueryInstance<T extends Query> {
   private _resolvedOptions: ReadonlySignal<{
     config: QueryConfigOptions | undefined;
     retryConfig: ResolvedRetryConfig;
-  }> = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+    error?: unknown;
+  }> = reactiveSignal(() => this.resolveOptionsSafely());
+
+  // A throw here would escape Signalium's flush and stall its scheduler.
+  private resolveOptionsSafely() {
+    try {
+      return this.def.resolveOptions(this._executionCtx!);
+    } catch (error) {
+      return { config: undefined, retryConfig: resolveRetryConfig(undefined), error };
+    }
+  }
+
+  private get configError(): unknown {
+    if (this._executionCtx === undefined) return undefined;
+    return this._resolvedOptions.value.error;
+  }
 
   get config(): QueryConfigOptions | undefined {
     if (this._executionCtx === undefined) return undefined;
@@ -183,6 +198,12 @@ export class QueryInstance<T extends Query> {
           }
 
           this.getOrCreateExecutionContext();
+
+          const configError = this.configError;
+          if (configError !== undefined) {
+            this.relayState.setError(configError as Error);
+            return;
+          }
 
           if (!this.initialized) {
             this.queryClient.activateQuery(this);
@@ -349,7 +370,7 @@ export class QueryInstance<T extends Query> {
 
   private startSubscriptionAndFetch(): void {
     // If deactivated meanwhile, update() fetches on reactivation.
-    if (!this._isActive || this.isPaused) {
+    if (!this._isActive || this.isPaused || this.configError !== undefined) {
       return;
     }
 
@@ -418,7 +439,7 @@ export class QueryInstance<T extends Query> {
         this.def.statics.adapterClass,
       );
 
-      this._resolvedOptions = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+      this._resolvedOptions = reactiveSignal(() => this.resolveOptionsSafely());
     }
 
     return this._executionCtx;
