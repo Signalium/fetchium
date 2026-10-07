@@ -547,7 +547,8 @@ export class SyncQueryStore implements QueryStore {
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));
-    for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](id);
+    // A copy: a listener may unsubscribe while being notified.
+    for (const listener of this.deleteListeners.slice()) listener(id);
 
     const refIds = kv.getBuffer(refIdsKeyFor(id));
     kv.delete(refIdsKeyFor(id)); // Clean up the refIds key

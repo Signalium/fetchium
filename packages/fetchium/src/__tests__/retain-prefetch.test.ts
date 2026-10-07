@@ -6,6 +6,7 @@ import { QueryClient, QueryClientContext, DEFAULT_PREFETCH_TTL } from '../QueryC
 import { RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { t } from '../typeDefs.js';
 import { fetchQuery, QueryDefinition } from '../query.js';
+import { QueryInstance } from '../QueryResult.js';
 import type { MutationEvent } from '../types.js';
 import { GcManager, type GcKeyType } from '../GcManager.js';
 import { NetworkManager } from '../NetworkManager.js';
@@ -588,6 +589,25 @@ describe('client.retain()', () => {
         throw new Error('boom');
       }),
     ).toThrow('boom');
+  });
+
+  it('releases and rethrows when starting a query throws', async () => {
+    const { client } = setup();
+    const start = QueryInstance.prototype.startPendingNow;
+    let calls = 0;
+    const spy = vi.spyOn(QueryInstance.prototype, 'startPendingNow').mockImplementation(function (
+      this: QueryInstance<any>,
+    ) {
+      if (++calls === 2) throw new Error('boom');
+      start.call(this);
+    });
+
+    expect(() => client.retain(() => [fetchQuery(GetStreamed), fetchQuery(GetItem)])).toThrow('boom');
+    spy.mockRestore();
+
+    await sleep(10);
+    expect(subscribed).toBe(1);
+    expect(unsubscribed).toBe(1);
   });
 });
 

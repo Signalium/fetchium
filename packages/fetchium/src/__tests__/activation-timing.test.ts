@@ -941,6 +941,21 @@ describe('Responses that arrive after the client or the params moved on', () => 
     expect(kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItem, undefined)))).toBeUndefined();
   });
 
+  it('writes nothing to the store after destroy() when the adapter ignores the abort', async () => {
+    const kv = new MemoryPersistentStore();
+    const f = createFetch(20, { ignoreAbort: true });
+    const client = makeClient(kv, f.fetch);
+
+    activate(client, () => fetchQuery(GetItem).isPending);
+    await sleep(0);
+    client.destroy();
+    await sleep(60);
+
+    expect(f.paths()).toEqual(['/item(aborted)']);
+    expect(kv.getNumber(updatedAtKeyFor(queryKeyForClass(GetItem, undefined)))).toBeUndefined();
+    expect(kv.getAllKeys().filter(k => k.startsWith('sq:doc:value:'))).toEqual([]);
+  });
+
   it('drops a fetchNext page for params that changed while it was in flight', async () => {
     class GetList extends RESTQuery {
       params = { id: t.string };

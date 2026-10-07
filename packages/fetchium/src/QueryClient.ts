@@ -675,7 +675,12 @@ export class QueryClient {
 
     // Outside the watcher's computation now, so adapter code may run.
     if (starts !== undefined) {
-      for (const instance of starts) instance.startPendingNow();
+      try {
+        for (const instance of starts) instance.startPendingNow();
+      } catch (error) {
+        release();
+        throw error;
+      }
     }
 
     const ttl = options?.ttl;
