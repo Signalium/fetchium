@@ -624,6 +624,7 @@ export class QueryInstance<T extends Query> {
     const signal = this._abortController?.signal ?? new AbortController().signal;
     const attempt = this.attemptStatusTracker(ctx);
     const storageKey = this.storageKey;
+    const fetchStart = this.fetchStarts;
     const destroyCount = this.destroyCount;
 
     try {
@@ -654,8 +655,8 @@ export class QueryInstance<T extends Query> {
       );
       // An aborted fetch may have been replaced by one that failed.
       if (!signal.aborted) this.lastFetchFailed = false;
-      // An adapter that ignored the deactivation's abort delivered anyway.
-      this.abortedByDeactivation = false;
+      // Not if a newer fetch's abort set it.
+      if (this.fetchStarts === fetchStart) this.abortedByDeactivation = false;
       return result;
     } catch (error) {
       if (!signal.aborted) this.lastFetchFailed = true;

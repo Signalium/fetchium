@@ -952,6 +952,71 @@ describe('reactivationStaggerMs and refetches a pause aborted', () => {
 });
 
 describe('Responses that arrive after the client or the params moved on', () => {
+  it('a replaced fetch that lands late does not clear the newer abort, so the next mount retries', async () => {
+    class GetForever extends RESTQuery {
+      path = '/item';
+      result = { value: t.string };
+      config = { staleTime: Infinity };
+    }
+    // Request 2 ignores its abort.
+    const calls: string[] = [];
+    const fetch = (_url: string, options: RequestInit = {}): Promise<Response> => {
+      const n = calls.push(`#${calls.length + 1}`);
+      const signal = options.signal as AbortSignal | undefined;
+      return new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(
+          () => {
+            const body = { value: `v${n}` };
+            resolve({
+              ok: true,
+              status: 200,
+              statusText: 'OK',
+              headers: new Headers(),
+              json: async () => body,
+              text: async () => JSON.stringify(body),
+            } as unknown as Response);
+          },
+          n === 2 ? 60 : n === 3 ? 30 : 5,
+        );
+        if (n === 2) return;
+        signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer);
+            const error = new Error('The operation was aborted');
+            error.name = 'AbortError';
+            reject(error);
+          },
+          { once: true },
+        );
+      });
+    };
+    const client = makeClient(new MemoryPersistentStore(), fetch);
+    let relay: any;
+    const mount = () => activate(client, () => (relay = fetchQuery(GetForever)).value);
+
+    let dispose = mount();
+    await sleep(20);
+    void relay.value.__refetch().catch(() => {});
+    await sleep(5);
+    dispose();
+    await sleep(5);
+
+    dispose = mount();
+    await sleep(5);
+    dispose();
+    await sleep(5);
+    expect(calls).toHaveLength(3);
+
+    await sleep(80);
+    dispose = mount();
+    await sleep(20);
+    expect(calls).toHaveLength(4);
+    expect(relay.isRejected).toBe(false);
+    dispose();
+    client.destroy();
+  });
+
   it('writes nothing to the store after destroy(), including a same-task unmount kept first fetch', async () => {
     const kv = new MemoryPersistentStore();
     const f = createFetch(20);
