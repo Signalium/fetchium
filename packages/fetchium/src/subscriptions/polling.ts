@@ -24,10 +24,10 @@ export interface PollConfig {
 const warnedActivity = new WeakSet<object>();
 
 /**
- * The context's `activity`, when it is an `ActivitySource`. Custom config keys
- * pass through to the context, so an app may already use the name for a value
- * of its own; anything without `isActive` and `subscribe` functions is
- * ignored (polls then run as without one), with a warning in development.
+ * The context's `activity`, if it is an `ActivitySource`. Custom config keys
+ * pass through to the context, so an app may already use this name for its
+ * own value. Anything without `isActive` and `subscribe` functions is ignored,
+ * with a warning in development.
  */
 function activitySource(queryContext: QueryContext | undefined): ActivitySource | undefined {
   const activity = (queryContext as Record<string, unknown> | undefined)?.activity;

@@ -103,9 +103,9 @@ export class LiveCollectionBinding {
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
   /**
-   * What reads of the value's contents consume. The array or object
-   * `getValue()` returns can change in place without the parent entity
-   * changing, so its wrapper must not follow the entity's notifier.
+   * Consumed by reads of the value's contents. The value from `getValue()`
+   * can change in place without the parent entity changing, so its wrapper
+   * can't rely on the entity's notifier.
    */
   readonly _valueOwner: Notifier;
 

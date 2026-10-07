@@ -117,7 +117,7 @@ describe('reactivation grace and stagger', () => {
   }
 
   it('passes the grace, stagger and shouldRetry options through to the query context too', () => {
-    // As every config key did before these options existed.
+    // Like any other config key.
     const shouldRetry = () => false;
     const client = makeClient({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });
     expect(client.getContext()).toMatchObject({ reactivationGraceMs: 5, reactivationStaggerMs: 7, shouldRetry });

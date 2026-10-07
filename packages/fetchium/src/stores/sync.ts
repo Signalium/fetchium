@@ -80,12 +80,11 @@ export class MemoryPersistentStore implements SyncPersistentStore {
 const deleteListenersByKv = new WeakMap<SyncPersistentStore, Array<(key: number) => void>>();
 
 /**
- * For an entity record last written by `mergeEntity()`: which fields that
- * write carried, and what the record holds besides them (`storedRecordRest`).
- * The next merge of the same fields writes the merged record from this,
- * without reading the stored one. A high-rate stream of updates for entities
- * not in memory merges the same fields into the same records over and over;
- * only the first merge of each reads.
+ * For a record last written by `mergeEntity()`: which fields that write
+ * carried, and the rest of the record (`storedRecordRest`). A later merge of
+ * the same fields builds the record from this without reading the stored one,
+ * so a high-rate update stream for entities not in memory reads each record
+ * only once.
  */
 interface MergeRest {
   fields: string;
@@ -94,13 +93,12 @@ interface MergeRest {
 }
 
 /**
- * Keyed by the backing kv, like the delete listeners: any write or deletion
- * of a record through a store over that kv drops its entry, so an entry
- * always describes the record on disk. (Writing the kv's records other than
- * through a store would leave it stale.)
+ * Keyed by the backing kv, like the delete listeners. Any write or delete
+ * through a store over that kv drops the record's entry, so entries match
+ * what is on disk. Writing to the kv directly would leave them stale.
  */
 const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>();
-/** Bounds the entries kept; past it the least recently merged is dropped, and its next merge reads again. */
+/** LRU bound. An evicted record's next merge reads it again. */
 const MAX_MERGE_RESTS = 1024;
 
 export class SyncQueryStore implements QueryStore {
@@ -227,7 +225,6 @@ export class SyncQueryStore implements QueryStore {
 
     let json = JSON.stringify(fields);
     if (rest.json !== '') json = json.length === 2 ? `{${rest.json}}` : `${json.slice(0, -1)},${rest.json}}`;
-    // The merged record's references, as the markers in it say.
     const merged = new Set<number>(rest.refIds);
     entityRefsInJson(json, merged);
     this.writeValue(entityKey, json, merged);

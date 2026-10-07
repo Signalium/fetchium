@@ -40,10 +40,10 @@ import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
 /**
- * Options for `new QueryClient(config)`. Every key, including ones not listed
- * here, also reaches query and mutation code as `this.context`, so an app can
- * pass its own services through the config. The names declared below are
- * reserved: a custom value under one of them is read as that option.
+ * Options for `new QueryClient(config)`. Every key, including unlisted ones,
+ * also reaches query and mutation code as `this.context`, so an app can pass
+ * its own services through the config. The names declared below are reserved
+ * and always read as that option.
  */
 export interface QueryClientConfig {
   store?: QueryStore;
@@ -132,13 +132,11 @@ export const DEFAULT_PREFETCH_TTL = 10_000;
 const SUSPENSE_HOLD_TTL = 10_000;
 
 /**
- * How long a failed cold fetch's error waits for a render to claim it. React
- * starts the retry of a suspended render soon after its promise settles, but
- * a large or time-sliced tree can take far longer than a task to reach the
- * reader again, and a reader that found no hold would refetch instead of
- * throwing, every time. An error nobody claimed by then belongs to an
- * abandoned tree, and a later mount makes a fresh attempt instead of
- * inheriting it.
+ * How long a failed cold fetch's error waits for a render to claim it. A
+ * large or time-sliced tree can take far longer than a task to retry a
+ * suspended render, and a reader that finds no hold refetches instead of
+ * throwing. An error still unclaimed after this belongs to an abandoned tree,
+ * so a later mount makes a fresh attempt instead of inheriting it.
  */
 const UNCLAIMED_FAILURE_TTL = 1_000;
 
@@ -218,10 +216,10 @@ export class QueryClient {
   /** Leases taken by `useSuspenseQuery` for cold misses, by query instance key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
   /**
-   * Keys whose last cold failure expired unclaimed. The next failure of the
-   * attempt that follows waits for a render as long as an unsettled hold
-   * would, so a reader slower than `UNCLAIMED_FAILURE_TTL` gets the error
-   * after one retried request rather than refetching in a loop.
+   * Keys whose last cold failure expired unclaimed. The next attempt's failure
+   * waits `SUSPENSE_HOLD_TTL` instead, so a reader slower than
+   * `UNCLAIMED_FAILURE_TTL` gets the error after one retry rather than
+   * refetching in a loop.
    */
   private unclaimedFailures = new Set<number>();
 
@@ -248,12 +246,12 @@ export class QueryClient {
     this.store = store;
     const { reactivationGraceMs, reactivationStaggerMs, shouldRetry } = config;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
-    // Finite: the window becomes setTimeout delays.
+    // Must be finite: the window is split into setTimeout delays.
     this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
     this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
-    // Every other key passes through to the context, as custom keys always
-    // have, including the reserved ones read above and `activity` /
-    // `pollResumeJitterMs`, which poll() reads from there.
+    // All other keys pass through to the context, including the reserved ones
+    // read above and `activity` / `pollResumeJitterMs`, which poll() reads
+    // from there.
     this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -611,9 +609,9 @@ export class QueryClient {
    * last fetch failed is refetched once per hold: when that attempt fails too,
    * `error` is set and the hold is dropped, so the caller can throw it. A
    * failure no render claims within `UNCLAIMED_FAILURE_TTL` (the suspended
-   * tree was abandoned) drops the hold, so a later mount makes a new attempt;
-   * if that attempt fails too, its error waits `SUSPENSE_HOLD_TTL` for a
-   * render, so a reader that slow still reaches its error boundary.
+   * tree was abandoned) drops the hold, so a later mount makes a new attempt.
+   * If that attempt also fails, its error waits `SUSPENSE_HOLD_TTL` for a
+   * render, so even a slow reader reaches its error boundary.
    *
    * @internal
    */
@@ -1094,11 +1092,10 @@ export class QueryClient {
 
   /**
    * Evicts the root entity of a non-entity result that `owner` no longer
-   * shows (its params changed, or it was collected), unless another query
-   * instance still shows it. Since a root's key follows the current params,
-   * two instances whose params agree share one. A root already gone from the
-   * map is left alone: evicting it would remove whatever the map now holds
-   * at its key, which is the root a query showing those params applies to.
+   * shows (its params changed, or it was collected), unless another instance
+   * with the same params still shows it. A root already gone from the entity
+   * map is skipped: its key now belongs to the root of whichever query shows
+   * those params.
    *
    * @internal
    */

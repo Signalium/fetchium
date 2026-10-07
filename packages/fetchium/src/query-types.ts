@@ -27,9 +27,9 @@ export interface QueryContext {
   };
   evictionMultiplier?: number;
   // `activity` and `pollResumeJitterMs` (see `QueryClientConfig`) reach the
-  // context as pass-through keys, as any custom config key does, but are not
-  // declared here: an app may have augmented this interface with its own
-  // field of the same name. `poll()` checks their shape before using them.
+  // context as pass-through keys but are not declared here, since an app may
+  // have augmented this interface with its own field of the same name.
+  // `poll()` validates them before use.
 }
 
 /**

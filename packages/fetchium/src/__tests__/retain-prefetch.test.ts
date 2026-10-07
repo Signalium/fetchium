@@ -666,8 +666,7 @@ describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
       await remount.promise;
       expect(mockFetch.calls).toHaveLength(2);
 
-      // That attempt failed too; a render slower than the first window still gets its error
-      // instead of refetching again.
+      // That attempt failed too. A render slower than the first window still gets its error.
       await vi.advanceTimersByTimeAsync(1_500);
       expect(render()).toMatchObject({ failed: true, promise: undefined });
       expect(mockFetch.calls).toHaveLength(2);

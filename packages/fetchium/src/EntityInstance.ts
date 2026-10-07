@@ -18,7 +18,7 @@ import { entitySatisfiesShape } from './parseEntities.js';
 // ======================================================
 
 const ObjectProto = Object.prototype;
-// A module-local binding: read on every nested read.
+// Module-local alias: read on every nested read.
 const nestedWrappers = NESTED_WRAPPERS;
 
 /** A `WRAPPED_VALUE` item. A live collection's value changes under its own notifier. */
@@ -28,14 +28,12 @@ interface WrappedValue {
 }
 
 /**
- * `owner` is the notifier of a live collection whose value this is (or is
- * inside): a reducer or an event can change such a value in place, so reads
- * through its wrapper consume that notifier. Without one, the value is an
- * entity's nested object, record or array. Its wrapper consumes nothing: a
- * merge that changes it in place drops the wrapper (`dropNestedWrapper`), so
- * the next read through the entity, which the entity's notifier re-runs,
- * hands out a new one. Whoever was given only the nested value (a child
- * component given `entity.price` as a prop) then sees a new value too.
+ * `owner` is the notifier of the live collection this value belongs to. A
+ * reducer or event can change such a value in place, so reads through its
+ * wrapper consume that notifier. Without an owner the value is nested in an
+ * entity and its wrapper consumes nothing: an in-place merge drops the wrapper
+ * (`dropNestedWrapper`), so the next read hands out a new one and a child
+ * given only the nested value (e.g. `entity.price` as a prop) re-renders.
  */
 function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (typeof value !== 'object' || value === null) return value;
@@ -116,15 +114,15 @@ const objectWrappingHandler: ProxyHandler<Record<string, unknown>> = {
 };
 
 /**
- * The wrapper of a value inside a live collection: its traps consume the
- * collection's notifier, and values read through it inherit that owner.
+ * Wraps a value inside a live collection. Traps consume the collection's
+ * notifier, and nested values inherit that owner.
  */
 class OwnedArrayHandler implements ProxyHandler<unknown[]> {
   constructor(readonly owner: Notifier) {}
 
   get(target: unknown[], prop: string | symbol, receiver: unknown): unknown {
-    // Every read, `length` and the iteration methods included: an in-place
-    // push changes what all of them return.
+    // Consume on every read, including `length` and iteration methods: an
+    // in-place push changes all of them.
     this.owner.consume();
     if (typeof prop === 'string') {
       const idx = Number(prop);

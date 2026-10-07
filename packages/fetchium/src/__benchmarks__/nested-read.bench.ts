@@ -9,11 +9,10 @@ import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
 
 /**
- * What reading a nested, non-entity field of an entity costs: `t.object` and
- * `t.record` values and `t.liveArray` values are handed out through wrapping
- * proxies, so every read goes through a proxy trap. Measured inside a reactive
- * computation (a `component()` render or a `reactive()` function) and outside
- * one. Each case reads 1,000 fields.
+ * Cost of reading nested, non-entity fields of an entity. `t.object`,
+ * `t.record` and `t.liveArray` values are handed out through wrapping proxies,
+ * so every read goes through a proxy trap. Measured inside and outside a
+ * reactive computation. Each case reads 1,000 fields.
  *
  * Run with `npm run bench`.
  */
