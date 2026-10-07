@@ -7,6 +7,7 @@ import {
   LAST_USED_PREFIX,
   lastUsedKeyFor,
   mergeStoredRecord,
+  notifyListeners,
   queueKeyFor,
   refCountKeyFor,
   refIdsKeyFor,
@@ -62,6 +63,8 @@ export type StoreMessage =
       refIds?: number[];
       /** `value` holds only some fields, merged over the stored record. */
       merge?: boolean;
+      /** With `merge`: dropped, and reported deleted, if no record is stored. */
+      ifStored?: boolean;
     }
   | { type: StoreMessageType.ActivateQuery; queryDefId: string; queryKey: number; cacheTime: number; maxCount?: number }
   | { type: StoreMessageType.DeleteQuery; queryKey: number };
@@ -96,7 +99,6 @@ function isStoreMessage(msg: unknown): msg is StoreMessage {
   );
 }
 
-/** Callers notify over a copy, since a listener may unsubscribe while being notified. */
 function subscribe(listeners: Array<(key: number) => void>, listener: (key: number) => void): () => void {
   listeners.push(listener);
   return () => {
@@ -215,16 +217,22 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  /** The previous record may have survived a failed write, so ask the delegate. */
+  /** The previous record may have survived a failed write. Held unless the delegate says otherwise. */
   private async recheckHeld(id: number): Promise<void> {
-    let held = false;
-    try {
-      held = await this.delegate!.has(valueKeyFor(id));
-    } catch {
-      // Treat as missing.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        if (await this.delegate!.has(valueKeyFor(id))) this.noteHeld(id);
+        else this.noteDropped(id);
+        return;
+      } catch (error) {
+        if (attempt >= 2) {
+          console.error('Could not check whether the store holds a record:', error);
+          this.noteHeld(id);
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 50 << attempt));
+      }
     }
-    if (held) this.noteHeld(id);
-    else this.noteDropped(id);
   }
 
   private startQueueProcessor(): void {
@@ -260,7 +268,7 @@ export class AsyncQueryStore implements QueryStore {
         // Report as dropped so the client rewrites it on its next apply.
         if (!(msg instanceof InternalWork) && msg.type === StoreMessageType.SaveEntity) {
           await this.recheckHeld(msg.entityKey);
-          for (const listener of this.deleteListeners.slice()) listener(msg.entityKey);
+          notifyListeners(this.deleteListeners, msg.entityKey);
         }
       } finally {
         this.processing = false;
@@ -313,8 +321,11 @@ export class AsyncQueryStore implements QueryStore {
         );
         break;
       case StoreMessageType.SaveEntity:
-        await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true);
-        for (const listener of this.persistedListeners.slice()) listener(msg.entityKey);
+        if (
+          await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true, msg.ifStored === true)
+        ) {
+          notifyListeners(this.persistedListeners, msg.entityKey);
+        }
         break;
       case StoreMessageType.ActivateQuery:
         await this.writerActivateQuery(msg.queryDefId, msg.queryKey, msg.cacheTime, msg.maxCount);
@@ -417,13 +428,14 @@ export class AsyncQueryStore implements QueryStore {
     });
   }
 
-  mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {
+  mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void {
     this.dispatch({
       type: StoreMessageType.SaveEntity,
       entityKey,
       value: fields,
       refIds: refIds ? Array.from(refIds) : undefined,
       merge: true,
+      ifStored,
     });
   }
 
@@ -469,16 +481,23 @@ export class AsyncQueryStore implements QueryStore {
     value: unknown,
     refIds: number[] | undefined,
     merge: boolean,
-  ): Promise<void> {
+    ifStored: boolean,
+  ): Promise<boolean> {
     if (merge) {
       const stored = await this.delegate!.getString(valueKeyFor(entityKey));
+      if (stored === undefined && ifStored) {
+        this.noteDropped(entityKey);
+        notifyListeners(this.deleteListeners, entityKey);
+        return false;
+      }
       const merged = stored !== undefined ? mergeStoredRecord(stored, value) : undefined;
       if (merged !== undefined) {
         await this.setValue(entityKey, merged.value, merged.refIds);
-        return;
+        return true;
       }
     }
     await this.setValue(entityKey, value, refIds ? new Set(refIds) : undefined);
+    return true;
   }
 
   private async writerActivateQuery(
@@ -640,7 +659,7 @@ export class AsyncQueryStore implements QueryStore {
     await delegate.delete(valueKeyFor(id));
     this.noteDropped(id);
     await delegate.delete(refCountKeyFor(id));
-    for (const listener of this.deleteListeners.slice()) listener(id);
+    notifyListeners(this.deleteListeners, id);
 
     const refIds = await delegate.getBuffer(refIdsKey);
     await delegate.delete(refIdsKey); // Clean up the refIds key

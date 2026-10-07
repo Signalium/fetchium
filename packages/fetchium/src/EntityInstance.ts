@@ -696,8 +696,11 @@ export class EntityInstance {
     return false;
   }
 
-  /** `storeHolds`: the store's `hasEntity` answer, if the caller already has it. */
-  save(storeHolds?: boolean): void {
+  /**
+   * `storeHolds`: the store's `hasEntity` answer, if the caller already has it.
+   * `ifStored`: a merge only refreshes a stored record, never creates one.
+   */
+  save(storeHolds?: boolean, ifStored?: boolean): void {
     const client = this._queryClient;
     if (this._saving) return;
     this._saving = true;
@@ -738,7 +741,7 @@ export class EntityInstance {
       // Counted before the call: a store may acknowledge synchronously.
       if (client.storeAcksWrites) this._pendingWrites++;
       try {
-        client.entityMap.save(this, this._partial ? this._partialKeys : undefined);
+        client.entityMap.save(this, this._partial ? this._partialKeys : undefined, ifStored);
       } catch (e) {
         this.markUnwritten();
         throw e;

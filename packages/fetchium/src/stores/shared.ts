@@ -88,3 +88,14 @@ function collectEntityRefs(value: unknown, into: Set<number>): void {
   }
   for (const key in value) collectEntityRefs((value as Record<string, unknown>)[key], into);
 }
+
+/** Notifies over a copy, since a listener may unsubscribe while being notified. */
+export function notifyListeners(listeners: Array<(key: number) => void>, key: number): void {
+  for (const listener of listeners.slice()) {
+    try {
+      listener(key);
+    } catch (error) {
+      console.error('A store listener threw:', error);
+    }
+  }
+}

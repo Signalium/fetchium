@@ -208,9 +208,9 @@ export class QueryClient {
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
-    this.entityMap = new EntityStore((key, data, refs, merge) => {
+    this.entityMap = new EntityStore((key, data, refs, merge, ifStored) => {
       if (this.destroyed) return;
-      if (merge) this.store.mergeEntity!(key, data, refs);
+      if (merge) this.store.mergeEntity!(key, data, refs, ifStored);
       else this.store.saveEntity(key, data, refs);
     });
     this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
@@ -786,8 +786,8 @@ export class QueryClient {
       return;
     }
 
-    // Write a created root if a live array will retain it or the store already
-    // holds it. Before routing, so a failed write routes nothing.
+    // Write a created root if a live array will retain it, else only refresh a
+    // record the store may hold. Before routing, so a failed write routes nothing.
     let matched = false;
     let retains = false;
     this.routeEvent(
@@ -806,9 +806,13 @@ export class QueryClient {
     let held: boolean | undefined;
     if (!entity._persisted && entity._pendingWrites === 0) {
       if (!retains) held = this.store.hasEntity?.(key);
-      if (retains || held === true) {
+      // Unknown: entities created under the root would be written even if the root isn't.
+      const refresh =
+        held === true ||
+        (held === undefined && entity._partial && created!.size === 1 && this.entityMap.mergesEntities);
+      if (retains || refresh) {
         try {
-          entity.save(held);
+          entity.save(held, !retains);
         } catch (e) {
           this.context.log?.warn?.('Failed to apply mutation event', e);
           this.evictUnlessAdopted(entity, created!);

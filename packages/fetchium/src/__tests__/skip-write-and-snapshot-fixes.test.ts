@@ -687,11 +687,16 @@ describe('write skipping stays consistent with the store', () => {
 class AsyncDelegate implements AsyncPersistentStore {
   readonly kv: Record<string, unknown> = Object.create(null);
   failNextSetString: string | undefined;
+  failHas = 0;
   private async tick(): Promise<void> {
     await new Promise(resolve => setTimeout(resolve, 0));
   }
   async has(key: string) {
     await this.tick();
+    if (this.failHas > 0) {
+      this.failHas--;
+      throw new Error('injected failure');
+    }
     return key in this.kv;
   }
   async getString(key: string) {
@@ -860,6 +865,112 @@ describe('AsyncQueryStore writer used in-process', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('a rejected SaveEntity whose recheck also fails keeps the record held', async () => {
+    class Person extends Entity {
+      __typename = t.typename('Person');
+      id = t.id;
+      name = t.string;
+      role = t.optional(t.string);
+    }
+    class GetPerson extends RESTQuery {
+      path = '/person';
+      result = { person: t.entity(Person) };
+    }
+    const key = hashValue(['Person', '1']);
+    const delegate = new AsyncDelegate();
+    const store = writerStore(delegate);
+    const mockFetch = createMockFetch();
+    mockFetch.get('/person', { person: { __typename: 'Person', id: '1', name: 'Alice', role: 'admin' } });
+    const { client } = makeClient(store, mockFetch);
+    clients.push(client);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const update = (name: string) =>
+      client.applyMutationEvent({ type: 'update', typename: 'Person', data: { __typename: 'Person', id: '1', name } });
+    try {
+      await holdQuery(client, () => fetchQuery(GetPerson));
+      await drain(store);
+      client.entityMap.getEntity(key)!.evict();
+
+      delegate.failNextSetString = valueKeyFor(key);
+      delegate.failHas = 3;
+      update('Bob');
+      await drain(store);
+      expect(store.hasEntity!(key)).toBe(true);
+
+      update('Carol');
+      await drain(store);
+      expect(JSON.parse(delegate.kv[valueKeyFor(key)] as string)).toMatchObject({ name: 'Carol', role: 'admin' });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('an event refresh of a record the writer wrongly holds writes nothing, and the entity is rewritten whole', async () => {
+    class Task extends Entity {
+      __typename = t.typename('Task');
+      id = t.id;
+      boardId = t.string;
+      title = t.string;
+      done = t.optional(t.boolean);
+    }
+    class Board extends Entity {
+      __typename = t.typename('Board');
+      id = t.id;
+      edits = t.liveValue(t.number, Task, {
+        constraints: { boardId: (this as any).id },
+        onCreate: (n: number) => n,
+        onUpdate: (n: number) => n + 1,
+        onDelete: (n: number) => n,
+      });
+    }
+    class GetBoard extends RESTQuery {
+      path = '/board';
+      result = { board: t.entity(Board) };
+    }
+    class GetTask extends RESTQuery {
+      path = '/task';
+      result = { task: t.entity(Task) };
+    }
+    const key = hashValue(['Task', 't1']);
+    const delegate = new AsyncDelegate();
+    const store = writerStore(delegate);
+    const deleted: number[] = [];
+    store.onDelete!(k => deleted.push(k));
+    const mockFetch = createMockFetch();
+    mockFetch.get('/board', { board: { __typename: 'Board', id: 'b1', edits: 0 } });
+    mockFetch.get('/task', { task: { __typename: 'Task', id: 't1', boardId: 'b1', title: 'A', done: false } });
+    const { client } = makeClient(store, mockFetch);
+    clients.push(client);
+    const update = (title: string) =>
+      client.applyMutationEvent({
+        type: 'update',
+        typename: 'Task',
+        data: { __typename: 'Task', id: 't1', boardId: 'b1', title },
+      });
+
+    await holdQuery(client, () => fetchQuery(GetBoard));
+    await holdQuery(client, () => fetchQuery(GetTask));
+    await drain(store);
+    // The record is lost behind the writer's back, so it still counts it held.
+    delete delegate.kv[valueKeyFor(key)];
+    client.entityMap.getEntity(key)!.evict();
+
+    update('B');
+    await drain(store);
+    expect(delegate.kv[valueKeyFor(key)]).toBeUndefined();
+    expect(deleted).toContain(key);
+    expect(store.hasEntity!(key)).toBe(false);
+
+    update('C');
+    await drain(store);
+    expect(JSON.parse(delegate.kv[valueKeyFor(key)] as string)).toEqual({
+      __typename: 'Task',
+      id: 't1',
+      boardId: 'b1',
+      title: 'C',
+    });
   });
 
   it('resizes a persisted LRU queue in both directions and defaults a missing maxCount', async () => {
