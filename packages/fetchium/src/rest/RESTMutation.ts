@@ -12,6 +12,8 @@ export abstract class RESTMutation extends Mutation {
   headers?: HeadersInit;
   requestOptions?: QueryRequestOptions;
 
+  declare response: Response | undefined;
+
   getIdentityKey(): string {
     return `${this.method ?? 'POST'}:${this.path ?? ''}`;
   }
