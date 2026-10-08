@@ -254,7 +254,7 @@ Other config keys reach queries and mutations as `this.context`. Don't reuse the
 
 #### `prefetch` and `retain`
 
-Both keep queries active without a component reading them and return a `release` function. A component that mounts meanwhile reuses the running request. Call them from event handlers or effects, not during render.
+Both keep queries active without a component reading them and return a `release` function. A component that mounts meanwhile reuses the running request. Releasing, or reaching the `ttl`, aborts a request still in flight unless a reader has joined it, and never interrupts joined readers. Call them from event handlers or effects, not during render.
 
 Use `prefetch` when the user commits to a navigation:
 

@@ -343,14 +343,15 @@ When the subscription fires a `create` event for a `ChatMessage` whose `channelI
 
 ```tsx
 import { component } from 'signalium/react';
-import { useQuery } from 'fetchium/react';
+import { fetchQuery } from 'fetchium';
 
 const ChatRoom = component(({ channelId }: { channelId: string }) => {
-  const { messages } = useQuery(GetMessages, { channelId });
+  const query = fetchQuery(GetMessages, { channelId });
+  if (!query.isReady) return null;
 
   return (
     <div>
-      {messages.map((msg) => (
+      {query.value.messages.map((msg) => (
         <div key={msg.id}>
           <strong>{msg.author.name}</strong>: {msg.text}
         </div>
