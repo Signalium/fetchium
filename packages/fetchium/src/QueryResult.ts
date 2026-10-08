@@ -15,12 +15,17 @@ import {
   queryKeyFor,
   CachedQuery,
 } from './QueryClient.js';
+import type { MaybePromise } from './query-types.js';
 import { DEFAULT_GC_TIME } from './stores/shared.js';
 import { GcKeyType } from './GcManager.js';
 import { Query, QueryDefinition, type ResolvedRetryConfig, resolveRetryConfig } from './query.js';
 import { EntityInstance } from './EntityInstance.js';
 import { hashValue } from 'signalium/utils';
-import { sleep, withRetry } from './retry.js';
+import { withRetry } from './retry.js';
+
+function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown } | null | undefined)?.then === 'function';
+}
 
 /**
  * Thin fetch/relay orchestrator. Data management (proxy, notifier, child refs,
@@ -252,27 +257,60 @@ export class QueryInstance<T extends Query> {
     );
   }
 
-  private async initialize(): Promise<void> {
-    const qc = this.queryClient;
-    const state = this.relayState;
-
+  /** Runs once, inside the read that first activates the relay. */
+  private initialize(): void {
     this.initialized = true;
 
-    let cached: CachedQuery | undefined;
+    let loaded: MaybePromise<CachedQuery | undefined>;
 
     try {
-      cached = await qc.loadCachedQuery(this.def, this.storageKey);
-
-      if (cached !== undefined) {
-        this.updatedAt = cached.updatedAt;
-        state.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
-      }
+      loaded = this.queryClient.loadCachedQuery(this.def, this.storageKey);
     } catch (error) {
-      qc.store.deleteQuery(this.storageKey);
-      qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
+      this.discardCorruptCache(error);
+      loaded = undefined;
     }
 
-    if (this.isPaused) {
+    if (isThenable(loaded)) {
+      loaded.then(
+        cached => {
+          this.hydrate(cached);
+          this.startSubscriptionAndFetch();
+        },
+        error => {
+          this.discardCorruptCache(error);
+          this.startSubscriptionAndFetch();
+        },
+      );
+    } else {
+      this.hydrate(loaded);
+      // Adapter and app code must not touch signals while the relay is the current consumer.
+      queueMicrotask(() => this.startSubscriptionAndFetch());
+    }
+  }
+
+  private discardCorruptCache(error: unknown): void {
+    const qc = this.queryClient;
+    qc.store.deleteQuery(this.storageKey);
+    qc.getContext().log?.warn?.('Failed to initialize query, the query cache may be corrupted or invalid', error);
+  }
+
+  private hydrate(cached: CachedQuery | undefined): void {
+    if (cached === undefined) return;
+
+    try {
+      // Keep an invalidation made before the cache loaded.
+      if (this.updatedAt !== 0) this.updatedAt = cached.updatedAt;
+      this.relayState.value = this.applyData(cached.value, false, false, cached.preloadedEntities);
+    } catch (error) {
+      // Never applied, so drop the timestamp and let the query fetch.
+      this.updatedAt = undefined;
+      this.discardCorruptCache(error);
+    }
+  }
+
+  private startSubscriptionAndFetch(): void {
+    // If deactivated meanwhile, update() fetches on reactivation.
+    if (!this._isActive || this.isPaused) {
       return;
     }
 
@@ -282,13 +320,13 @@ export class QueryInstance<T extends Query> {
       // `send()` awaits.
       this.reconcileSubscription();
 
-      if (cached === undefined || this.isStale) {
-        await sleep(0);
-        if (this.isPaused) return;
+      // refetch() may have started a fetch since activation.
+      const fetchInFlight = this.relayState.isPending && this._abortController !== undefined;
+      if (this.isStale && !fetchInFlight) {
         this.runQueryImmediately();
       }
     } catch (error) {
-      state.setError(error as Error);
+      this.relayState.setError(error as Error);
     }
   }
 
@@ -377,6 +415,8 @@ export class QueryInstance<T extends Query> {
   }
 
   private runQueryImmediately(): void {
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = undefined;
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();
@@ -491,7 +531,8 @@ export class QueryInstance<T extends Query> {
   // ======================================================
 
   private get isStale(): boolean {
-    if (this.updatedAt === undefined) {
+    // 0 means invalidated, whatever the staleTime.
+    if (this.updatedAt === undefined || this.updatedAt === 0) {
       return true;
     }
 

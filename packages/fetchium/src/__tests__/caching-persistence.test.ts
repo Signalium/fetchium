@@ -230,19 +230,16 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetItem, { id: '1' });
-        // Force a pull
+        // A synchronous store resolves the relay in the read that activates it.
         relay.value;
-        await sleep();
-
-        expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
-
-        const result = await relay;
-
-        // Immediate value should be the same as the cached value because we're
-        // background refetching but have a value that is still valid.
-        expect(result).toMatchObject({ id: 1, name: 'Cached Data' });
-        expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
         expect(relay.isPending).toBe(false);
+        expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
+        expect(await relay).toMatchObject({ id: 1, name: 'Cached Data' });
+
+        // The refetch starts a microtask later.
+        await sleep();
+        expect(relay.isPending).toBe(true);
+        expect(relay.value!).toMatchObject({ id: 1, name: 'Cached Data' });
 
         await sleep(20);
 
@@ -277,19 +274,14 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client2, async () => {
         const relay = fetchQuery(GetItem);
-        // Force a pull
         relay.value;
-        await sleep();
-
-        expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
-
-        const result = await relay;
-
-        // Immediate value should be the same as the cached value because we're
-        // background refetching but have a value that is still valid.
-        expect(result).toMatchObject({ id: 1, value: 'Persistent' });
-        expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
         expect(relay.isPending).toBe(false);
+        expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
+        expect(await relay).toMatchObject({ id: 1, value: 'Persistent' });
+
+        await sleep();
+        expect(relay.isPending).toBe(true);
+        expect(relay.value!).toMatchObject({ id: 1, value: 'Persistent' });
 
         await sleep(30);
 
@@ -380,19 +372,15 @@ describe('Caching and Persistence', () => {
 
       await testWithClient(client, async () => {
         const relay = fetchQuery(GetDocument);
-        // Force a pull
         relay.value;
-        await sleep();
-
-        expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
-
-        const result = await relay;
-
-        // Immediate value should be the same as the cached value because we're
-        // background refetching but have a value that is still valid.
-        expect(result).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
-        expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
         expect(relay.isPending).toBe(false);
+        expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
+        const result = await relay;
+        expect(result).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
+
+        await sleep();
+        expect(relay.isPending).toBe(true);
+        expect(relay.value!).toMatchObject({ user: { __typename: 'User', id: 1, name: 'Persisted User' } });
 
         await sleep(20);
 
