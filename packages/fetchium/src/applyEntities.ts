@@ -119,8 +119,9 @@ function applyEntity(
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
 
+  let changed = true;
   if (isUpdate) {
-    mergeFields(
+    changed = mergeFields(
       shapeFields,
       data,
       existingData,
@@ -133,7 +134,7 @@ function applyEntity(
       childRefs,
       appendMode,
     );
-    entityInstance.notify();
+    if (changed) entityInstance.notify();
   } else {
     initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode);
   }
@@ -154,7 +155,11 @@ function applyEntity(
     }
   }
 
-  entityInstance.setChildRefs(childRefs.size > 0 ? childRefs : undefined, persist);
+  const newRefs = childRefs.size > 0 ? childRefs : undefined;
+  const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
+  // The store may not hold this instance yet, so write it regardless.
+  const needsPersist = changed || refsChanged || !entityInstance._persisted;
+  entityInstance.setChildRefs(newRefs, persist && needsPersist);
 
   const proxy = entityInstance.getProxy(entityShape);
 
@@ -179,7 +184,8 @@ function mergeFields(
   persist: boolean,
   childRefs: Map<EntityInstance, number>,
   appendMode: boolean,
-): void {
+): boolean {
+  let changed = false;
   for (const [fieldKey, propShape] of entries(shape)) {
     if (rawKeys !== undefined && !rawKeys.has(fieldKey)) continue;
 
@@ -190,10 +196,8 @@ function mergeFields(
     if (propShape instanceof ValidatorDef && propShape._liveConfig !== undefined) {
       const existingValue = existingData[fieldKey];
       if (existingValue instanceof LiveCollectionBinding) {
-        if (appendMode) {
-          existingValue.append(data[fieldKey]);
-        } else {
-          existingValue.reset(data[fieldKey]);
+        if (appendMode ? existingValue.append(data[fieldKey]) : existingValue.reset(data[fieldKey])) {
+          changed = true;
         }
       } else {
         existingData[fieldKey] = createLiveCollection(
@@ -203,45 +207,119 @@ function mergeFields(
           entityData,
           queryClient,
         );
+        changed = true;
       }
     } else {
       const newVal = data[fieldKey];
       const oldVal = existingData[fieldKey];
+      if (newVal === oldVal) continue;
       // Replace a union wholesale instead of merging by field, otherwise a
       // changed variant keeps the old variant's fields. Unlike entity unions,
       // there is no partial-update path to preserve here: a partial variant
       // payload fails validation, so every update carries the full variant.
       const isUnion = propShape instanceof ValidatorDef && (propShape.mask & Mask.UNION) !== 0;
       if (!isUnion && isPlainObject(newVal) && isPlainObject(oldVal)) {
+        // A record def's shape is its value type, not field defs, so don't recurse into it.
         const nestedShape =
-          propShape instanceof ValidatorDef && propShape.shape !== undefined
+          propShape instanceof ValidatorDef &&
+          propShape.shape !== undefined &&
+          typeof propShape.shape === 'object' &&
+          !(propShape.shape instanceof ValidatorDef) &&
+          !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
         if (nestedShape !== undefined) {
-          mergeFields(
-            nestedShape,
-            newVal,
-            oldVal,
-            undefined,
-            entityInstance,
-            entityData,
-            seen,
-            queryClient,
-            persist,
-            childRefs,
-            appendMode,
-          );
-        } else {
-          for (const k of Object.keys(newVal)) {
-            oldVal[k] = newVal[k];
+          if (
+            mergeFields(
+              nestedShape,
+              newVal,
+              oldVal,
+              undefined,
+              entityInstance,
+              entityData,
+              seen,
+              queryClient,
+              persist,
+              childRefs,
+              appendMode,
+            )
+          ) {
+            changed = true;
           }
+          existingData[fieldKey] = oldVal;
+        } else if (sameKeys(oldVal, newVal)) {
+          // Copy only differing fields so equal values keep their identity.
+          for (const k of Object.keys(newVal)) {
+            if (!sameValue(oldVal[k], newVal[k])) {
+              oldVal[k] = newVal[k];
+              changed = true;
+            }
+          }
+          existingData[fieldKey] = oldVal;
+        } else {
+          // Copying field by field can't apply a key removal.
+          existingData[fieldKey] = newVal;
+          changed = true;
         }
-        existingData[fieldKey] = oldVal;
-      } else {
+      } else if (!sameValue(oldVal, newVal)) {
         existingData[fieldKey] = newVal;
+        changed = true;
       }
     }
   }
+  return changed;
+}
+
+export function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    if (!Object.hasOwn(b, aKeys[i])) return false;
+  }
+  return true;
+}
+
+/** Structural equality. Proxies compare by identity, formatted values by raw input. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (a instanceof FormattedValue || b instanceof FormattedValue) {
+    return a instanceof FormattedValue && b instanceof FormattedValue && a._raw === b._raw;
+  }
+  // Distinct proxies are distinct entities.
+  if (PROXY_ID.has(a) || PROXY_ID.has(b)) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!sameValue(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  if (Object.getPrototypeOf(a) !== ObjectProto || Object.getPrototypeOf(b) !== ObjectProto) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (let i = 0; i < aKeys.length; i++) {
+    const key = aKeys[i];
+    // Not `in`, which lets `Object.prototype` answer for a missing key.
+    if (!Object.hasOwn(b, key)) return false;
+    if (!sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
+/** Compares key sets only. The store persists ref keys without counts. */
+export function sameRefs(
+  a: Map<EntityInstance, number> | undefined,
+  b: Map<EntityInstance, number> | undefined,
+): boolean {
+  const aSize = a === undefined ? 0 : a.size;
+  const bSize = b === undefined ? 0 : b.size;
+  if (aSize !== bSize) return false;
+  if (aSize === 0) return true;
+  for (const entity of a!.keys()) {
+    if (!b!.has(entity)) return false;
+  }
+  return true;
 }
 
 // ======================================================
@@ -277,8 +355,13 @@ function initFields(
     } else {
       const val = data[fieldKey];
       if (isPlainObject(val)) {
+        // A record def's shape is its value type, not field defs, so don't recurse into it.
         const nestedShape =
-          propShape instanceof ValidatorDef && propShape.shape !== undefined
+          propShape instanceof ValidatorDef &&
+          propShape.shape !== undefined &&
+          typeof propShape.shape === 'object' &&
+          !(propShape.shape instanceof ValidatorDef) &&
+          !(propShape.shape instanceof Set)
             ? (propShape.shape as Record<string, unknown>)
             : undefined;
         if (nestedShape !== undefined) {
