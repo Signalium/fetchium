@@ -12,7 +12,7 @@ Most apps need no changes. Tests that depend on loading frames, render counts or
 - `t.record` and `t.result` fields apply updates.
 - Changing a Signal param mid-fetch aborts that fetch.
 - After `QueryClient.destroy()`, queries reject with an `AbortError` and send no requests.
-- If the last reader unmounts before a query's first data, `await fetchQuery(...)` waits for the next mount, collection or `destroy()`.
+- If the last reader unmounts before a query's first data, `await fetchQuery(...)` waits for the next mount, collection or `destroy()`. A topic query mounted and unmounted in the same task still rejects.
 - `shouldRetry`, `reactivationGraceMs`, `reactivationStaggerMs`, `activity` and `pollResumeJitterMs` are reserved `QueryClientConfig` names.
 - `retry: {}` and `retry: { retryDelay }` now retry like `retry: true`.
 - `AsyncQueryStore` honors `cache.maxCount`.

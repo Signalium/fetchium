@@ -7,6 +7,19 @@ description: API reference for the fetchium React integration.
 
 React hooks for using Fetchium queries in React components. Built on top of Signalium's `useReactive` hook.
 
+Use these hooks in ordinary React function components. Inside a Signalium `component()`, which is already reactive, call `fetchQuery` directly instead:
+
+```tsx
+import { component } from 'signalium/react';
+import { fetchQuery } from 'fetchium';
+
+const UserList = component(() => {
+  const query = fetchQuery(GetUsers);
+  if (!query.isReady) return <div>Loading...</div>;
+  return <div>{query.value.total} users</div>;
+});
+```
+
 ```ts
 import { useQuery, useSuspenseQuery } from 'fetchium/react';
 ```
@@ -60,12 +73,11 @@ The resolved `QueryResult<T>` includes pagination helpers:
 #### Requirements
 
 - A `QueryClient` must be provided via `QueryClientContext` using Signalium's `ContextProvider`.
-- The component must be wrapped in a Signalium `component()` or use `useReactive` for the reactive system to function.
+- Call it from an ordinary React function component, not inside a Signalium `component()`.
 
 #### Example
 
 ```tsx
-import { component } from 'signalium/react';
 import { useQuery } from 'fetchium/react';
 
 class GetUsers extends RESTQuery {
@@ -77,7 +89,7 @@ class GetUsers extends RESTQuery {
   };
 }
 
-const UserList = component(() => {
+function UserList() {
   const query = useQuery(GetUsers);
 
   if (query.isPending) {
@@ -100,17 +112,18 @@ const UserList = component(() => {
       </ul>
     </div>
   );
-});
+}
 ```
 
 #### With parameters
 
 ```tsx
-const UserProfile = component(({ userId }: { userId: string }) => {
+function UserProfile({ userId }: { userId: string }) {
   const query = useQuery(GetUser, { id: userId });
+  if (!query.isReady) return null;
 
   return <div>{query.value.name}</div>;
-});
+}
 ```
 
 #### With reactive parameters
@@ -120,12 +133,13 @@ import { signal } from 'signalium';
 
 const searchTerm = signal('');
 
-const SearchResults = component(() => {
+function SearchResults() {
   const query = useQuery(SearchUsers, { q: searchTerm });
+  if (!query.isReady) return null;
 
-  // Component re-renders when searchTerm changes and the query refetches
+  // Re-renders when searchTerm changes and the query refetches
   return <div>{query.value.results.length} results</div>;
-});
+}
 ```
 
 #### Notes
@@ -149,6 +163,8 @@ function useSuspenseQuery<T extends Query>(
 Like `useQuery`, but suspends while the query has no value yet. Refetches don't suspend, so `value` is always defined. A failed first fetch is thrown to the nearest error boundary, and resetting the boundary retries it.
 
 Changing params to ones with no value yet suspends again. Wrap the change in `startTransition` to keep showing the previous result.
+
+Like `useQuery`, call it from an ordinary React component, not inside a Signalium `component()`.
 
 ```tsx
 import { Suspense } from 'react';
