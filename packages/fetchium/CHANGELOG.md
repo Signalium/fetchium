@@ -8,7 +8,7 @@
   - Query results are frozen in development. Copy data before mutating it.
   - With `SyncQueryStore`, cached data shows on the first render.
   - The first fetch and refetches without `debounce` start on a microtask, not after `setTimeout(0)`.
-  - Identical data no longer re-renders. Check `isFetching` instead of counting renders.
+  - Identical data no longer re-renders. Check `isFetching` instead of counting renders. Dates, typed arrays and class instances always count as changed.
   - Nested `t.object`, `t.record` and live-collection values are new objects when they change.
   - `t.record` and `t.result` fields apply updates.
   - Changing a Signal param mid-fetch aborts that fetch.
@@ -29,7 +29,7 @@
   - `activity` and `pollResumeJitterMs`: pause `poll()` while the app is inactive and spread overdue polls on resume.
   - `TopicQueryAdapter.sendMutationEvent(event, topic)` counts the event as fresh data for that topic's query.
 - 82d67fc: New `shouldRetry(error, attempt, status)` option on `QueryClientConfig` and `retry` configs. Return `false` to stop retrying, for example on a 404. `getErrorStatus` is exported and `retry.retries` is now optional.
-- 5c6824d: A refetch, poll or streamed update with identical data no longer re-renders components. `t.record` fields now apply updates.
+- 5c6824d: A refetch, poll or streamed update with identical data no longer re-renders components. Dates, typed arrays and class instances always count as changed. `t.record` fields now apply updates.
 
 ### Patch Changes
 
@@ -43,7 +43,7 @@
   - `shouldRetry`, `reactivationGraceMs`, `reactivationStaggerMs`, `activity` and `pollResumeJitterMs` are reserved `QueryClientConfig` names. Other keys still reach queries as `this.context`.
 - 5c6824d: Query results rebuild faster after an update in production builds, and list rows keep their identity when the list is re-sorted or inserted into.
 - a23ad4b: Fixed memoized children not updating when passed a nested value such as `token.price`. Nested `t.object`, `t.record` and live-collection values are new objects when they change.
-- 5c636ff: Streamed updates write each changed entity once, and unchanged updates write nothing.
+- 5c636ff: Streamed updates write each changed entity once. With a store that implements `onDelete`, unchanged updates write nothing.
 - 46e237f: Fixed stale data when a query loads entities already in memory, and streamed updates lost on restart.
   - Development builds freeze query results. Copy data before mutating it.
   - Custom stores can implement the new optional `QueryStore.mergeEntity`.
