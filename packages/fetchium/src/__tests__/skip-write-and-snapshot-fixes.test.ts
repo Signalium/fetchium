@@ -120,47 +120,70 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     }
   });
 
-  it('rejects the cached query when the in-memory entity lacks a field the query requires', async () => {
-    class Narrow extends Entity {
-      __typename = t.typename('Doc');
-      id = t.id;
-      title = t.string;
-    }
-    class Wide extends Entity {
-      __typename = t.typename('Doc');
-      id = t.id;
-      title = t.string;
-      body = t.string;
-    }
-    class GetNarrow extends RESTQuery {
-      path = '/narrow';
-      result = { doc: t.entity(Narrow) };
-    }
-    class GetWide extends RESTQuery {
-      path = '/wide';
-      result = { doc: t.entity(Wide) };
-      config = { staleTime: 60_000 };
-    }
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    const mockFetch = createMockFetch();
-    mockFetch.get('/wide', { doc: { __typename: 'Doc', id: 1, title: 'T', body: 'B' } });
-    mockFetch.get('/narrow', { doc: { __typename: 'Doc', id: 1, title: 'T' } });
+  for (const absent of [false, true]) {
+    it(
+      absent
+        ? 'rejects the cached query when the in-memory entity holds a field the query requires as absent'
+        : 'serves the cached query when the in-memory entity lacks a field only another class declares',
+      async () => {
+        class Narrow extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+        }
+        // A response without the optional `body` is fresher than the cache.
+        class NarrowWithBody extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+          body = t.optional(t.object({ text: t.string }));
+        }
+        class Wide extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+          body = t.object({ text: t.string });
+        }
+        class GetNarrow extends RESTQuery {
+          path = '/narrow';
+          result = { doc: t.entity(absent ? NarrowWithBody : Narrow) };
+        }
+        class GetWide extends RESTQuery {
+          path = '/wide';
+          result = { doc: t.entity(Wide) };
+          config = { staleTime: 60_000 };
+        }
+        const kv = new MemoryPersistentStore();
+        const store = new SyncQueryStore(kv);
+        const mockFetch = createMockFetch();
+        mockFetch.get('/wide', { doc: { __typename: 'Doc', id: 1, title: 'T', body: { text: 'B' } } });
+        mockFetch.get('/narrow', { doc: { __typename: 'Doc', id: 1, title: 'T2' } });
 
-    const { client: first } = makeClient(store, mockFetch);
-    await holdQuery(first, () => fetchQuery(GetWide));
-    first.destroy();
+        const { client: first } = makeClient(store, mockFetch);
+        await holdQuery(first, () => fetchQuery(GetWide));
+        first.destroy();
 
-    // The narrow query fetches fresh, so Doc:1 is in memory without `body`.
-    const { client, warn } = makeClient(store, mockFetch);
-    await holdQuery(client, () => fetchQuery(GetNarrow));
-    mockFetch.get('/wide', { doc: { __typename: 'Doc', id: 1, title: 'T', body: 'B2' } });
-    const wide = holdQuery(client, () => fetchQuery(GetWide));
-    await wide;
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('query cache may be corrupted'), expect.anything());
-    expect((wide.value as any).doc.body).toBe('B2');
-    client.destroy();
-  });
+        // The narrow query fetches fresh, so Doc:1 is in memory without `body`.
+        const { client, warn } = makeClient(store, mockFetch);
+        await holdQuery(client, () => fetchQuery(GetNarrow));
+        const docKey = hashValue(['Doc', 1]);
+        mockFetch.get('/wide', { doc: { __typename: 'Doc', id: 1, title: 'T3', body: { text: 'B2' } } });
+        const wide = holdQuery(client, () => fetchQuery(GetWide));
+        await wide;
+        if (absent) {
+          expect(warn).toHaveBeenCalledWith(expect.stringContaining('query cache may be corrupted'), expect.anything());
+          expect((wide.value as any).doc.body.text).toBe('B2');
+        } else {
+          expect(warn).not.toHaveBeenCalled();
+          expect(mockFetch.calls.filter(c => c.url.endsWith('/wide'))).toHaveLength(1);
+          expect((wide.value as any).doc.title).toBe('T2');
+          expect((wide.value as any).doc.body.text).toBe('B');
+          expect(getDoc(kv, docKey)).toEqual({ __typename: 'Doc', id: 1, title: 'T2', body: { text: 'B' } });
+        }
+        client.destroy();
+      },
+    );
+  }
 
   it('rejects the cached query when the in-memory entity lacks a nested entity the query requires', async () => {
     class Org extends Entity {
@@ -217,52 +240,70 @@ describe('hydration of a cached query whose entity is already in memory', () => 
     client.destroy();
   });
 
-  it('a cached list holding an in-memory entity the query cannot use is refetched whole, not served with a hole', async () => {
-    class Narrow extends Entity {
-      __typename = t.typename('Doc');
-      id = t.id;
-      title = t.string;
-    }
-    class Wide extends Entity {
-      __typename = t.typename('Doc');
-      id = t.id;
-      title = t.string;
-      body = t.string;
-    }
-    class GetNarrow extends RESTQuery {
-      params = { id: t.id };
-      path = `/narrow/${this.params.id}`;
-      result = { doc: t.entity(Narrow) };
-    }
-    class GetDocs extends RESTQuery {
-      path = '/docs';
-      result = { docs: t.array(t.entity(Wide)) };
-      config = { staleTime: 60_000 };
-    }
-    const kv = new MemoryPersistentStore();
-    const store = new SyncQueryStore(kv);
-    const mockFetch = createMockFetch();
-    const docs = [
-      { __typename: 'Doc', id: 1, title: 'T1', body: 'B1' },
-      { __typename: 'Doc', id: 2, title: 'T2', body: 'B2' },
-    ];
-    mockFetch.get('/docs', { docs });
-    mockFetch.get('/narrow/1', { doc: { __typename: 'Doc', id: 1, title: 'T1' } });
+  for (const absent of [false, true]) {
+    it(
+      absent
+        ? 'a cached list holding an in-memory entity the query cannot use is refetched whole, not served with a hole'
+        : 'a cached list holding an in-memory entity that lacks a field only another class declares is served whole',
+      async () => {
+        class Narrow extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+        }
+        class NarrowWithBody extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+          body = t.optional(t.object({ text: t.string }));
+        }
+        class Wide extends Entity {
+          __typename = t.typename('Doc');
+          id = t.id;
+          title = t.string;
+          body = t.object({ text: t.string });
+        }
+        class GetNarrow extends RESTQuery {
+          params = { id: t.id };
+          path = `/narrow/${this.params.id}`;
+          result = { doc: t.entity(absent ? NarrowWithBody : Narrow) };
+        }
+        class GetDocs extends RESTQuery {
+          path = '/docs';
+          result = { docs: t.array(t.entity(Wide)) };
+          config = { staleTime: 60_000 };
+        }
+        const kv = new MemoryPersistentStore();
+        const store = new SyncQueryStore(kv);
+        const mockFetch = createMockFetch();
+        const docs = [
+          { __typename: 'Doc', id: 1, title: 'T1', body: { text: 'B1' } },
+          { __typename: 'Doc', id: 2, title: 'T2', body: { text: 'B2' } },
+        ];
+        mockFetch.get('/docs', { docs });
+        mockFetch.get('/narrow/1', { doc: { __typename: 'Doc', id: 1, title: 'T1' } });
 
-    const { client: first } = makeClient(store, mockFetch);
-    await holdQuery(first, () => fetchQuery(GetDocs));
-    first.destroy();
+        const { client: first } = makeClient(store, mockFetch);
+        await holdQuery(first, () => fetchQuery(GetDocs));
+        first.destroy();
 
-    // Doc:1 comes into memory through the narrow query, without `body`.
-    const { client, warn } = makeClient(store, mockFetch);
-    await holdQuery(client, () => fetchQuery(GetNarrow, { id: 1 }));
-    mockFetch.get('/docs', { docs: docs.map(d => ({ ...d, body: `${d.body}!` })) });
-    const list = holdQuery(client, () => fetchQuery(GetDocs));
-    await list;
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('query cache may be corrupted'), expect.anything());
-    expect((list.value as any).docs.map((d: any) => d.body)).toEqual(['B1!', 'B2!']);
-    client.destroy();
-  });
+        // Doc:1 comes into memory through the narrow query, without `body`.
+        const { client, warn } = makeClient(store, mockFetch);
+        await holdQuery(client, () => fetchQuery(GetNarrow, { id: 1 }));
+        mockFetch.get('/docs', { docs: docs.map(d => ({ ...d, body: { text: `${d.body.text}!` } })) });
+        const list = holdQuery(client, () => fetchQuery(GetDocs));
+        await list;
+        if (absent) {
+          expect(warn).toHaveBeenCalledWith(expect.stringContaining('query cache may be corrupted'), expect.anything());
+          expect((list.value as any).docs.map((d: any) => d.body.text)).toEqual(['B1!', 'B2!']);
+        } else {
+          expect(warn).not.toHaveBeenCalled();
+          expect((list.value as any).docs.map((d: any) => d.body.text)).toEqual(['B1', 'B2']);
+        }
+        client.destroy();
+      },
+    );
+  }
 
   it('a member the query narrows out anyway does not reject the cached query', async () => {
     class UserPreview extends Entity {

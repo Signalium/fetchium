@@ -11,7 +11,7 @@ import {
 } from './types.js';
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
-import { EntityInstance, type EntityKeys } from './EntityInstance.js';
+import { EntityInstance, isStaticFieldDef, type EntityKeys } from './EntityInstance.js';
 import { NetworkManager, NoOpNetworkManager } from './NetworkManager.js';
 import { QueryInstance } from './QueryResult.js';
 import { MutationResultImpl } from './MutationResult.js';
@@ -208,16 +208,28 @@ export class QueryClient {
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
-    this.entityMap = new EntityStore((key, data, refs, merge, ifStored) => {
+    this.entityMap = new EntityStore((key, data, refs, merge, ifStored, rest, ownedKeys) => {
       if (this.destroyed) return;
       if (merge) this.store.mergeEntity!(key, data, refs, ifStored);
+      else if (ownedKeys !== undefined) this.store.saveEntity(key, data, refs, undefined, ownedKeys);
+      else if (rest !== undefined) this.store.saveEntity(key, data, refs, rest);
       else this.store.saveEntity(key, data, refs);
     });
     this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
+    if (typeof this.store.readEntity === 'function') {
+      const store = this.store;
+      this.entityMap.readEntity = key => store.readEntity!(key);
+    }
     // A record the store drops must be written again by the next apply.
     this.storeReportsDeletes = typeof this.store.onDelete === 'function';
+    this.storeKnowsTypenameFields =
+      typeof this.store.getEntityFieldNames === 'function' && this.store.entityFieldNamesComplete?.() === true;
     const offDelete = this.store.onDelete?.(key => {
-      this.entityMap.getEntity(key)?.recordDropped();
+      const instance = this.entityMap.getEntity(key);
+      if (instance === undefined) return;
+      // Failed writes are reported too. A surviving record keeps its fields.
+      if (this.store.hasEntity?.(key) === true) instance.recordDropped();
+      else instance.recordDeleted();
     });
     if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
     this.storeAcksWrites = typeof this.store.onPersisted === 'function';
@@ -336,8 +348,83 @@ export class QueryClient {
     } else {
       this.typenameRegistry.set(typename, [def]);
     }
-    // Builds V8's enum cache for the shape, which speeds up later iterations over it.
-    Object.keys(def.shape as object);
+    this.noteTypenameFields(typename, def);
+  }
+
+  /** Per def: whether another class of its typename, in any session, declares a field it lacks. */
+  private foreignFieldDefs = new WeakMap<ValidatorDef<any>, boolean>();
+  private typenameFields = new Map<string, Set<string>>();
+  private foreignRefFieldsByDef = new WeakMap<ValidatorDef<any>, readonly string[]>();
+  hasForeignFieldDefs: boolean = false;
+  /** The store's remembered field names cover every class that wrote a record it holds. */
+  readonly storeKnowsTypenameFields: boolean;
+
+  /**
+   * Whether a stored record of this def's typename may hold fields the def
+   * lacks. Registers the def first: a hydration parse can run before the apply
+   * does. @internal
+   */
+  mayMissForeignFields(def: ValidatorDef<any>): boolean {
+    let verdict = this.foreignFieldDefs.get(def);
+    if (verdict === undefined) {
+      this.registerEntityDef(def);
+      verdict = this.foreignFieldDefs.get(def);
+      if (verdict === undefined) {
+        // A typename's merged def. A new class replaces it, so this can't go stale.
+        const fields = def.typenameValue !== undefined ? this.typenameFields.get(def.typenameValue) : undefined;
+        const shape = def.shape as Record<string, unknown> | undefined;
+        verdict = fields !== undefined && shape !== undefined && fields.size > Object.keys(shape).length;
+        this.foreignFieldDefs.set(def, verdict);
+      }
+    }
+    return verdict;
+  }
+
+  /** Entity-holding fields other classes of the typename declare and this def lacks. @internal */
+  foreignRefFields(def: ValidatorDef<any>): readonly string[] {
+    let names = this.foreignRefFieldsByDef.get(def);
+    if (names === undefined) {
+      const found: string[] = [];
+      const shape = def.shape as Record<string, unknown> | undefined;
+      const defs = def.typenameValue !== undefined ? this.typenameRegistry.get(def.typenameValue) : undefined;
+      if (shape !== undefined && defs !== undefined) {
+        for (const d of defs) {
+          if (d === def) continue;
+          const other = d.shape as Record<string, unknown>;
+          for (const f of Object.keys(other)) {
+            if (!(f in shape) && !found.includes(f) && !isStaticFieldDef(other[f])) found.push(f);
+          }
+        }
+      }
+      this.foreignRefFieldsByDef.set(def, (names = found));
+    }
+    return names;
+  }
+
+  private noteTypenameFields(typename: string, def: ValidatorDef<any>): void {
+    let fields = this.typenameFields.get(typename);
+    if (fields === undefined) {
+      fields = new Set(this.store.getEntityFieldNames?.(typename));
+      this.typenameFields.set(typename, fields);
+    }
+    const declared = Object.keys(def.shape as Record<string, unknown>);
+    let added: boolean = false;
+    for (const k of declared) {
+      if (!fields.has(k)) {
+        fields.add(k);
+        added = true;
+      }
+    }
+    // All names, not just new ones: the store forgets names undeclared for a while.
+    this.store.addEntityFieldNames?.(typename, declared);
+    for (const d of this.typenameRegistry.get(typename)!) {
+      // A known name may now have an entity-holding def.
+      this.foreignRefFieldsByDef.delete(d);
+      if (!added && d !== def) continue;
+      const misses = fields.size > Object.keys(d.shape as Record<string, unknown>).length;
+      this.foreignFieldDefs.set(d, misses);
+      if (misses) this.hasForeignFieldDefs = true;
+    }
   }
 
   getEntityDefsForTypename(typename: string): ValidatorDef<any>[] | undefined {
@@ -1058,6 +1145,9 @@ export class QueryClient {
     this.entityMap.clear();
     this.constraintRegistry.clear();
     this.typenameRegistry.clear();
+    this.typenameFields.clear();
+    this.foreignFieldDefs = new WeakMap();
+    this.foreignRefFieldsByDef = new WeakMap();
     this.mergedDefCache.clear();
   }
 }

@@ -11,6 +11,10 @@ import {
   refIdsKeyFor,
   updatedAtKeyFor,
   valueKeyFor,
+  VALUE_PREFIX,
+  DOC_PREFIX,
+  fieldNamesKeyFor,
+  FIELD_NAMES_SINCE_KEY,
   storedRecordRest,
   entityRefsInJson,
   notifyListeners,
@@ -88,10 +92,21 @@ const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>(
 /** LRU bound. An evicted record's next merge reads it again. */
 const MAX_MERGE_RESTS = 1024;
 
+const fieldNamesByKv = new WeakMap<SyncPersistentStore, Map<string, Map<string, number>>>();
+const FIELD_NAME_TTL = 30 * 24 * 60 * 60 * 1000;
+const FIELD_NAME_REFRESH = 24 * 60 * 60 * 1000;
+/** `at` 0: since `clear()` emptied the kv. */
+interface FieldNamesSince {
+  at: number;
+  stored: boolean;
+}
+const fieldNamesSinceByKv = new WeakMap<SyncPersistentStore, FieldNamesSince>();
+
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
   private readonly deleteListeners: Array<(key: number) => void>;
   private readonly mergeRests: Map<number, MergeRest>;
+  private readonly fieldNames: Map<string, Map<string, number>>;
 
   constructor(private readonly kv: SyncPersistentStore) {
     let listeners = deleteListenersByKv.get(kv);
@@ -106,6 +121,12 @@ export class SyncQueryStore implements QueryStore {
       mergeRestsByKv.set(kv, rests);
     }
     this.mergeRests = rests;
+    let fieldNames = fieldNamesByKv.get(kv);
+    if (fieldNames === undefined) {
+      fieldNames = new Map();
+      fieldNamesByKv.set(kv, fieldNames);
+    }
+    this.fieldNames = fieldNames;
   }
 
   onDelete(listener: (key: number) => void): () => void {
@@ -186,8 +207,126 @@ export class SyncQueryStore implements QueryStore {
     this.activateQuery(queryDef, queryKey);
   }
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void {
-    this.setValue(entityKey, value, refIds);
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string): void {
+    if (rest === undefined || rest === '') {
+      this.setValue(entityKey, value, refIds);
+      return;
+    }
+    // Kept fields go first so a repeated key parses as `value`'s.
+    const json = JSON.stringify(value);
+    const rests = this.mergeRests;
+    if (rests.size !== 0) rests.delete(entityKey);
+    this.writeValue(entityKey, json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`, refIds);
+  }
+
+  readEntity(entityKey: number): Record<string, unknown> | undefined {
+    const stored = this.kv.getString(valueKeyFor(entityKey));
+    if (stored === undefined) return undefined;
+    let record: unknown;
+    try {
+      record = JSON.parse(stored);
+    } catch {
+      return undefined;
+    }
+    return typeof record === 'object' && record !== null && !Array.isArray(record)
+      ? (record as Record<string, unknown>)
+      : undefined;
+  }
+
+  getEntityFieldNames(typename: string): readonly string[] | undefined {
+    const names = this.fieldNamesOf(typename);
+    return names.size === 0 ? undefined : [...names.keys()];
+  }
+
+  /**
+   * `false` for `FIELD_NAME_TTL` after this version first opens the store,
+   * since older records may hold fields of an unregistered class. `clear()`
+   * makes it `true`.
+   */
+  entityFieldNamesComplete(): boolean {
+    const at = this.fieldNamesSince().at;
+    return at === 0 || Date.now() - at >= FIELD_NAME_TTL;
+  }
+
+  private fieldNamesSince(): FieldNamesSince {
+    const kv = this.kv;
+    let since = fieldNamesSinceByKv.get(kv);
+    if (since !== undefined) return since;
+    const at = kv.getNumber(FIELD_NAMES_SINCE_KEY);
+    if (at !== undefined) {
+      since = { at, stored: true };
+    } else {
+      // Count from now. Telling an empty store apart would need a startup key scan.
+      since = { at: Date.now(), stored: false };
+    }
+    fieldNamesSinceByKv.set(kv, since);
+    return since;
+  }
+
+  /**
+   * Each name keeps when it was last declared, refreshed at most daily. A name
+   * undeclared for `FIELD_NAME_TTL` is forgotten.
+   */
+  addEntityFieldNames(typename: string, fields: readonly string[]): void {
+    const names = this.fieldNamesOf(typename);
+    const now = Date.now();
+    let changed = false;
+    for (let i = 0; i < fields.length; i++) {
+      const declaredAt = names.get(fields[i]);
+      if (declaredAt === undefined || now - declaredAt > FIELD_NAME_REFRESH) {
+        names.set(fields[i], now);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const since = this.fieldNamesSince();
+    if (!since.stored) {
+      this.kv.setNumber(FIELD_NAMES_SINCE_KEY, since.at);
+      since.stored = true;
+    }
+    let stored = '';
+    for (const [name, declaredAt] of names) stored += `${stored === '' ? '' : '\n'}${name}\t${declaredAt}`;
+    this.kv.setString(fieldNamesKeyFor(typename), stored);
+  }
+
+  private fieldNamesOf(typename: string): Map<string, number> {
+    let names = this.fieldNames.get(typename);
+    if (names !== undefined) return names;
+    names = new Map();
+    const stored = this.kv.getString(fieldNamesKeyFor(typename));
+    if (stored !== undefined && stored !== '') {
+      const now = Date.now();
+      for (const line of stored.split('\n')) {
+        const tab = line.lastIndexOf('\t');
+        if (tab <= 0) continue;
+        const declaredAt = Number(line.slice(tab + 1));
+        if (now - declaredAt <= FIELD_NAME_TTL) names.set(line.slice(0, tab), declaredAt);
+      }
+    }
+    this.fieldNames.set(typename, names);
+    return names;
+  }
+
+  /**
+   * Deletes all cached data and reports each record to `onDelete`. Use this,
+   * not the kv's own clear: a client unaware of the deletion would write back
+   * fields it kept from deleted records. Field names are kept.
+   */
+  clear(): void {
+    const kv = this.kv;
+    const deleted: number[] = [];
+    for (const key of kv.getAllKeys()) {
+      if (!key.startsWith(DOC_PREFIX)) continue;
+      if (key.startsWith(VALUE_PREFIX)) deleted.push(Number(key.slice(VALUE_PREFIX.length)));
+      kv.delete(key);
+    }
+    kv.setNumber(FIELD_NAMES_SINCE_KEY, 0);
+    fieldNamesSinceByKv.set(kv, { at: 0, stored: true });
+    this.queues.clear();
+    this.mergeRests.clear();
+    for (let i = 0; i < deleted.length; i++) {
+      for (const listener of this.deleteListeners.slice()) listener(deleted[i]);
+    }
   }
 
   mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {

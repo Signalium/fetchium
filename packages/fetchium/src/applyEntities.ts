@@ -11,7 +11,7 @@ import type { QueryClient } from './QueryClient.js';
 import type { EntityInstance } from './EntityInstance.js';
 import type { ParseContext, ParsedEntity } from './parseEntities.js';
 import { FormattedValue, ValidatorDef } from './typeDefs.js';
-import { Mask } from './types.js';
+import { type EntityDef, Mask } from './types.js';
 import { createLiveCollection, LiveCollectionBinding } from './LiveCollection.js';
 import { PROXY_ID } from './proxyId.js';
 import { dropNestedWrapper } from './nestedNotifiers.js';
@@ -127,7 +127,7 @@ function applyEntity(
   appendMode: boolean,
   created: Set<EntityInstance> | undefined,
 ): Record<string, unknown> {
-  const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial } = entity;
+  const { key, data, shape: entityShape, rawKeys, eventKeys, fillsPartial, record } = entity;
   const shapeFields = entityShape.shape;
 
   // Already applied from another slot: re-applying would release every child ref.
@@ -147,7 +147,7 @@ function applyEntity(
     isUpdate && rawKeys !== undefined && entityInstance.entityRefs !== undefined
       ? new Map(entityInstance.entityRefs)
       : new Map<EntityInstance, number>();
-
+  // A refetch or poll that returns identical data neither notifies nor writes.
   let changed = true;
   // A write reaching this instance from inside its own subtree is deferred.
   entityInstance._applying = true;
@@ -168,11 +168,18 @@ function applyEntity(
         created,
       );
       if ((persist === true && rawKeys === undefined) || fillsPartial) {
+        // A full payload (a fetch), or the record's fields merged in, makes
+        // the data a complete record again.
+        if (entityInstance._partial && !fillsPartial) checkStoredRecord(entityInstance, entityShape, queryClient);
         entityInstance._partial = false;
         entityInstance._partialKeys = undefined;
       } else if (entityInstance._partial && rawKeys !== undefined) {
-        // Stays partial: another class sharing the typename may hold undeclared fields.
-        for (const k of rawKeys) entityInstance._partialKeys!.add(k);
+        const partialKeys = entityInstance._partialKeys!;
+        for (const k of rawKeys) partialKeys.add(k);
+        if (eventsBuiltWholeRecord(partialKeys, entityShape, queryClient)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       }
     } else {
       initFields(shapeFields, data, entityInstance, data, seen, queryClient, persist, childRefs, appendMode, created);
@@ -181,15 +188,43 @@ function applyEntity(
         entityInstance._partialKeys = new Set(eventKeys);
         if (entityShape.typenameField !== undefined) entityInstance._partialKeys.add(entityShape.typenameField);
         if (typeof entityShape.idField === 'string') entityInstance._partialKeys.add(entityShape.idField);
+        if (eventsBuiltWholeRecord(entityInstance._partialKeys, entityShape, queryClient)) {
+          entityInstance._partial = false;
+          entityInstance._partialKeys = undefined;
+        }
       } else if (persist === false) {
         entityInstance._recorded = true;
+      } else if (persist === true && record === undefined) {
+        checkStoredRecord(entityInstance, entityShape, queryClient);
       }
       if (persist === 'existing') created?.add(entityInstance);
     }
   } finally {
     entityInstance._applying = false;
   }
+  // Fields only another class declares stay in the data. Count their refs or
+  // they get released while that class's consumers still show them.
+  const heldRefs = entityInstance.entityRefs;
+  let keepsHeldRefs = false;
+  if (
+    isUpdate &&
+    rawKeys === undefined &&
+    heldRefs !== undefined &&
+    queryClient.hasForeignFieldDefs &&
+    queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+  ) {
+    if (!changed && !appendMode && entityInstance._refsCounted) {
+      keepsHeldRefs = true;
+    } else {
+      const fields = queryClient.foreignRefFields(entityShape as unknown as ValidatorDef<unknown>);
+      for (let i = 0; i < fields.length; i++) countHeldRefs(existingData[fields[i]], heldRefs, childRefs, queryClient);
+    }
+  }
+  entityInstance._refsCounted = rawKeys === undefined && !appendMode;
   if (isUpdate && changed) entityInstance.notify();
+  if (record !== undefined) {
+    entityInstance.recordHoldsOtherFields(record, queryClient.entityMap.readEntity !== undefined);
+  }
 
   if (appendMode && entityInstance.liveCollections.length > 0) {
     for (const binding of entityInstance.liveCollections) {
@@ -207,7 +242,7 @@ function applyEntity(
     }
   }
 
-  const newRefs = childRefs.size > 0 ? childRefs : undefined;
+  const newRefs = keepsHeldRefs ? heldRefs : childRefs.size > 0 ? childRefs : undefined;
   const refsChanged = !sameRefs(entityInstance.entityRefs, newRefs);
   // An entity hydrated from the store was never written, so there is no write to skip.
   // A queued store deletion could drop the record this apply trusts.
@@ -225,6 +260,54 @@ function applyEntity(
   parentEntityRefs.set(entityInstance, (parentEntityRefs.get(entityInstance) ?? 0) + 1);
 
   return proxy;
+}
+
+function countHeldRefs(
+  value: unknown,
+  held: Map<EntityInstance, number>,
+  childRefs: Map<EntityInstance, number>,
+  queryClient: QueryClient,
+): void {
+  if (typeof value !== 'object' || value === null || value instanceof FormattedValue) return;
+  const key = PROXY_ID.get(value);
+  if (key !== undefined) {
+    const child = queryClient.entityMap.getEntity(key);
+    if (child !== undefined && held.has(child)) childRefs.set(child, (childRefs.get(child) ?? 0) + 1);
+    return;
+  }
+  if (value instanceof LiveCollectionBinding) {
+    countHeldRefs(value.instance.getRawValue(), held, childRefs, queryClient);
+  } else if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) countHeldRefs(value[i], held, childRefs, queryClient);
+  } else if (Object.getPrototypeOf(value) === ObjectProto) {
+    const obj = value as Record<string, unknown>;
+    for (const k of Object.keys(obj)) countHeldRefs(obj[k], held, childRefs, queryClient);
+  }
+}
+
+/** The fetch replaces the whole record, so the first write must read it to keep other classes' fields. */
+function checkStoredRecord(instance: EntityInstance, shape: EntityDef, queryClient: QueryClient): void {
+  if (
+    queryClient.hasForeignFieldDefs &&
+    !instance.keepsRecordFields() &&
+    queryClient.mayMissForeignFields(shape as unknown as ValidatorDef<unknown>)
+  ) {
+    instance._checkStoredRecord = true;
+  }
+}
+
+/**
+ * Whether streamed fields make a whole record that can be written instead of
+ * merged. Without `storeKnowsTypenameFields` an unregistered class may own
+ * fields in the record, so it stays partial.
+ */
+function eventsBuiltWholeRecord(keys: Set<string>, entityShape: EntityDef, queryClient: QueryClient): boolean {
+  for (const k in entityShape.shape) if (!keys.has(k)) return false;
+  if (!queryClient.storeKnowsTypenameFields) return false;
+  return (
+    !queryClient.hasForeignFieldDefs ||
+    !queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+  );
 }
 
 // ======================================================

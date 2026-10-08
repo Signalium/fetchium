@@ -54,6 +54,8 @@ export interface ParsedEntity {
   eventKeys: Set<string> | undefined;
   /** A cached record filling in fields an entity built from events lacks. */
   fillsPartial: boolean;
+  /** Hydration only: the raw record, when it holds fields another class wrote. */
+  record?: Record<string, unknown>;
 }
 
 /** `'pending'` while a check is in progress, so a cycle counts as satisfied. */
@@ -497,6 +499,8 @@ function parseEntityData(
     parsedData[entityShape.idField] = id;
   }
 
+  let record: Record<string, unknown> | undefined;
+
   if (preloadedEntities !== undefined) {
     const existing = queryClient.entityMap.getEntity(key);
 
@@ -507,31 +511,33 @@ function parseEntityData(
       // Built from events: parse only the fields the record adds.
       fillKeys = existing._partialKeys;
       obj = preloaded;
-    } else if (existing !== undefined) {
-      // A live entity is newer than the cache, and re-parsing parsed values
-      // corrupts them. Merge nothing, but check it satisfies this shape.
-      ctx.trusted ??= new Map();
-      if (!dataSatisfiesDef(existing.data, entityShape as unknown as ValidatorDef<unknown>, queryClient, ctx.trusted)) {
-        throw new CachedEntityMismatchError(
-          `Cached entity ${entityShape.typenameValue}:${String(existing.id)} in memory does not satisfy the query's shape`,
-        );
+      // Rare path, so check every record: older stores may not know the other class.
+      const shape = entityShape.shape;
+      for (const k in preloaded) {
+        if (!(k in shape)) {
+          record = preloaded;
+          break;
+        }
       }
-      const entry: ParsedEntity = {
-        key,
-        shape: entityShape,
-        data: parsedData,
-        rawKeys: new Set(),
-        eventKeys: undefined,
-        fillsPartial: false,
-      };
-      ctx.seen!.set(parsedData, entry);
-      ctx.seenByKey!.set(key, entry);
-      return parsedData;
+    } else if (existing !== undefined) {
+      return hydrateFromMemory(existing, preloaded, key, id, parsedData, entityShape, ctx);
     } else {
       if (preloaded === undefined) {
         throw new Error(`Cached entity ${key} not found in preloaded map`);
       }
       obj = preloaded;
+      if (
+        !queryClient.storeKnowsTypenameFields ||
+        queryClient.mayMissForeignFields(entityShape as unknown as ValidatorDef<unknown>)
+      ) {
+        const shape = entityShape.shape;
+        for (const k in preloaded) {
+          if (!(k in shape)) {
+            record = preloaded;
+            break;
+          }
+        }
+      }
     }
 
     if (fillKeys !== undefined) {
@@ -546,6 +552,7 @@ function parseEntityData(
         eventKeys: undefined,
         fillsPartial: true,
       };
+      if (record !== undefined) entry.record = record;
       ctx.seen!.set(parsedData, entry);
       ctx.seenByKey!.set(key, entry);
       const entityDesc = `[[${entityShape.typenameValue}:${id}]]`;
@@ -575,6 +582,7 @@ function parseEntityData(
     eventKeys,
     fillsPartial: false,
   };
+  if (record !== undefined) entry.record = record;
   ctx.seen!.set(parsedData, entry);
   ctx.seenByKey!.set(key, entry);
 
@@ -589,6 +597,76 @@ function parseEntityData(
     parsedData[fieldKey] = parseData(obj[fieldKey], propShape as unknown as TypeDef, ctx, `${entityDesc}.${fieldKey}`);
   }
 
+  return parsedData;
+}
+
+// ======================================================
+// Hydrating an entity that is already in memory
+// ======================================================
+
+/**
+ * Memory is at least as fresh as the cache, so it is never overwritten from it.
+ * Re-parsing would also corrupt already-parsed values. Only fields no applied
+ * class declares are filled from the record.
+ */
+function hydrateFromMemory(
+  existing: EntityInstance,
+  preloaded: Record<string, unknown> | undefined,
+  key: number,
+  id: string | number,
+  parsedData: Record<string | symbol, unknown>,
+  entityShape: EntityDef,
+  ctx: ParseContext,
+): Record<string, unknown> {
+  const queryClient = ctx.queryClient!;
+  const shape = entityShape.shape as Record<string, unknown>;
+  const typenameField = entityShape.typenameField;
+  const data = existing.data;
+  const trusted = (ctx.trusted ??= new Map());
+  let fillKeys: Set<string> | undefined;
+
+  for (const fieldKey of Object.keys(shape)) {
+    if (fieldKey === typenameField) continue;
+    const value = data[fieldKey];
+    if (
+      value === undefined &&
+      preloaded !== undefined &&
+      preloaded[fieldKey] !== undefined &&
+      !Object.hasOwn(data, fieldKey)
+    ) {
+      (fillKeys ??= new Set()).add(fieldKey);
+      continue;
+    }
+    if (valueSatisfiesDef(value, shape[fieldKey], queryClient, trusted)) continue;
+    throw new CachedEntityMismatchError(
+      `Cached entity ${entityShape.typenameValue}:${String(existing.id)} in memory does not satisfy the query's shape at ${fieldKey}`,
+    );
+  }
+
+  // An empty key set merges nothing and hands the query the existing proxy.
+  const entry: ParsedEntity = {
+    key,
+    shape: entityShape,
+    data: parsedData,
+    rawKeys: fillKeys ?? new Set(),
+    eventKeys: undefined,
+    fillsPartial: false,
+  };
+  if (fillKeys !== undefined) entry.record = preloaded;
+  ctx.seen!.set(parsedData, entry);
+  ctx.seenByKey!.set(key, entry);
+
+  if (fillKeys !== undefined) {
+    const entityDesc = `[[${entityShape.typenameValue}:${id}]]`;
+    for (const fieldKey of fillKeys) {
+      parsedData[fieldKey] = parseData(
+        preloaded![fieldKey],
+        shape[fieldKey] as unknown as TypeDef,
+        ctx,
+        `${entityDesc}.${fieldKey}`,
+      );
+    }
+  }
   return parsedData;
 }
 

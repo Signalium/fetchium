@@ -97,7 +97,14 @@ export interface QueryStore {
     refIds?: Set<number>,
   ): void;
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void;
+  /**
+   * `rest`: JSON object body (`"a":1,"b":{…}`) of fields another class of the
+   * typename wrote. Write it ahead of `value`'s fields. `refIds` covers it.
+   *
+   * `ownedKeys`: sent instead of `rest` by a client without `readEntity`. The
+   * stored record's fields outside these keys are kept, and their references counted.
+   */
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string, ownedKeys?: string[]): void;
 
   /**
    * Writes the fields streamed events supplied, merged over the stored record
@@ -147,6 +154,28 @@ export interface QueryStore {
    * merge unless this returns `false`. Without `mergeEntity`, only when `true`.
    */
   hasEntity?(key: number): boolean | undefined;
+
+  /**
+   * Synchronous stores only: the parsed stored record, or `undefined`. Read
+   * before an entity's first write when its record may hold another class's fields.
+   */
+  readEntity?(entityKey: number): Record<string, unknown> | undefined;
+
+  /**
+   * Top-level field names `typename`'s classes declared, as recorded by
+   * `addEntityFieldNames` in this or an earlier session.
+   */
+  getEntityFieldNames?(typename: string): readonly string[] | undefined;
+  /**
+   * Called once per entity class and client with its top-level fields. A store
+   * may forget names undeclared for a while, so removed fields stop being kept.
+   */
+  addEntityFieldNames?(typename: string, fields: readonly string[]): void;
+  /**
+   * Whether `getEntityFieldNames` covers every class that wrote a held record.
+   * Asked once at client creation. Only then are streamed entities written whole.
+   */
+  entityFieldNamesComplete?(): boolean;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

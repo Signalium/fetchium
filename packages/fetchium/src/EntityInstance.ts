@@ -11,6 +11,15 @@ import type { QueryClient } from './QueryClient.js';
 import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
 import type { LiveCollectionBinding } from './LiveCollection.js';
 import { entitySatisfiesShape } from './parseEntities.js';
+import { recordRestOutside } from './stores/shared.js';
+
+/** Stored record fields written by another class of the typename, kept so writes don't drop them. */
+export interface RecordRest {
+  keys: string[];
+  /** Raw JSON object body (`"a":1,"b":{…}`), written as is. */
+  json: string;
+  refIds: number[];
+}
 
 // ======================================================
 // Nested proxy wrapping — transparently unwraps WRAPPED_VALUE items
@@ -561,6 +570,13 @@ export class EntityInstance {
   _deferredWrite: boolean = false;
   /** The store is known to hold a record of this entity. */
   _recorded: boolean = false;
+  _recordRest: RecordRest | undefined = undefined;
+  /** Raw stored record, turned into `_recordRest` lazily at the first write. */
+  private _storedRecord: Record<string, unknown> | undefined = undefined;
+  /** The first write must re-read the stored record (synchronous stores only). */
+  _checkStoredRecord: boolean = false;
+  /** `entityRefs` came from a full payload, untouched since by partial updates. */
+  _refsCounted: boolean = false;
   private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
@@ -652,6 +668,7 @@ export class EntityInstance {
   }
 
   addChildRef(child: EntityInstance, persist: boolean = true): void {
+    this._refsCounted = false;
     if (this.entityRefs === undefined) this.entityRefs = new Map();
     const count = this.entityRefs.get(child) ?? 0;
     this.entityRefs.set(child, count + 1);
@@ -660,6 +677,7 @@ export class EntityInstance {
   }
 
   removeChildRef(child: EntityInstance, persist: boolean = true): void {
+    this._refsCounted = false;
     if (this.entityRefs === undefined) return;
     const count = this.entityRefs.get(child);
     if (count === undefined) return;
@@ -770,7 +788,59 @@ export class EntityInstance {
     this.markUnwritten();
   }
 
-  /** Forces the next apply to write. Queued writes hold older data, so their acks are dropped. */
+  recordDeleted(): void {
+    this._recordRest = undefined;
+    this._storedRecord = undefined;
+    this._checkStoredRecord = false;
+    this.recordDropped();
+  }
+
+  keepsRecordFields(): boolean {
+    return this._recordRest !== undefined || this._storedRecord !== undefined || this._checkStoredRecord;
+  }
+
+  /** A rereadable store's record is read again at the first write instead of held in memory. */
+  recordHoldsOtherFields(record: Record<string, unknown>, rereadable: boolean): void {
+    if (rereadable) {
+      this._storedRecord = undefined;
+      this._recordRest = undefined;
+      this._checkStoredRecord = true;
+    } else {
+      this.noteRecord(record);
+    }
+  }
+
+  /** A field the data holds, even as `undefined`, is the instance's to write. */
+  noteRecord(record: Record<string, unknown>): void {
+    this._storedRecord = record;
+    this._recordRest = undefined;
+  }
+
+  /** Drops kept fields that an applied class now declares. */
+  recordRestForWrite(): RecordRest | undefined {
+    const data = this.data;
+    const record = this._storedRecord;
+    if (record !== undefined) {
+      this._storedRecord = undefined;
+      return (this._recordRest = recordRestOutside(record, data));
+    }
+    const rest = this._recordRest;
+    if (rest === undefined) return undefined;
+    const keys = rest.keys;
+    for (let i = 0; i < keys.length; i++) {
+      if (Object.hasOwn(data, keys[i])) {
+        const values = JSON.parse(`{${rest.json}}`) as Record<string, unknown>;
+        return (this._recordRest = recordRestOutside(values, data));
+      }
+    }
+    return rest;
+  }
+
+  /**
+   * Its record is stale: the next apply writes it even if it finds nothing
+   * changed. Writes still queued hold older data, so their acknowledgements
+   * no longer mark it persisted.
+   */
   markUnwritten(): void {
     this._persisted = false;
     this._pendingWrites = 0;
@@ -825,8 +895,15 @@ const DYNAMIC_MASKS = Mask.ENTITY | Mask.LIVE | Mask.HAS_FORMAT;
 
 const staticFieldDefs = new WeakMap<ValidatorDef<unknown>, boolean>();
 
-/** Unrecognised defs answer false, which costs a re-read but never a stale value. */
-function isStaticFieldDef(def: unknown): boolean {
+/**
+ * Whether a field's snapshot is a pure function of its entity's own `data`.
+ * Only the shapes recognised here (the allowlist `getEntityDef` validates
+ * against) answer `true`, so an unfamiliar def costs a re-read, never a stale
+ * value.
+ */
+export function isStaticFieldDef(def: unknown): boolean {
+  // `t.string` is a bare `Mask`, `t.typename('X')` the literal string,
+  // `t.enum`/`t.const` a `Set` of allowed values.
   if (typeof def === 'number') return (def & DYNAMIC_MASKS) === 0;
   if (typeof def === 'string') return true;
   if (def instanceof Set) return true;

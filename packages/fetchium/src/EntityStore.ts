@@ -3,18 +3,13 @@ import type { QueryClient } from './QueryClient.js';
 import { EntityInstance } from './EntityInstance.js';
 import { ValidatorDef } from './typeDefs.js';
 
-type PersistEntity = (
-  key: number,
-  data: Record<string, unknown>,
-  refKeys?: Set<number>,
-  merge?: boolean,
-  ifStored?: boolean,
-) => void;
-
 export class EntityStore {
   private instances = new Map<number, EntityInstance>();
   private persistEntity: PersistEntity;
+  /** Whether the store can merge fields over a record it holds. */
   mergesEntities: boolean = false;
+  /** Synchronous stores only. */
+  readEntity: ((key: number) => Record<string, unknown> | undefined) | undefined = undefined;
 
   constructor(persistEntity: PersistEntity) {
     this.persistEntity = persistEntity;
@@ -80,7 +75,35 @@ export class EntityStore {
     if (merge) {
       value = {};
       for (const k of mergeKeys) value[k] = instance.data[k];
+      this.persistEntity(instance.key, value, refKeys, true, ifStored);
+      return;
     }
-    this.persistEntity(instance.key, value, refKeys, merge, ifStored);
+    if (instance._checkStoredRecord) {
+      if (this.readEntity === undefined) {
+        // The writer keeps the record's other fields, so the flag stays for every write.
+        this.persistEntity(instance.key, value, refKeys, false, false, undefined, Object.keys(value));
+        return;
+      }
+      // Cleared after the read so a read that throws is retried.
+      const stored = this.readEntity(instance.key);
+      instance._checkStoredRecord = false;
+      if (stored !== undefined) instance.noteRecord(stored);
+    }
+    const rest = instance.recordRestForWrite();
+    if (rest !== undefined && rest.refIds.length > 0) {
+      refKeys ??= new Set<number>();
+      for (let i = 0; i < rest.refIds.length; i++) refKeys.add(rest.refIds[i]);
+    }
+    this.persistEntity(instance.key, value, refKeys, false, false, rest?.json);
   }
 }
+
+type PersistEntity = (
+  key: number,
+  data: Record<string, unknown>,
+  refKeys: Set<number> | undefined,
+  merge: boolean,
+  ifStored?: boolean,
+  rest?: string,
+  ownedKeys?: string[],
+) => void;

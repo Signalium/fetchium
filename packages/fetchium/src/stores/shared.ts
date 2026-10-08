@@ -1,3 +1,4 @@
+export const DOC_PREFIX = 'sq:doc:';
 // Query Instance keys
 export const VALUE_PREFIX = 'sq:doc:value:';
 export const valueKeyFor = (id: number) => `${VALUE_PREFIX}${id}`;
@@ -11,6 +12,9 @@ export const lastUsedKeyFor = (queryDefId: string) => `sq:doc:lastUsed:${queryDe
 export const cacheTimeKeyFor = (queryDefId: string) => `sq:doc:cacheTime:${queryDefId}`;
 
 export const LAST_USED_PREFIX = 'sq:doc:lastUsed:';
+export const fieldNamesKeyFor = (typename: string) => `sq:meta:fields:${typename}`;
+// 0: field names have covered every record since the store was emptied
+export const FIELD_NAMES_SINCE_KEY = 'sq:meta:fieldsSince';
 
 // Default values
 export const DEFAULT_MAX_COUNT = 50;
@@ -67,7 +71,27 @@ export function storedRecordRest(
   return { json: JSON.stringify(rest).slice(1, -1), refIds: [...refIds] };
 }
 
-/** Adds the `__entityRef` ids in a record's JSON to `into`. */
+/** The fields of a parsed stored record that `data` does not hold as own keys. */
+export function recordRestOutside(
+  record: Record<string, unknown>,
+  data: Record<string, unknown>,
+): { keys: string[]; json: string; refIds: number[] } | undefined {
+  let values: Record<string, unknown> | undefined;
+  let keys: string[] | undefined;
+  for (const key in record) {
+    const value = record[key];
+    if (value !== undefined && !Object.hasOwn(data, key)) {
+      (values ??= {})[key] = value;
+      (keys ??= []).push(key);
+    }
+  }
+  if (values === undefined) return undefined;
+  const refIds = new Set<number>();
+  collectEntityRefs(values, refIds);
+  return { keys: keys!, json: JSON.stringify(values).slice(1, -1), refIds: [...refIds] };
+}
+
+/** Adds the `__entityRef` ids in a record's JSON to `into`, as `collectEntityRefs` would for the parsed record. */
 export function entityRefsInJson(json: string, into: Set<number>): void {
   if (json.indexOf('"__entityRef":') === -1) return;
   const re = /"__entityRef":(\d+)/g;

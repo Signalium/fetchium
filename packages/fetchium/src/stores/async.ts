@@ -9,6 +9,7 @@ import {
   mergeStoredRecord,
   notifyListeners,
   queueKeyFor,
+  recordRestOutside,
   refCountKeyFor,
   refIdsKeyFor,
   updatedAtKeyFor,
@@ -63,6 +64,10 @@ export type StoreMessage =
       refIds?: number[];
       /** `value` holds only some fields, merged over the stored record. */
       merge?: boolean;
+      /** See `QueryStore.saveEntity`. */
+      rest?: string;
+      /** See `QueryStore.saveEntity`. Ignored by older writers. */
+      ownedKeys?: string[];
       /** With `merge`: dropped, and reported deleted, if no record is stored. */
       ifStored?: boolean;
     }
@@ -97,6 +102,20 @@ function isStoreMessage(msg: unknown): msg is StoreMessage {
     type === StoreMessageType.ActivateQuery ||
     type === StoreMessageType.DeleteQuery
   );
+}
+
+/** The stored record's fields outside `ownedKeys`, or undefined if there are none. */
+function storedRecordOutside(stored: string, ownedKeys: string[]) {
+  let record: unknown;
+  try {
+    record = JSON.parse(stored);
+  } catch {
+    return undefined;
+  }
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
+  const owned: Record<string, unknown> = Object.create(null);
+  for (const key of ownedKeys) owned[key] = true;
+  return recordRestOutside(record as Record<string, unknown>, owned);
 }
 
 function subscribe(listeners: Array<(key: number) => void>, listener: (key: number) => void): () => void {
@@ -322,7 +341,15 @@ export class AsyncQueryStore implements QueryStore {
         break;
       case StoreMessageType.SaveEntity:
         if (
-          await this.writerSaveEntity(msg.entityKey, msg.value, msg.refIds, msg.merge === true, msg.ifStored === true)
+          await this.writerSaveEntity(
+            msg.entityKey,
+            msg.value,
+            msg.refIds,
+            msg.merge === true,
+            msg.ifStored === true,
+            msg.rest,
+            msg.ownedKeys,
+          )
         ) {
           notifyListeners(this.persistedListeners, msg.entityKey);
         }
@@ -419,13 +446,16 @@ export class AsyncQueryStore implements QueryStore {
     this.dispatch(message);
   }
 
-  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void {
-    this.dispatch({
+  saveEntity(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string, ownedKeys?: string[]): void {
+    const message: Extract<StoreMessage, { type: StoreMessageType.SaveEntity }> = {
       type: StoreMessageType.SaveEntity,
       entityKey,
       value,
       refIds: refIds ? Array.from(refIds) : undefined,
-    });
+    };
+    if (rest !== undefined && rest !== '') message.rest = rest;
+    if (ownedKeys !== undefined) message.ownedKeys = ownedKeys;
+    this.dispatch(message);
   }
 
   mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void {
@@ -482,6 +512,8 @@ export class AsyncQueryStore implements QueryStore {
     refIds: number[] | undefined,
     merge: boolean,
     ifStored: boolean,
+    rest?: string,
+    ownedKeys?: string[],
   ): Promise<boolean> {
     if (merge) {
       const stored = await this.delegate!.getString(valueKeyFor(entityKey));
@@ -496,7 +528,18 @@ export class AsyncQueryStore implements QueryStore {
         return true;
       }
     }
-    await this.setValue(entityKey, value, refIds ? new Set(refIds) : undefined);
+    const refs = refIds ? new Set(refIds) : undefined;
+    if (ownedKeys !== undefined) {
+      const stored = await this.delegate!.getString(valueKeyFor(entityKey));
+      const kept = stored !== undefined ? storedRecordOutside(stored, ownedKeys) : undefined;
+      if (kept !== undefined) {
+        const keptRefs = refs ?? new Set<number>();
+        for (const id of kept.refIds) keptRefs.add(id);
+        await this.setValue(entityKey, value, keptRefs, kept.json);
+        return true;
+      }
+    }
+    await this.setValue(entityKey, value, refs, rest);
     return true;
   }
 
@@ -603,10 +646,12 @@ export class AsyncQueryStore implements QueryStore {
     }
   }
 
-  private async setValue(id: number, value: unknown, refIds?: Set<number>): Promise<void> {
+  private async setValue(id: number, value: unknown, refIds?: Set<number>, rest?: string): Promise<void> {
     const delegate = this.delegate!;
 
-    await delegate.setString(valueKeyFor(id), JSON.stringify(value));
+    let json = JSON.stringify(value);
+    if (rest !== undefined && rest !== '') json = json.length === 2 ? `{${rest}}` : `{${rest},${json.slice(1)}`;
+    await delegate.setString(valueKeyFor(id), json);
     this.noteHeld(id);
 
     const refIdsKey = refIdsKeyFor(id);
