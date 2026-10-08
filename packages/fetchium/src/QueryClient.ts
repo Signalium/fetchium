@@ -11,7 +11,7 @@ import {
 } from './types.js';
 import { PROXY_ID } from './proxyId.js';
 import { EntityStore } from './EntityStore.js';
-import { EntityInstance } from './EntityInstance.js';
+import { EntityInstance, type EntityKeys } from './EntityInstance.js';
 import { NetworkManager, NoOpNetworkManager } from './NetworkManager.js';
 import { QueryInstance } from './QueryResult.js';
 import { MutationResultImpl } from './MutationResult.js';
@@ -133,6 +133,10 @@ export class QueryClient {
   currentParseId: number = 0;
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
+  /** With `store.onPersisted`, `_persisted` is set on acknowledgement, not by `save()`. */
+  storeAcksWrites: boolean = false;
+  /** Replaced when a typename gains a class, since the static/dynamic split depends on it. */
+  shapeKeyCache = new WeakMap<ValidatorDef<any>, EntityKeys>();
 
   readonly reactivationGraceMs: number;
   readonly reactivationStaggerMs: number;
@@ -157,6 +161,7 @@ export class QueryClient {
   private mergedDefCache = new Map<string, ValidatorDef<any>>();
   private adapters = new Map<QueryAdapterClass, QueryAdapter>();
   private networkUnsubscribe: (() => void) | undefined;
+  private storeUnsubscribes: Array<() => void> = [];
   private mutationParseContext = new ParseContext();
 
   constructor(config: QueryClientConfig = {}) {
@@ -183,13 +188,22 @@ export class QueryClient {
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
-    this.entityMap = new EntityStore((key, data, refs) => this.store.saveEntity(key, data, refs));
+    this.entityMap = new EntityStore((key, data, refs, merge, ifStored) => {
+      if (merge) this.store.mergeEntity!(key, data, refs, ifStored);
+      else this.store.saveEntity(key, data, refs);
+    });
+    this.entityMap.mergesEntities = typeof this.store.mergeEntity === 'function';
     // A record the store drops must be written again by the next apply.
     this.storeReportsDeletes = typeof this.store.onDelete === 'function';
-    this.store.onDelete?.(key => {
-      const entity = this.entityMap.getEntity(key);
-      if (entity !== undefined) entity._persisted = false;
+    const offDelete = this.store.onDelete?.(key => {
+      this.entityMap.getEntity(key)?.recordDropped();
     });
+    if (typeof offDelete === 'function') this.storeUnsubscribes.push(offDelete);
+    this.storeAcksWrites = typeof this.store.onPersisted === 'function';
+    const offPersisted = this.store.onPersisted?.(key => {
+      this.entityMap.getEntity(key)?.acknowledgeWrite();
+    });
+    if (typeof offPersisted === 'function') this.storeUnsubscribes.push(offPersisted);
 
     // Register user-supplied adapters
     for (const adapter of config.adapters ?? []) {
@@ -276,6 +290,13 @@ export class QueryClient {
   // Typename Registry (per-client)
   // ======================================================
 
+  /** No queued store deletion can undo a skipped write. */
+  storeIsSettled(): boolean {
+    const store = this.store;
+    if (store.hasQueuedDeletes !== undefined) return !store.hasQueuedDeletes();
+    return store.isSettled?.() ?? true;
+  }
+
   private registerEntityDef(def: ValidatorDef<any>): void {
     const typename = def.typenameValue;
     if (typename === undefined) return;
@@ -289,6 +310,7 @@ export class QueryClient {
       existing.push(def);
       this.mergedDefCache.delete(typename);
       this.getMergedDef(typename);
+      this.shapeKeyCache = new WeakMap();
     } else {
       this.typenameRegistry.set(typename, [def]);
     }
@@ -586,11 +608,18 @@ export class QueryClient {
   /**
    * Parse data: validates, formats, produces parsed entity data objects.
    * Does NOT touch the entity store. Call applyRefs() after to commit entities.
+   * `copyInput: false` copies a nested object only where a parsed value differs.
    */
-  parseData(obj: unknown, shape: InternalTypeDef, preloadedEntities?: PreloadedEntityMap): ParseResult {
+  parseData(
+    obj: unknown,
+    shape: InternalTypeDef,
+    preloadedEntities?: PreloadedEntityMap,
+    copyInput: boolean = true,
+  ): ParseResult {
     const warn = this.context.log?.warn ?? (() => {});
     const ctx = new ParseContext();
     ctx.reset(this, preloadedEntities, warn);
+    ctx.copyInput = copyInput;
     const data = parseEntities(obj, shape as unknown as ComplexTypeDef, ctx);
     return { data, ctx };
   }
@@ -626,10 +655,11 @@ export class QueryClient {
       obj !== null &&
       !('__entityRef' in (obj as Record<string, unknown>))
     ) {
-      (obj as Record<string | symbol, unknown>)[QUERY_ID] = queryId;
+      // On a copy: the payload belongs to the adapter (it may be frozen).
+      obj = { ...(obj as Record<string | symbol, unknown>), [QUERY_ID]: queryId };
     }
 
-    const parseResult = this.parseData(obj, rootEntityShape as unknown as InternalTypeDef, preloadedEntities);
+    const parseResult = this.parseData(obj, rootEntityShape as unknown as InternalTypeDef, preloadedEntities, false);
     const result = applyEntityRefs(parseResult.ctx, parseResult.data, persist, appendMode);
 
     // Discover the root entity from the returned proxy
@@ -637,8 +667,17 @@ export class QueryClient {
     return this.entityMap.getEntity(proxyKey!)!;
   }
 
-  prepareEntity(key: number, obj: Record<string, unknown>, shape: EntityDef): EntityInstance {
+  prepareEntity(
+    key: number,
+    obj: Record<string, unknown>,
+    shape: EntityDef,
+    existing?: EntityInstance,
+  ): EntityInstance {
     this.registerEntityDef(shape as unknown as ValidatorDef<any>);
+    if (existing !== undefined) {
+      existing.parseId = this.currentParseId;
+      return existing;
+    }
     return this.entityMap.getOrCreateEntity(key, obj, shape, this);
   }
 
@@ -677,13 +716,14 @@ export class QueryClient {
       return;
     }
 
+    // Entities the event creates are written only once something retains them.
+    const created = existing === undefined ? new Set<EntityInstance>() : undefined;
     try {
       const warn = this.context.log?.warn ?? (() => {});
       const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
-      // A new entity is written only once something routes it.
-      applyEntityRefs(parseCtx, parsedData, /* persist */ existing !== undefined);
+      applyEntityRefs(parseCtx, parsedData, existing !== undefined ? true : 'existing', false, created);
     } catch (e) {
       // Unknown required-union variant: surface as an error (not a silent warn)
       // so the dropped update is visible. Optional unions degrade during parse.
@@ -693,8 +733,8 @@ export class QueryClient {
         this.context.log?.warn?.('Failed to apply mutation event', e);
       }
       if (existing === undefined) {
-        const created = this.entityMap.getEntity(key);
-        if (created !== undefined) created.evict();
+        const createdRoot = this.entityMap.getEntity(key);
+        if (createdRoot !== undefined) this.evictCreated(createdRoot, created!);
       }
       return;
     }
@@ -702,19 +742,109 @@ export class QueryClient {
     const entity = this.entityMap.getEntity(key);
     if (entity === undefined) return;
 
-    const wasNew = existing === undefined;
+    if (existing !== undefined) {
+      this.routeEvent(typename, entity.data, key, type, eventSource);
+      return;
+    }
+
+    // Write a created root if a live array will retain it, else only refresh a
+    // record the store may hold. Before routing, so a failed write routes nothing.
     let matched = false;
+    let retains = false;
+    this.routeEvent(
+      typename,
+      entity.data,
+      key,
+      type,
+      eventSource,
+      willRetain => {
+        matched = true;
+        if (willRetain) retains = true;
+      },
+      undefined,
+      /* dryRun */ true,
+    );
+    let held: boolean | undefined;
+    if (!entity._persisted && entity._pendingWrites === 0) {
+      if (!retains) held = this.store.hasEntity?.(key);
+      // Unknown: entities created under the root would be written even if the root isn't.
+      const refresh =
+        held === true ||
+        (held === undefined && entity._partial && created!.size === 1 && this.entityMap.mergesEntities);
+      if (retains || refresh) {
+        try {
+          entity.save(held, !retains);
+        } catch (e) {
+          this.context.log?.warn?.('Failed to apply mutation event', e);
+          this.evictUnlessAdopted(entity, created!);
+          return;
+        }
+      }
+    }
 
-    this.routeEvent(typename, entity.data, key, type, eventSource, () => {
-      matched = true;
-    });
+    if (matched) this.routeEvent(typename, entity.data, key, type, eventSource);
+    else this.evictUnlessAdopted(entity, created!);
+  }
 
-    if (wasNew) {
-      if (matched) {
-        // The parent persisted a ref to it, so its record must exist.
-        persistUnwritten(entity);
-      } else {
-        entity.evict();
+  /** References from entities the same event created don't count as adoption. */
+  private evictUnlessAdopted(root: EntityInstance, created: Set<EntityInstance>): void {
+    let createdHolders = 0;
+    for (const c of created) if (c.entityRefs?.has(root)) createdHolders++;
+    if (root.refCount <= createdHolders) this.evictCreated(root, created);
+  }
+
+  /** Also evicts unreferenced entities the event created, so a later event can't write them as orphans. */
+  private evictCreated(root: EntityInstance, created: Set<EntityInstance>): void {
+    root.evict();
+    let evicted = true;
+    while (evicted) {
+      evicted = false;
+      for (const c of created) {
+        if (c !== root && c.refCount === 0 && this.entityMap.getEntity(c.key) === c) {
+          c.evict();
+          evicted = true;
+        }
+      }
+    }
+  }
+
+  private deferredWrites: Set<EntityInstance> | undefined;
+
+  /** @internal */
+  deferWrite(entity: EntityInstance): void {
+    (this.deferredWrites ??= new Set()).add(entity);
+  }
+
+  /** Children were deferred before parents, so insertion order is write order. */
+  /** @internal */
+  flushDeferredWrites(): void {
+    const deferred = this.deferredWrites;
+    if (deferred === undefined || deferred.size === 0) return;
+    this.deferredWrites = undefined;
+    try {
+      for (const entity of deferred) {
+        if (entity._applying || this.entityMap.getEntity(entity.key) !== entity) continue;
+        if (entity._deferredWrite || (!entity._persisted && entity._pendingWrites === 0)) entity.save();
+      }
+    } finally {
+      for (const entity of deferred) {
+        if (entity._deferredWrite) {
+          entity._deferredWrite = false;
+          entity.markUnwritten();
+        }
+      }
+    }
+  }
+
+  /** @internal */
+  discardDeferredWrites(): void {
+    const deferred = this.deferredWrites;
+    if (deferred === undefined) return;
+    this.deferredWrites = undefined;
+    for (const entity of deferred) {
+      if (entity._deferredWrite) {
+        entity._deferredWrite = false;
+        entity.markUnwritten();
       }
     }
   }
@@ -836,14 +966,15 @@ export class QueryClient {
     entityKey: number,
     eventType: 'create' | 'update' | 'delete',
     eventSource: number | undefined,
-    onMatch?: () => void,
+    onMatch?: (willRetain: boolean) => void,
     deleteData?: Record<string, unknown>,
+    dryRun: boolean = false,
   ): void {
     const matcher = this.constraintRegistry.get(typename);
     if (matcher === undefined) return;
 
     const data = eventSource !== undefined ? { ...entityData, [EVENT_SOURCE_FIELD]: eventSource } : entityData;
-    matcher.routeEvent(typename, data, entityKey, eventType, onMatch, deleteData);
+    matcher.routeEvent(typename, data, entityKey, eventType, onMatch, deleteData, dryRun);
   }
 
   destroy(): void {
@@ -853,6 +984,8 @@ export class QueryClient {
     this.staggerTimer = undefined;
     this.staggerQueue.clear();
     this.networkUnsubscribe?.();
+    for (const off of this.storeUnsubscribes) off();
+    this.storeUnsubscribes = [];
     this.gcManager.destroy();
     this.networkManager.destroy();
     for (const adapter of this.adapters.values()) {
@@ -912,13 +1045,4 @@ function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset
     if (instanceParams[key] !== subset[key]) return false;
   }
   return true;
-}
-
-function persistUnwritten(entity: EntityInstance): void {
-  if (!entity._persisted) entity.save();
-  const refs = entity.entityRefs;
-  if (refs === undefined) return;
-  for (const child of refs.keys()) {
-    if (!child._persisted) persistUnwritten(child);
-  }
 }

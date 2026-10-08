@@ -169,3 +169,14 @@ export function typeError(path: string, expectedType: InternalObjectFieldTypeDef
   }
   return new TypeError(`Validation error at ${path}`);
 }
+
+/**
+ * An in-memory entity doesn't satisfy a cached query's shape. Drops the whole
+ * cached query rather than filtering the item out.
+ */
+export class CachedEntityMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CachedEntityMismatchError';
+  }
+}

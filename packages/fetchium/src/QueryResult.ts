@@ -290,6 +290,8 @@ export class QueryInstance<T extends Query> {
         __hasNext: () => this.hasNext,
         __isFetchingNext: () => this._fetchNextPromise !== undefined,
       };
+      // Deliberately not notified: this query's consumers snapshot fresh via the
+      // relay, and other consumers of a shared entity don't need these extras.
     }
 
     return this.rootEntity.getProxy(def.statics.shape as unknown as EntityDef) as QueryResult<T>;

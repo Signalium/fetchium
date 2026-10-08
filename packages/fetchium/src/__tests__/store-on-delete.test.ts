@@ -112,6 +112,123 @@ describe('QueryStore.onDelete', () => {
     await sleep(20);
     expect(deleted).toEqual([q1]);
   });
+
+  it('SyncQueryStore still notifies the next listener when one unsubscribes during a deletion', () => {
+    const store = new SyncQueryStore(new MemoryPersistentStore());
+    const deleted: number[] = [];
+    const unsubscribe = store.onDelete(() => unsubscribe());
+    store.onDelete(key => deleted.push(key));
+
+    const q1 = hashValue(['GET:/u', { id: '1' }]);
+    store.saveQuery(queryDef('GET:/u', 10), q1, { __entityRef: 0 }, Date.now(), new Set());
+    store.deleteQuery(q1);
+    expect(deleted).toEqual([q1]);
+  });
+
+  it('AsyncQueryStore writer still notifies the next listener when one unsubscribes during a deletion', async () => {
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate: new MockAsyncPersistentStore(),
+      connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
+    });
+    const deleted: number[] = [];
+    const unsubscribe = writer.onDelete!(() => unsubscribe());
+    writer.onDelete!(key => deleted.push(key));
+
+    const q1 = hashValue(['GET:/v', { id: '1' }]);
+    writer.saveQuery(queryDef('GET:/v', 10), q1, { __entityRef: 0 }, Date.now(), new Set());
+    writer.deleteQuery(q1);
+    await sleep(20);
+    expect(deleted).toEqual([q1]);
+  });
+
+  it('SyncQueryStore finishes a cascade and notifies every listener when one throws', () => {
+    const kv = new MemoryPersistentStore();
+    const store = new SyncQueryStore(kv);
+    const deleted: number[] = [];
+    store.onDelete(() => {
+      throw new Error('listener failed');
+    });
+    store.onDelete(key => deleted.push(key));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const q1 = hashValue(['GET:/t', { id: '1' }]);
+      const e1 = hashValue(['User', 1]);
+      store.saveEntity(e1, { id: 1 });
+      store.saveQuery(queryDef('GET:/t', 10), q1, { __entityRef: e1 }, Date.now(), new Set([e1]));
+      store.deleteQuery(q1);
+      expect(deleted).toEqual([q1, e1]);
+      expect(kv.has(valueKeyFor(e1))).toBe(false);
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('AsyncQueryStore writer finishes a cascade when a listener throws', async () => {
+    const delegate = new MockAsyncPersistentStore();
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate,
+      connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
+    });
+    const deleted: number[] = [];
+    writer.onDelete!(() => {
+      throw new Error('listener failed');
+    });
+    writer.onDelete!(key => deleted.push(key));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const q1 = hashValue(['GET:/w', { id: '1' }]);
+      const e1 = hashValue(['User', 1]);
+      writer.saveEntity(e1, { id: 1 });
+      writer.saveQuery(queryDef('GET:/w', 10), q1, { __entityRef: e1 }, Date.now(), new Set([e1]));
+      writer.deleteQuery(q1);
+      await sleep(20);
+      expect(deleted).toEqual([q1, e1]);
+      expect(await delegate.has(valueKeyFor(e1))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('AsyncQueryStore writer keeps processing when a listener throws over a failed write', async () => {
+    class FlakyStore extends MockAsyncPersistentStore {
+      failNext: string | undefined;
+      override async setString(key: string, value: string) {
+        if (key === this.failNext) {
+          this.failNext = undefined;
+          throw new Error('injected failure');
+        }
+        return super.setString(key, value);
+      }
+    }
+    const delegate = new FlakyStore();
+    const writer = new AsyncQueryStore({
+      isWriter: true,
+      delegate,
+      connect: (_handle: (msg: StoreMessage) => void) => ({ sendMessage: () => {} }),
+    });
+    const deleted: number[] = [];
+    writer.onDelete!(() => {
+      throw new Error('listener failed');
+    });
+    writer.onDelete!(key => deleted.push(key));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const e1 = hashValue(['User', 1]);
+      const e2 = hashValue(['User', 2]);
+      delegate.failNext = valueKeyFor(e1);
+      writer.saveEntity(e1, { id: 1 });
+      writer.saveEntity(e2, { id: 2 });
+      await sleep(20);
+      expect(deleted).toEqual([e1]);
+      expect(await delegate.has(valueKeyFor(e2))).toBe(true);
+      expect(writer.isSettled()).toBe(true);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
 
 describe('stores without onDelete', () => {

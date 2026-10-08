@@ -38,8 +38,9 @@ describe('sameValue', () => {
     expect(sameValue(proxy, proxy)).toBe(true);
   });
 
-  it('reports NaN as changed, since it is not equal to itself', () => {
-    expect(sameValue(Number.NaN, Number.NaN)).toBe(false);
+  it('treats NaN as unchanged and -0 as a change (Object.is semantics)', () => {
+    expect(sameValue(Number.NaN, Number.NaN)).toBe(true);
+    expect(sameValue(0, -0)).toBe(false);
   });
 
   const different: [string, unknown, unknown][] = [

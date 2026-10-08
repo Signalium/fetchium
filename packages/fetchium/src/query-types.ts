@@ -99,14 +99,54 @@ export interface QueryStore {
 
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void;
 
+  /**
+   * Writes the fields streamed events supplied, merged over the stored record
+   * if one exists (references derived from the merged value). Without it the
+   * client calls `saveEntity`, dropping fields the events did not carry.
+   * With `ifStored`, nothing is written when no record is stored, and a store
+   * with `onDelete` reports the key as dropped.
+   */
+  mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void;
+
   activateQuery(queryDef: QueryDefinition<any, any, any>, storageKey: number): void;
 
   deleteQuery(queryKey: number): void;
 
   purgeStaleQueries?(): MaybePromise<void>;
 
-  /** Called with the key of every record the store drops on its own (eviction, cascade, purge). */
-  onDelete?(listener: (key: number) => void): void;
+  /**
+   * Called with the key of every record the store drops on its own (eviction,
+   * cascade, purge). May return an unsubscribe, called from `destroy()`.
+   * Without it, entities are written on every apply.
+   */
+  onDelete?(listener: (key: number) => void): void | (() => void);
+
+  /**
+   * Async stores: called with each entity key once its write is applied. The
+   * client treats an entity as persisted only after this acknowledgement.
+   */
+  onPersisted?(listener: (key: number) => void): void | (() => void);
+
+  /**
+   * Async stores: whether every queued operation has been processed. While
+   * `false` the client does not skip unchanged entity writes. Absent means
+   * always settled.
+   */
+  isSettled?(): boolean;
+
+  /**
+   * Async stores: a narrower `isSettled` that ignores the client's own entity
+   * writes, reporting only queued operations that could delete a record.
+   * Takes precedence over `isSettled` when present.
+   */
+  hasQueuedDeletes?(): boolean;
+
+  /**
+   * Whether the store holds a record for this key, or `undefined` if it can't
+   * tell yet. An event for an entity not in memory is written as an `ifStored`
+   * merge unless this returns `false`. Without `mergeEntity`, only when `true`.
+   */
+  hasEntity?(key: number): boolean | undefined;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

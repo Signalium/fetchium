@@ -153,6 +153,11 @@ function snapshotCameFrom(snapshotObj: unknown, sourceId: number): boolean {
   return snapshotOrigins.get(snapshotObj)?.sourceId === sourceId;
 }
 
+/** Dev-only: a consumer that mutates a snapshot throws at its call site. */
+function freezeInDev<T extends object>(obj: T): T {
+  return IS_DEV ? Object.freeze(obj) : obj;
+}
+
 function asPrevObject(prev: unknown): Record<string, unknown> | undefined {
   return prev !== null && typeof prev === 'object' && !Array.isArray(prev)
     ? (prev as Record<string, unknown>)
@@ -185,9 +190,10 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
       }
       const next = snapshotRawValue(item, prevItem, snap);
       result[i] = next;
-      if (!changed && next !== prevArr![i]) changed = true;
+      // `Object.is`, so a NaN slot doesn't change identity on every walk.
+      if (!changed && !Object.is(next, prevArr![i])) changed = true;
     }
-    return changed ? result : prevArr!;
+    return changed ? freezeInDev(result) : prevArr!;
   }
 
   if (Object.getPrototypeOf(value) === ObjectProto) {
@@ -200,15 +206,61 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
       const key = keys[i];
       const next = snapshotRawValue(obj[key], prevObj?.[key], snap);
       result[key] = next;
-      if (!changed && next !== prevObj![key]) changed = true;
+      if (!changed && !Object.is(next, prevObj![key])) changed = true;
     }
-    return changed ? result : prevObj!;
+    return changed ? freezeInDev(result) : prevObj!;
   }
 
   return snap(value, prev);
 }
 
-/** Dev-only: losing the fast path is invisible to behavioral tests. */
+/** Dev guard: tells real drift from a value that only lost identity, like a rebuilt `Set`. */
+function sameSnapshotValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameSnapshotValue(a[i], b[i])) return false;
+    return true;
+  }
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set) || !(b instanceof Set) || a.size !== b.size) return false;
+    // Pair by position, searching only after the first misalignment.
+    const bItems = [...b];
+    let matched: Set<number> | undefined;
+    let i = 0;
+    for (const item of a) {
+      if (matched === undefined && sameSnapshotValue(item, bItems[i])) {
+        i++;
+        continue;
+      }
+      if (matched === undefined) {
+        matched = new Set();
+        for (let k = 0; k < i; k++) matched.add(k);
+      }
+      const j = bItems.findIndex((other, idx) => !matched!.has(idx) && sameSnapshotValue(item, other));
+      if (j === -1) return false;
+      matched.add(j);
+      i++;
+    }
+    return true;
+  }
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map) || !(b instanceof Map) || a.size !== b.size) return false;
+    for (const [k, v] of a) if (!b.has(k) || !sameSnapshotValue(v, b.get(k))) return false;
+    return true;
+  }
+  if (Object.getPrototypeOf(a) !== ObjectProto || Object.getPrototypeOf(b) !== ObjectProto) return false;
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  for (const key of aKeys) {
+    if (!Object.hasOwn(b, key)) return false;
+    if (!sameSnapshotValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
+/** Dev-only counters: losing the fast path is invisible to behavioral tests. */
 export let __debug_snapshotFieldReads = 0;
 export let __debug_snapshotFullWalks = 0;
 export function __debug_resetSnapshotCounters(): void {
@@ -232,10 +284,33 @@ function walkFields(
   }
 }
 
+/** For proxies from a previous instance of this module (hot reload), absent from `snapshotSources`. */
+function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn): unknown {
+  const obj = current as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  const prevObj = asPrevObject(prev);
+  let changed = prevObj === undefined || Object.keys(prevObj).length !== keys.length;
+  const result: Record<string, unknown> = {};
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const val = obj[key];
+    const next = typeof val === 'function' ? val : snap(val, prevObj?.[key]);
+    result[key] = next;
+    if (!changed && !Object.is(next, prevObj![key])) changed = true;
+  }
+  return changed ? freezeInDev(result) : prevObj;
+}
+
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
   const source = snapshotSources.get(current);
-  // Not built by `createProxy`, so there are no fields to read.
-  if (source === undefined) return current;
+  if (source === undefined) {
+    // Hot-reloaded proxy. Returning it as-is would stop React re-rendering on its changes.
+    if (PROXY_ID.has(current) || typeof (current as { toJSON?: unknown }).toJSON === 'function') {
+      return snapshotProxyByWalking(current, prev, snap);
+    }
+    // A bare `Entity` has no fields to read, only the shape's type defs.
+    return current;
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   source.relay?.value;
@@ -261,14 +336,29 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
     let result: Record<string, unknown> | undefined;
     for (let i = 0; i < keys.dynamic.length; i++) {
       const key = keys.dynamic[i];
-      if (patch[key] !== before[key]) {
+      if (!Object.is(patch[key], before[key])) {
         if (result === undefined) result = { ...before };
         result[key] = patch[key];
       }
     }
 
-    if (IS_DEV) assertStaticFieldsUnchanged(source, keys, before, snap);
-    return rememberSnapshot(source.id, result ?? before, version, keys);
+    if (IS_DEV) {
+      // Report drift, don't throw: Signalium's watcher flush has no catch.
+      const drifted = verifyStaticFields(source, keys, before, snap);
+      if (drifted !== undefined) {
+        if (result === undefined) result = { ...before };
+        for (const key of Object.keys(drifted)) result[key] = drifted[key];
+      }
+      // A consumer altered the snapshot's keys. Frozen ones can't have been.
+      if (!Object.isFrozen(before) && !sameKeyList(Object.keys(before), keys.enumerable)) {
+        const source_ = result ?? before;
+        const rebuilt: Record<string, unknown> = {};
+        for (const key of keys.enumerable) rebuilt[key] = source_[key];
+        result = rebuilt;
+        reportDrift(source, '(keys)', 'its key set was altered');
+      }
+    }
+    return rememberSnapshot(source.id, result !== undefined ? freezeInDev(result) : before, version, keys);
   }
 
   if (IS_DEV) __debug_snapshotFullWalks++;
@@ -279,37 +369,83 @@ const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unkno
   let changed = prevObj === undefined || Object.keys(prevObj).length !== enumerable.length;
   if (!changed) {
     for (let i = 0; i < enumerable.length; i++) {
-      if (result[enumerable[i]] !== prevObj![enumerable[i]]) {
+      if (!Object.is(result[enumerable[i]], prevObj![enumerable[i]])) {
         changed = true;
         break;
       }
     }
   }
-  return rememberSnapshot(source.id, changed ? result : prevObj!, version, keys);
+  return rememberSnapshot(source.id, changed ? freezeInDev(result) : prevObj!, version, keys);
 };
 
-/** Dev check: a static field must not change while `version` stays put. */
-function assertStaticFieldsUnchanged(
+function sameKeyList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Dev-only: drifts already raised, keyed `typename.field`. */
+const reportedDrift = new Set<string>();
+
+export type SnapshotDriftHandler = (error: Error, queryClient: QueryClient) => void;
+
+/** Rethrows in a microtask so the error surfaces as uncaught, outside Signalium's watcher flush. */
+const defaultDriftHandler: SnapshotDriftHandler = (error, queryClient) => {
+  queryClient.getContext().log?.error?.(error.message, error);
+  queueMicrotask(() => {
+    throw error;
+  });
+};
+
+let snapshotDriftHandler: SnapshotDriftHandler = defaultDriftHandler;
+
+/** Dev-only test hook. Also clears the raised set. `undefined` restores the default. */
+export function __setSnapshotDriftHandler(handler: SnapshotDriftHandler | undefined): void {
+  snapshotDriftHandler = handler ?? defaultDriftHandler;
+  reportedDrift.clear();
+}
+
+function reportDrift(source: EntitySnapshotSource, key: string, what: string): void {
+  const tag = `${source.instance.typename}.${key}`;
+  if (reportedDrift.has(tag)) return;
+  reportedDrift.add(tag);
+  const error = new Error(
+    `[fetchium] stale entity snapshot: ${source.instance.typename}:${source.instance.id} ${what} while version ` +
+      `stayed at ${source.instance.version}. The re-read value is being served, but a production build would keep ` +
+      `the stale one. Either the field was mutated without notify(), the shape's static/dynamic split is wrong ` +
+      `for it, or a consumer mutated a snapshot it received (dev snapshots are frozen so that fails at the call ` +
+      `site; in production they are not). Raised once per field.`,
+  );
+  snapshotDriftHandler(error, source.instance._queryClient);
+}
+
+/**
+ * Checks the fast path's assumptions: `data` only changes through a `notify()`
+ * that bumps `version`, and every field outside `keys.dynamic` is a pure
+ * function of `data`. Returns the static fields that drifted, if any.
+ * Dynamic fields are skipped, since re-reading them is not identity-stable.
+ *
+ * The re-read cancels the fast path's savings, so the speedup only shows in
+ * production builds.
+ */
+function verifyStaticFields(
   source: EntitySnapshotSource,
   keys: EntityKeys,
   before: Record<string, unknown>,
   snap: SnapshotFn,
-): void {
+): Record<string, unknown> | undefined {
   const verified: Record<string, unknown> = {};
   const readsBefore = __debug_snapshotFieldReads;
   walkFields(source, keys.static, before, snap, verified);
   __debug_snapshotFieldReads = readsBefore;
+  let drifted: Record<string, unknown> | undefined;
   for (const key of keys.static) {
-    if (verified[key] !== before[key]) {
-      throw new Error(
-        `[fetchium] stale entity snapshot: ${source.instance.typename}:${source.instance.id} field '${key}' ` +
-          `changed while version stayed at ${source.instance.version}. Either the field was mutated without ` +
-          `notify(), or the shape's static/dynamic split is wrong for it. This throws from inside a snapshot, ` +
-          `so the reactive computation holding it stays in an error state and will rethrow on every read — ` +
-          `reload rather than chasing the later throws, which are all this one.`,
-      );
-    }
+    if (Object.is(verified[key], before[key]) || sameSnapshotValue(verified[key], before[key])) continue;
+    if (drifted === undefined) drifted = {};
+    drifted[key] = verified[key];
+    reportDrift(source, key, `field '${key}' changed`);
   }
+  return drifted;
 }
 
 // Register once on the `Entity` base class. Signalium 3.0.1+ resolves custom
@@ -335,6 +471,19 @@ export class EntityInstance {
   data: Record<string, unknown>;
   refCount: number = 0;
   _persisted: boolean = false;
+  /** Writes sent to an acknowledging store, not yet acknowledged. */
+  _pendingWrites: number = 0;
+  /** An apply is still reifying this instance's fields. */
+  _applying: boolean = false;
+  /** Data came only from events, so a write merges over the stored record. */
+  _partial: boolean = false;
+  /** With `_partial`: the fields a write merges. */
+  _partialKeys: Set<string> | undefined = undefined;
+  /** A write waiting for a child's apply to finish. */
+  _deferredWrite: boolean = false;
+  /** The store is known to hold a record of this entity. */
+  _recorded: boolean = false;
+  private _saving: boolean = false;
   entityRefs: Map<EntityInstance, number> | undefined;
   liveCollections: LiveCollectionBinding[] = [];
   satisfiedDefs: WeakSet<ValidatorDef<unknown>> = new WeakSet();
@@ -406,11 +555,22 @@ export class EntityInstance {
     }
     if (oldRefs !== undefined && oldRefs.size > 0) {
       for (const child of oldRefs.keys()) {
-        if (newRefs === undefined || !newRefs.has(child)) child.release();
+        if (newRefs === undefined || !newRefs.has(child)) {
+          child.release();
+          if (persist) this.writeDropsRef(child);
+        }
       }
     }
     this.entityRefs = newRefs;
     if (persist) this.save();
+  }
+
+  /**
+   * The write may delete the child's record after the current apply, so it is
+   * rewritten rather than trusted. Sync stores report deletes via `onDelete`.
+   */
+  private writeDropsRef(child: EntityInstance): void {
+    if (this._queryClient.storeAcksWrites) child.recordDropped();
   }
 
   addChildRef(child: EntityInstance, persist: boolean = true): void {
@@ -428,6 +588,7 @@ export class EntityInstance {
     if (count <= 1) {
       this.entityRefs.delete(child);
       child.release();
+      if (persist) this.writeDropsRef(child);
     } else {
       this.entityRefs.set(child, count - 1);
     }
@@ -457,9 +618,84 @@ export class EntityInstance {
     return false;
   }
 
-  save(): void {
-    this._persisted = true;
-    this._queryClient.entityMap.save(this);
+  /**
+   * `storeHolds`: the store's `hasEntity` answer, if the caller already has it.
+   * `ifStored`: a merge only refreshes a stored record, never creates one.
+   */
+  save(storeHolds?: boolean, ifStored?: boolean): void {
+    const client = this._queryClient;
+    if (this._saving) return;
+    this._saving = true;
+    try {
+      // References must point at existing records, so unrecorded children are
+      // written first. A child still being reified defers both writes.
+      const refs = this.entityRefs;
+      if (refs !== undefined) {
+        let deferred = false;
+        for (const child of refs.keys()) {
+          if (child._recorded || child._persisted || child._pendingWrites > 0 || child._saving) continue;
+          if (client.entityMap.getEntity(child.key) !== child) continue;
+          if (child._applying) {
+            client.deferWrite(child);
+            deferred = true;
+          } else {
+            try {
+              child.save();
+            } catch (e) {
+              this.markUnwritten();
+              throw e;
+            }
+            if (child._deferredWrite) deferred = true;
+          }
+        }
+        if (deferred) {
+          this._deferredWrite = true;
+          client.deferWrite(this);
+          return;
+        }
+      }
+      this._deferredWrite = false;
+      // No record to merge over, so the fields held are the whole record.
+      if (this._partial && !this._recorded && (storeHolds ?? client.store.hasEntity?.(this.key)) === false) {
+        this._partial = false;
+        this._partialKeys = undefined;
+      }
+      // Counted before the call: a store may acknowledge synchronously.
+      if (client.storeAcksWrites) this._pendingWrites++;
+      try {
+        client.entityMap.save(this, this._partial ? this._partialKeys : undefined, ifStored);
+      } catch (e) {
+        this.markUnwritten();
+        throw e;
+      }
+      // After the call, so a throwing store leaves it unset.
+      if (!client.storeAcksWrites) this._persisted = this._recorded = true;
+    } finally {
+      this._saving = false;
+    }
+  }
+
+  /** A live field of this entity gained or lost a member outside an apply. */
+  liveFieldChanged(fieldKey: string): void {
+    if (this._partial) this._partialKeys?.add(fieldKey);
+  }
+
+  /** Ignores acks for writes a previous instance of this entity dispatched. */
+  acknowledgeWrite(): void {
+    if (this._pendingWrites === 0) return;
+    if (--this._pendingWrites === 0) this._persisted = this._recorded = true;
+  }
+
+  /** The store dropped (or failed to write) this entity's record. */
+  recordDropped(): void {
+    this._recorded = false;
+    this.markUnwritten();
+  }
+
+  /** Forces the next apply to write. Queued writes hold older data, so their acks are dropped. */
+  markUnwritten(): void {
+    this._persisted = false;
+    this._pendingWrites = 0;
   }
 
   notify(): void {
@@ -478,18 +714,31 @@ function sameMembers(a: unknown[], b: unknown[]): boolean {
   return true;
 }
 
-function filterEntityArray(array: unknown[], innerDef: ValidatorDef<unknown>, queryClient: QueryClient): unknown[] {
-  const result: unknown[] = [];
+interface NarrowedArray {
+  source: unknown[];
+  filtered: unknown[];
+  /** Members not (yet) satisfying the def, the only ones whose membership can change. */
+  excluded: EntityInstance[];
+  parseId: number;
+}
+
+function filterEntityArray(
+  array: unknown[],
+  innerDef: ValidatorDef<unknown>,
+  queryClient: QueryClient,
+): { filtered: unknown[]; excluded: EntityInstance[] } {
+  const filtered: unknown[] = [];
+  const excluded: EntityInstance[] = [];
   for (const item of array) {
     if (typeof item !== 'object' || item === null) continue;
     const entityKey = PROXY_ID.get(item);
     if (entityKey === undefined) continue;
     const entityInstance = queryClient.entityMap.getEntity(entityKey);
-    if (entityInstance !== undefined && entityInstance.satisfiesDef(innerDef)) {
-      result.push(item);
-    }
+    if (entityInstance === undefined) continue;
+    if (entityInstance.satisfiesDef(innerDef)) filtered.push(item);
+    else excluded.push(entityInstance);
   }
-  return result;
+  return { filtered, excluded };
 }
 
 // Fields that can change without the entity notifying (formats may read other signals).
@@ -533,8 +782,15 @@ function computeIsStaticFieldDef(def: ValidatorDef<unknown>): boolean {
   return true;
 }
 
-/** Key lists a proxy reports, shared per shape. */
-interface EntityKeys {
+// ======================================================
+// Per-shape key metadata
+// ======================================================
+
+/**
+ * The key lists a proxy reports, shared per shape. `own` is `ownKeys`;
+ * `enumerable` drops the non-enumerable entity methods.
+ */
+export interface EntityKeys {
   own: string[];
   enumerable: string[];
   dynamic: string[];
@@ -542,14 +798,22 @@ interface EntityKeys {
   enumerableSet: Set<string>;
 }
 
-const shapeKeyCache = new WeakMap<ValidatorDef<unknown>, EntityKeys>();
+/** No class sharing the typename can put an entity under a shapeless field. */
+function isShapelessFieldDef(def: unknown): boolean {
+  if (typeof def === 'number' || typeof def === 'string') return true;
+  if (def instanceof Set) return true;
+  return def instanceof ValidatorDef && (def.shape === undefined || def.shape === null);
+}
 
+/** Cached per client: the split depends on which classes share the typename. */
 function shapeKeys(
   validatorDef: ValidatorDef<unknown>,
   shapeFields: Record<string, unknown>,
   methods: Record<string, (...args: unknown[]) => unknown> | undefined,
+  queryClient: QueryClient,
 ): EntityKeys {
-  let keys = shapeKeyCache.get(validatorDef);
+  const cache = queryClient.shapeKeyCache;
+  let keys = cache.get(validatorDef);
   if (keys !== undefined) return keys;
 
   const own = Object.keys(shapeFields);
@@ -560,7 +824,14 @@ function shapeKeys(
       if (!own.includes(methodKey)) own.push(methodKey);
     }
   }
-  const dynamic = enumerable.filter(key => key !== '__typename' && !isStaticFieldDef(shapeFields[key]));
+  // Another class sharing the typename may write an entity into a nested object.
+  const typename = validatorDef.typenameValue;
+  const shared = typename !== undefined && (queryClient.getEntityDefsForTypename(typename)?.length ?? 0) > 1;
+  const dynamic = enumerable.filter(
+    key =>
+      key !== '__typename' &&
+      (!isStaticFieldDef(shapeFields[key]) || (shared && !isShapelessFieldDef(shapeFields[key]))),
+  );
 
   const dynamicSet = new Set(dynamic);
   keys = {
@@ -570,7 +841,7 @@ function shapeKeys(
     static: enumerable.filter(key => !dynamicSet.has(key)),
     enumerableSet: new Set(enumerable),
   };
-  shapeKeyCache.set(validatorDef, keys);
+  cache.set(validatorDef, keys);
   return keys;
 }
 
@@ -617,12 +888,17 @@ function bindMethod(
   return bound;
 }
 
-/** Narrows a shared-typename array to this field's def. */
+/** An excluded member that gains the def's fields must recompute the consumer. */
+function consumeExcluded(excluded: EntityInstance[]): void {
+  for (let i = 0; i < excluded.length; i++) excluded[i].consume();
+}
+
+/** Narrow a shared-typename array to this field's def, cached on array identity. */
 function narrowEntityArray(
   prop: string,
   value: unknown[],
   shapeFields: Record<string, unknown>,
-  filterCache: Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>,
+  filterCache: Map<string, NarrowedArray>,
   queryClient: QueryClient,
 ): unknown[] {
   const fieldDef = shapeFields[prop];
@@ -637,11 +913,14 @@ function narrowEntityArray(
           const parseId = queryClient.currentParseId;
           const cached = filterCache.get(prop);
           if (cached !== undefined && cached.source === value && cached.parseId === parseId) {
+            consumeExcluded(cached.excluded);
             return cached.filtered;
           }
-          let filtered = filterEntityArray(value, innerDef, queryClient);
+          const narrowed = filterEntityArray(value, innerDef, queryClient);
+          let filtered = narrowed.filtered;
           if (cached !== undefined && sameMembers(cached.filtered, filtered)) filtered = cached.filtered;
-          filterCache.set(prop, { source: value, filtered, parseId });
+          filterCache.set(prop, { source: value, filtered, excluded: narrowed.excluded, parseId });
+          consumeExcluded(narrowed.excluded);
           return filtered;
         }
       }
@@ -670,7 +949,7 @@ function createProxy(
   const typenameField = shape.typenameField;
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
-  const filterCache = new Map<string, { source: unknown[]; filtered: unknown[]; parseId: number }>();
+  const filterCache = new Map<string, NarrowedArray>();
 
   const toJSON = () => ({ __entityRef: key });
 
@@ -696,21 +975,28 @@ function createProxy(
     throw new Error(`typenameField "${typenameField}" must be declared in the entity shape`);
   }
 
-  const baseKeys = shapeKeys(validatorDef, shapeFields, methods);
+  // Shared per shape; only a query's root entity allocates its own lists.
+  let cachedBaseCache: QueryClient['shapeKeyCache'] | undefined;
   let cachedMethods: Record<string, unknown> | undefined;
   let cachedGetters: Record<string, unknown> | undefined;
-  let keys = baseKeys;
+  let keys: EntityKeys | undefined;
 
   function entityKeys(): EntityKeys {
+    // The client replaces its key cache when a class registers for this typename.
+    const baseCache = queryClient.shapeKeyCache;
     const methodsNow = instance._extraMethods;
     const gettersNow = instance._extraGetters;
-    if (methodsNow !== cachedMethods || gettersNow !== cachedGetters) {
+    if (
+      keys === undefined ||
+      baseCache !== cachedBaseCache ||
+      methodsNow !== cachedMethods ||
+      gettersNow !== cachedGetters
+    ) {
+      const base = shapeKeys(validatorDef, shapeFields, methods, queryClient);
+      cachedBaseCache = baseCache;
       cachedMethods = methodsNow;
       cachedGetters = gettersNow;
-      keys =
-        methodsNow === undefined && gettersNow === undefined
-          ? baseKeys
-          : withExtraKeys(baseKeys, methodsNow, gettersNow);
+      keys = methodsNow === undefined && gettersNow === undefined ? base : withExtraKeys(base, methodsNow, gettersNow);
     }
     return keys;
   }

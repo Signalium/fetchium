@@ -7,6 +7,7 @@
 
 import { hashValue } from 'signalium/utils';
 import type { QueryClient, PreloadedEntityMap } from './QueryClient.js';
+import type { EntityInstance } from './EntityInstance.js';
 import {
   CaseInsensitiveSet,
   FormattedValue,
@@ -15,7 +16,7 @@ import {
   VariantGroup,
   VariantSet,
 } from './typeDefs.js';
-import { typeError, typeToString, UnknownUnionVariantError } from './errors.js';
+import { typeError, typeToString, UnknownUnionVariantError, CachedEntityMismatchError } from './errors.js';
 import {
   ARRAY_KEY,
   ArrayDef,
@@ -49,7 +50,14 @@ export interface ParsedEntity {
   data: Record<string, unknown>;
   /** Set for partial event updates — restricts mergeFields to only these keys. */
   rawKeys: Set<string> | undefined;
+  /** The keys a streamed event carried. */
+  eventKeys: Set<string> | undefined;
+  /** A cached record filling in fields an entity built from events lacks. */
+  fillsPartial: boolean;
 }
+
+/** `'pending'` while a check is in progress, so a cycle counts as satisfied. */
+export type TrustMemo = Map<EntityInstance, Map<ValidatorDef<unknown>, boolean | 'pending'>>;
 
 // ======================================================
 // Parse context — bundles threading parameters
@@ -64,6 +72,12 @@ export class ParseContext {
   isPartialEvent: boolean = false;
   seen: Map<Record<string, unknown>, ParsedEntity> | undefined = undefined;
   seenByKey: Map<number, ParsedEntity> | undefined = undefined;
+  trusted: TrustMemo | undefined = undefined;
+  /**
+   * On for input the client doesn't own and may see again (events, effects).
+   * Off for a fetch result or cached record, copied only where a value differs.
+   */
+  copyInput: boolean = true;
 
   reset(
     queryClient: QueryClient | undefined,
@@ -75,6 +89,8 @@ export class ParseContext {
     this.preloadedEntities = preloadedEntities;
     this.warn = warn;
     this.isPartialEvent = isPartialEvent;
+    this.trusted = undefined;
+    this.copyInput = true;
     if (queryClient !== undefined) {
       if (this.seen === undefined) {
         this.seen = new Map();
@@ -375,22 +391,30 @@ function parseUnionData(
 // ======================================================
 
 function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseContext, path: string): unknown[] {
-  const result: unknown[] = [];
+  // An empty array is always new, since a live array grows the one it holds.
+  let result: unknown[] | undefined = ctx.copyInput || array.length === 0 ? [] : undefined;
 
   for (let i = 0; i < array.length; i++) {
+    const item = array[i];
     try {
-      result.push(parseData(array[i], itemShape as unknown as TypeDef, ctx, `${path}[${i}]`));
+      const parsed = parseData(item, itemShape as unknown as TypeDef, ctx, `${path}[${i}]`);
+      if (result !== undefined) result.push(parsed);
+      else if (parsed !== item) (result = array.slice(0, i)).push(parsed);
     } catch (e) {
+      if (e instanceof CachedEntityMismatchError) throw e;
+      result ??= array.slice(0, i);
       ctx.warn('Failed to parse array item, filtering out', {
         index: i,
-        value: array[i],
+        value: item,
         error: e instanceof Error ? e.message : String(e),
       });
     }
   }
 
-  return result;
+  return result ?? array;
 }
+
+// Neither walker writes into its input.
 
 function parseRecordData(
   record: Record<string, unknown>,
@@ -398,11 +422,14 @@ function parseRecordData(
   ctx: ParseContext,
   path: string,
 ): Record<string, unknown> {
+  let result: Record<string, unknown> | undefined = ctx.copyInput ? { ...record } : undefined;
   for (const [key, value] of entries(record)) {
-    record[key] = parseData(value, valueShape as unknown as TypeDef, ctx, `${path}["${key}"]`);
+    const parsed = parseData(value, valueShape as unknown as TypeDef, ctx, `${path}["${key}"]`);
+    if (result !== undefined) result[key] = parsed;
+    else if (parsed !== value) (result = { ...record })[key] = parsed;
   }
 
-  return record;
+  return result ?? record;
 }
 
 function parseObjectData(
@@ -416,12 +443,16 @@ function parseObjectData(
   }
 
   const shape = objectShape.shape;
+  let result: Record<string, unknown> | undefined = ctx.copyInput ? { ...obj } : undefined;
 
   for (const [key, propShape] of entries(shape)) {
-    obj[key] = parseData(obj[key], propShape as unknown as TypeDef, ctx, `${path}.${key}`);
+    const value = obj[key];
+    const parsed = parseData(value, propShape as unknown as TypeDef, ctx, `${path}.${key}`);
+    if (result !== undefined) result[key] = parsed;
+    else if (parsed !== value || (value === undefined && !(key in obj))) (result = { ...obj })[key] = parsed;
   }
 
-  return obj;
+  return result ?? obj;
 }
 
 // ======================================================
@@ -459,33 +490,90 @@ function parseEntityData(
     return existingEntry.data;
   }
 
-  if (preloadedEntities !== undefined) {
-    const existing = queryClient.entityMap.getEntity(key);
-    const preloaded = existing?.data ?? preloadedEntities.get(key);
-
-    if (preloaded === undefined) {
-      throw new Error(`Cached entity ${key} not found in preloaded map`);
-    }
-
-    obj = preloaded;
-  }
-
   const parsedData: Record<string | symbol, unknown> = {};
   // For symbol id fields (QUERY_ID), copy the id onto parsedData so
   // getOrCreateEntity can read it. entries(shape) skips symbol keys.
   if (typeof entityShape.idField === 'symbol') {
     parsedData[entityShape.idField] = id;
   }
+
+  if (preloadedEntities !== undefined) {
+    const existing = queryClient.entityMap.getEntity(key);
+
+    let fillKeys: Set<string> | undefined;
+    const preloaded = preloadedEntities.get(key);
+
+    if (existing !== undefined && existing._partial && existing._partialKeys !== undefined && preloaded !== undefined) {
+      // Built from events: parse only the fields the record adds.
+      fillKeys = existing._partialKeys;
+      obj = preloaded;
+    } else if (existing !== undefined) {
+      // A live entity is newer than the cache, and re-parsing parsed values
+      // corrupts them. Merge nothing, but check it satisfies this shape.
+      ctx.trusted ??= new Map();
+      if (!dataSatisfiesDef(existing.data, entityShape as unknown as ValidatorDef<unknown>, queryClient, ctx.trusted)) {
+        throw new CachedEntityMismatchError(
+          `Cached entity ${entityShape.typenameValue}:${String(existing.id)} in memory does not satisfy the query's shape`,
+        );
+      }
+      const entry: ParsedEntity = {
+        key,
+        shape: entityShape,
+        data: parsedData,
+        rawKeys: new Set(),
+        eventKeys: undefined,
+        fillsPartial: false,
+      };
+      ctx.seen!.set(parsedData, entry);
+      ctx.seenByKey!.set(key, entry);
+      return parsedData;
+    } else {
+      if (preloaded === undefined) {
+        throw new Error(`Cached entity ${key} not found in preloaded map`);
+      }
+      obj = preloaded;
+    }
+
+    if (fillKeys !== undefined) {
+      const shapeKeys = Object.keys(entityShape.shape);
+      const rawKeys = new Set<string>();
+      for (const k of shapeKeys) if (!fillKeys.has(k)) rawKeys.add(k);
+      const entry: ParsedEntity = {
+        key,
+        shape: entityShape,
+        data: parsedData,
+        rawKeys,
+        eventKeys: undefined,
+        fillsPartial: true,
+      };
+      ctx.seen!.set(parsedData, entry);
+      ctx.seenByKey!.set(key, entry);
+      const entityDesc = `[[${entityShape.typenameValue}:${id}]]`;
+      for (const [fieldKey, propShape] of entries(entityShape.shape)) {
+        if (!rawKeys.has(fieldKey)) continue;
+        parsedData[fieldKey] = parseData(
+          obj[fieldKey],
+          propShape as unknown as TypeDef,
+          ctx,
+          `${entityDesc}.${fieldKey}`,
+        );
+      }
+      return parsedData;
+    }
+  }
   // For mutation events updating existing entities, track which keys are
   // present so mergeFields only touches those fields (true partial update).
   const existingInStore = queryClient.entityMap.getEntity(key);
   const isPartial = ctx.isPartialEvent && existingInStore !== undefined;
 
+  const eventKeys = ctx.isPartialEvent ? new Set(Object.keys(obj)) : undefined;
   const entry: ParsedEntity = {
     key,
     shape: entityShape,
     data: parsedData,
-    rawKeys: isPartial ? new Set(Object.keys(obj)) : undefined,
+    rawKeys: isPartial ? eventKeys : undefined,
+    eventKeys,
+    fillsPartial: false,
   };
   ctx.seen!.set(parsedData, entry);
   ctx.seenByKey!.set(key, entry);
@@ -507,6 +595,167 @@ function parseEntityData(
 // ======================================================
 // entitySatisfiesShape
 // ======================================================
+
+/**
+ * Whether parsed entity data satisfies `def` deeply, unlike the top-level
+ * `entitySatisfiesShape`. Values that can't be judged are accepted.
+ */
+export function dataSatisfiesDef(
+  data: Record<string, unknown>,
+  def: ValidatorDef<unknown>,
+  queryClient: QueryClient,
+  visiting: TrustMemo,
+): boolean {
+  const shape = def.shape as Record<string, unknown> | undefined;
+  if (shape === undefined || shape === null) return true;
+  for (const key of Object.keys(shape)) {
+    if (key === def.typenameField) continue;
+    if (!valueSatisfiesDef(data[key], shape[key], queryClient, visiting)) return false;
+  }
+  return true;
+}
+
+function allowsMissing(mask: number): boolean {
+  return (mask & Mask.UNDEFINED) !== 0;
+}
+
+function maskOf(value: unknown): number {
+  switch (typeof value) {
+    case 'number':
+      return Mask.NUMBER;
+    case 'string':
+      return Mask.STRING;
+    case 'boolean':
+      return Mask.BOOLEAN;
+    case 'undefined':
+      return Mask.UNDEFINED;
+    case 'object':
+      return value === null ? Mask.NULL : Array.isArray(value) ? Mask.ARRAY : Mask.OBJECT;
+    default:
+      return 0;
+  }
+}
+
+function valueSatisfiesDef(value: unknown, fieldDef: unknown, queryClient: QueryClient, visiting: TrustMemo): boolean {
+  // Literals: the parser fills a missing literal in, and rejects any other value.
+  if (fieldDef instanceof VariantSet) return value === fieldDef.value;
+  if (typeof fieldDef === 'string') return value === fieldDef;
+  if (fieldDef instanceof Set) return fieldDef.has(value as never);
+
+  if (typeof fieldDef === 'number') {
+    if (value === undefined) return allowsMissing(fieldDef);
+    if (value === null) return (fieldDef & Mask.NULL) !== 0;
+    if ((fieldDef & Mask.HAS_FORMAT) !== 0) return value instanceof FormattedValue;
+    return (fieldDef & maskOf(value)) !== 0;
+  }
+
+  if (!(fieldDef instanceof ValidatorDef)) return true;
+  const mask = fieldDef.mask;
+  if (value === undefined) return allowsMissing(mask);
+  if (value === null) return (mask & Mask.NULL) !== 0;
+
+  if (fieldDef._liveConfig !== undefined) return true;
+  if ((mask & Mask.PARSE_RESULT) !== 0) return typeof value === 'object' && 'success' in (value as object);
+  if (typeof value !== 'object') {
+    if ((mask & Mask.HAS_FORMAT) !== 0 && (mask & maskOf(value)) !== 0) return false;
+    return (mask & maskOf(value)) !== 0 || fieldDef.values?.has(value as never) === true;
+  }
+  if (value instanceof FormattedValue) return (mask & Mask.HAS_FORMAT) !== 0;
+
+  if ((mask & Mask.ENTITY) !== 0 && (mask & Mask.UNION) === 0) {
+    return entitySatisfies(value as object, fieldDef, queryClient, visiting);
+  }
+
+  if ((mask & Mask.UNION) !== 0) {
+    const members = fieldDef.shape as Record<string | symbol, unknown> | undefined;
+    if (members === undefined || members === null) return true;
+    if (Array.isArray(value)) {
+      const itemDef = members[ARRAY_KEY];
+      if (itemDef === undefined || typeof itemDef === 'number') return true;
+      return arraySatisfies(value, itemDef, queryClient, visiting);
+    }
+    const entityKey = PROXY_ID.get(value as object);
+    const typename =
+      entityKey !== undefined
+        ? queryClient.entityMap.getEntity(entityKey)?.typename
+        : ((value as Record<string, unknown>)[fieldDef.typenameField ?? '__typename'] as string | undefined);
+    const member = typename !== undefined ? members[typename] : undefined;
+    if (member instanceof VariantGroup) {
+      const source =
+        entityKey !== undefined ? queryClient.entityMap.getEntity(entityKey)?.data : (value as Record<string, unknown>);
+      const variant = source?.[member.variantField] as string | undefined;
+      const variantDef = variant !== undefined ? member.defs[variant] : undefined;
+      return variantDef === undefined ? true : valueSatisfiesDef(value, variantDef, queryClient, visiting);
+    }
+    if (member === undefined || typeof member === 'number') {
+      const recordDef = members[RECORD_KEY];
+      if (typename !== undefined || recordDef === undefined || entityKey !== undefined) return true;
+      for (const item of Object.values(value as Record<string, unknown>)) {
+        if (!valueSatisfiesDef(item, recordDef, queryClient, visiting)) return false;
+      }
+      return true;
+    }
+    return valueSatisfiesDef(value, member, queryClient, visiting);
+  }
+
+  if ((mask & Mask.ARRAY) !== 0) {
+    if (!Array.isArray(value)) return false;
+    return arraySatisfies(value, fieldDef.shape, queryClient, visiting);
+  }
+
+  if ((mask & Mask.RECORD) !== 0) {
+    if (typeof value !== 'object' || Array.isArray(value)) return false;
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      if (!valueSatisfiesDef(item, fieldDef.shape, queryClient, visiting)) return false;
+    }
+    return true;
+  }
+
+  if ((mask & Mask.OBJECT) !== 0) {
+    if (typeof value !== 'object' || Array.isArray(value)) return false;
+    if (PROXY_ID.has(value as object)) return true;
+    return dataSatisfiesDef(value as Record<string, unknown>, fieldDef, queryClient, visiting);
+  }
+
+  return (mask & maskOf(value)) !== 0;
+}
+
+/** An instance no longer in memory is accepted, since a re-parse would hand out its data too. */
+function entitySatisfies(
+  value: object,
+  def: ValidatorDef<unknown>,
+  queryClient: QueryClient,
+  visiting: TrustMemo,
+): boolean {
+  const entityKey = PROXY_ID.get(value);
+  if (entityKey === undefined) return false;
+  const child = queryClient.entityMap.getEntity(entityKey);
+  if (child === undefined) return true;
+  let checked = visiting.get(child);
+  if (checked === undefined) visiting.set(child, (checked = new Map()));
+  const known = checked.get(def);
+  if (known !== undefined) return known === 'pending' || known;
+  checked.set(def, 'pending');
+  const verdict = dataSatisfiesDef(child.data, def, queryClient, visiting);
+  checked.set(def, verdict);
+  return verdict;
+}
+
+/** A shared-typename array is narrowed on read, so a non-matching member is not a mismatch. */
+function arraySatisfies(value: unknown[], itemDef: unknown, queryClient: QueryClient, visiting: TrustMemo): boolean {
+  let narrowed = false;
+  if (itemDef instanceof ValidatorDef && (itemDef.mask & Mask.ENTITY) !== 0 && (itemDef.mask & Mask.UNION) === 0) {
+    const typename = itemDef.typenameValue;
+    const defs = typename !== undefined ? queryClient.getEntityDefsForTypename(typename) : undefined;
+    narrowed = defs !== undefined && defs.length > 1;
+  }
+  for (const item of value) {
+    if (valueSatisfiesDef(item, itemDef, queryClient, visiting)) continue;
+    if (narrowed && typeof item === 'object' && item !== null && PROXY_ID.has(item)) continue;
+    return false;
+  }
+  return true;
+}
 
 export function entitySatisfiesShape(data: Record<string, unknown>, def: ValidatorDef<any>): boolean {
   return objectSatisfiesShape(data, def.shape as Record<string, unknown>, def.typenameField);

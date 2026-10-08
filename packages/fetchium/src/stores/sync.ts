@@ -11,6 +11,8 @@ import {
   refIdsKeyFor,
   updatedAtKeyFor,
   valueKeyFor,
+  mergeStoredRecord,
+  notifyListeners,
 } from './shared.js';
 
 export interface SyncPersistentStore {
@@ -70,14 +72,32 @@ export class MemoryPersistentStore implements SyncPersistentStore {
   }
 }
 
+/** Keyed by kv, not store: two stores over one kv delete each other's records. */
+const deleteListenersByKv = new WeakMap<SyncPersistentStore, Array<(key: number) => void>>();
+
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
-  private deleteListeners: Array<(key: number) => void> = [];
+  private readonly deleteListeners: Array<(key: number) => void>;
 
-  constructor(private readonly kv: SyncPersistentStore) {}
+  constructor(private readonly kv: SyncPersistentStore) {
+    let listeners = deleteListenersByKv.get(kv);
+    if (listeners === undefined) {
+      listeners = [];
+      deleteListenersByKv.set(kv, listeners);
+    }
+    this.deleteListeners = listeners;
+  }
 
-  onDelete(listener: (key: number) => void): void {
+  onDelete(listener: (key: number) => void): () => void {
     this.deleteListeners.push(listener);
+    return () => {
+      const idx = this.deleteListeners.indexOf(listener);
+      if (idx !== -1) this.deleteListeners.splice(idx, 1);
+    };
+  }
+
+  hasEntity(key: number): boolean {
+    return this.kv.has(valueKeyFor(key));
   }
 
   loadQuery(queryDef: QueryDefinition<any, any, any>, queryKey: number): CachedQuery | undefined {
@@ -114,6 +134,8 @@ export class SyncQueryStore implements QueryStore {
 
   private preloadEntities(entityIds: Uint32Array, preloaded: PreloadedEntityMap): void {
     for (const entityId of entityIds) {
+      // Records can reference each other in a cycle.
+      if (preloaded.has(entityId)) continue;
       const entityValue = this.kv.getString(valueKeyFor(entityId));
 
       if (entityValue === undefined) {
@@ -148,6 +170,13 @@ export class SyncQueryStore implements QueryStore {
     this.setValue(entityKey, value, refIds);
   }
 
+  mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {
+    const stored = this.kv.getString(valueKeyFor(entityKey));
+    const merged = stored !== undefined ? mergeStoredRecord(stored, fields) : undefined;
+    if (merged !== undefined) this.setValue(entityKey, merged.value, merged.refIds);
+    else this.setValue(entityKey, fields, refIds);
+  }
+
   activateQuery(queryDef: QueryDefinition<any, any, any>, queryKey: number): void {
     if (!this.kv.has(valueKeyFor(queryKey))) {
       return;
@@ -164,7 +193,18 @@ export class SyncQueryStore implements QueryStore {
         queue = new Uint32Array(maxCount);
         this.kv.setBuffer(queueKeyFor(queryDefId), queue);
       } else if (queue.length !== maxCount) {
-        queue = new Uint32Array(queue.buffer, 0, maxCount);
+        // A view over the old buffer can't grow, and a shorter one would strand
+        // the keys it drops. The activated key moves to the front, so keep it.
+        const resized = new Uint32Array(maxCount);
+        resized.set(queue.subarray(0, Math.min(queue.length, maxCount)));
+        for (let i = maxCount; i < queue.length; i++) {
+          const dropped = queue[i];
+          if (dropped !== 0 && dropped !== queryKey) {
+            this.deleteQuery(dropped);
+            this.kv.delete(updatedAtKeyFor(dropped));
+          }
+        }
+        queue = resized;
         this.kv.setBuffer(queueKeyFor(queryDefId), queue);
       }
 
@@ -280,7 +320,7 @@ export class SyncQueryStore implements QueryStore {
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));
-    for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](id);
+    notifyListeners(this.deleteListeners, id);
 
     const refIds = kv.getBuffer(refIdsKeyFor(id));
     kv.delete(refIdsKeyFor(id)); // Clean up the refIds key

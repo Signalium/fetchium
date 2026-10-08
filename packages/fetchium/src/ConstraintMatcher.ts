@@ -201,13 +201,15 @@ export class ConstraintMatcher {
     }
   }
 
+  /** With `dryRun`, only reports matches through `onMatch`, touching no collection. */
   routeEvent(
     typename: string,
     entityData: Record<string, unknown>,
     entityKey: number,
     eventType: 'create' | 'update' | 'delete',
-    onMatch?: () => void,
+    onMatch?: (willRetain: boolean) => void,
     deleteData?: Record<string, unknown>,
+    dryRun: boolean = false,
   ): void {
     for (const group of this._groups.values()) {
       const hash = computeConstraintHash(entityData, group.fieldPaths);
@@ -216,7 +218,7 @@ export class ConstraintMatcher {
       const bindings = group.getMatching(hash);
       if (bindings !== undefined) {
         for (const binding of bindings) {
-          binding.onEvent(typename, entityKey, eventType, onMatch, deleteData);
+          binding.onEvent(typename, entityKey, eventType, onMatch, deleteData, dryRun);
         }
       }
     }

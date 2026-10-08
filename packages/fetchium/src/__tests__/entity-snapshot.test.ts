@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { signal, watcher, withContexts } from 'signalium';
 import { hashValue, registerCustomSnapshot, snapshot } from 'signalium/utils';
 import {
+  __setSnapshotDriftHandler,
   __debug_resetSnapshotCounters,
   __debug_snapshotFieldReads,
   __debug_snapshotFullWalks,
@@ -627,7 +628,7 @@ describe('Entity Snapshots', () => {
     expect(after.board.slots[1]).toBe(before.board.slots[2]);
   });
 
-  it('throws in dev when a field changes without the version moving', async () => {
+  it('raises in dev when a field changes without the version moving, and serves the re-read value', async () => {
     const { client, mockFetch } = getClient();
     mockFetch.get('/portfolio', portfolio(2));
 
@@ -639,14 +640,44 @@ describe('Entity Snapshots', () => {
     const instance = client.entityMap.getEntity(hashValue(['Token', 'tok-0']))!;
     const original = instance.data.symbol;
     instance.data.symbol = 'MUTATED';
-    client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 5 } });
+    const raised: Error[] = [];
+    __setSnapshotDriftHandler(error => raised.push(error));
+    try {
+      client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 5 } });
 
-    expect(() => read()).toThrow(/stale entity snapshot/);
+      const snap = read() as unknown as { tokens: { symbol: string }[] };
+      expect(snap.tokens[0].symbol).toBe('MUTATED');
+      expect(raised).toHaveLength(1);
+      expect(raised[0].message).toMatch(/stale entity snapshot: Token:tok-0 field 'symbol'/);
 
-    // Restore and notify so the watcher doesn't rethrow after the test.
-    instance.data.symbol = original;
-    instance.notify();
-    read();
+      // Raised once per field.
+      client.applyMutationEvent({ type: 'update', typename: 'Token', data: { id: 'tok-1', price: 6 } });
+      read();
+      expect(raised).toHaveLength(1);
+    } finally {
+      __setSnapshotDriftHandler(undefined);
+      instance.data.symbol = original;
+      instance.notify();
+      read();
+    }
+  });
+
+  it('hands out frozen snapshots in dev, so a consumer mutation fails at its call site', async () => {
+    const { client, mockFetch } = getClient();
+    mockFetch.get('/portfolio', portfolio(2));
+
+    const { query, read } = snapshotHarness(client, () => fetchQuery(GetPortfolio));
+    await query;
+    const snap = read() as unknown as { tokens: { symbol: string }[] };
+
+    expect(Object.isFrozen(snap)).toBe(true);
+    expect(Object.isFrozen(snap.tokens)).toBe(true);
+    expect(Object.isFrozen(snap.tokens[0])).toBe(true);
+    expect(() => snap.tokens.sort()).toThrow(TypeError);
+    expect(() => {
+      snap.tokens[0].symbol = 'X';
+    }).toThrow(TypeError);
+    expect(snap.tokens[0].symbol).not.toBe('X');
   });
 
   it('re-snapshots a union field whose only entity-bearing member is an array', async () => {
