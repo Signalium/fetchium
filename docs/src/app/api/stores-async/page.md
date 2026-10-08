@@ -45,7 +45,7 @@ new AsyncQueryStore(config: AsyncQueryStoreConfig)
 | ------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `loadQuery`         | `(queryDef: QueryDefinition, queryKey: number): Promise<CachedQuery \| undefined>`                             | Loads a cached query. Only works when a `delegate` is available (writer mode). Returns `undefined` if no delegate, if the entry has expired, or if it does not exist. Preloads referenced entities. |
 | `saveQuery`         | `(queryDef: QueryDefinition, queryKey: number, value: unknown, updatedAt: number, refIds?: Set<number>): void` | Dispatches a save-query message. In writer mode, enqueues for serial processing. In reader mode, sends via `sendMessage`.                                                                           |
-| `saveEntity`        | `(entityKey: number, value: unknown, refIds?: Set<number>): void`                                              | Dispatches a save-entity message.                                                                                                                                                                   |
+| `saveEntity`        | `(entityKey: number, value: unknown, refIds?: Set<number>, rest?: string, ownedKeys?: string[]): void`         | Dispatches a save-entity message.                                                                                                                                                                   |
 | `mergeEntity`       | `(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void`                         | Dispatches a merge of `fields` over the stored record. With `ifStored`, the writer skips it when no record is stored.                                                                               |
 | `activateQuery`     | `(queryDef: QueryDefinition, queryKey: number): void`                                                          | Dispatches an activate-query message to update the LRU queue.                                                                                                                                       |
 | `deleteQuery`       | `(queryKey: number): void`                                                                                     | Dispatches a delete-query message.                                                                                                                                                                  |
@@ -141,6 +141,8 @@ type StoreMessage =
       refIds?: number[];
       merge?: boolean; // merge `value` over the stored record
       ifStored?: boolean; // with `merge`: skip if no record is stored
+      rest?: string; // stored fields to keep
+      ownedKeys?: string[]; // keep stored fields outside these keys
     }
   | {
       type: 2; // ActivateQuery
