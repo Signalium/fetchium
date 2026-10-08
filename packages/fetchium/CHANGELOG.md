@@ -1,5 +1,83 @@
 # fetchium
 
+## 1.0.0
+
+### Major Changes
+
+- 46e237f: Breaking changes. Most apps need no code changes, but tests that depend on loading frames, render counts or timers may.
+  - **Results are frozen in development.** Mutating query data throws a `TypeError`; copy it first (`[...data.items].sort()`).
+  - **Cached data shows on the first render** with `SyncQueryStore`. Update tests that wait for a loading state or count renders.
+  - **Fetches start sooner.** The first fetch and refetches without `debounce` start on a microtask, not after `setTimeout(0)`; update tests that advance timers to see them.
+  - **Identical data doesn't re-render.** A refetch, poll or streamed update with the same data skips the render; read `isFetching` instead of counting renders.
+  - **Nested values change identity only when they change.** `t.object`, `t.record` and live-collection values are new objects after a change, so memoized children re-render; drop workarounds that forced it.
+  - **`t.record` and `t.result` fields apply updates** instead of keeping their old value.
+  - **Changing a Signal param mid-fetch aborts that fetch** and fetches the new params; the old response is dropped.
+  - **`QueryClient.destroy()` aborts fetches in flight.** Code that awaits a query during teardown gets an `AbortError`; catch it.
+  - **Awaiting a query can wait for a remount.** If the last component using a query unmounts before its first data arrives, `await fetchQuery(...)` waits for the next mount, `gcTime` collection or `destroy()` instead of rejecting with an `AbortError`.
+  - **New reserved `QueryClientConfig` names:** `shouldRetry`, `reactivationGraceMs`, `reactivationStaggerMs`, `activity` and `pollResumeJitterMs` are read as options; rename custom context values that use them.
+  - **`retry: {}` and `retry: { retryDelay }` now retry** like `retry: true`; use `retry: false` for no retries.
+  - **`AsyncQueryStore` honors `cache.maxCount`.** Check the value if you set one.
+  - **Custom `QueryStore`s** get new optional methods (`mergeEntity`, `onDelete`, `onPersisted`, `isSettled`, `hasQueuedDeletes`, `hasEntity`); without them nothing changes.
+
+### Minor Changes
+
+- 82d67fc: New `queryClient.prefetch(Query, params, { ttl })` and `queryClient.retain(fn, { ttl })` start queries before any component reads them. A component that mounts while one is held reuses its request and renders the data on its first render if it has arrived. Both return a `release` function; `prefetch` lasts 10 seconds by default and `retain` until released.
+
+  New `useSuspenseQuery` in `fetchium/react`. It suspends only while the query has no data yet, and sends a failed first fetch to the error boundary.
+  - A refetch without `debounce` starts on a microtask instead of after `setTimeout(0)`.
+  - Reading `.value` on a pending or failed query doesn't suspend or throw. The docs said it did.
+
+- 46e004f: New `QueryClient` options that make coming back to a screen, or to the app, quieter. All are off by default.
+  - `reactivationGraceMs` (also per query): a query that mounts again with data younger than this doesn't refetch. Data a live subscription kept current counts as fresh.
+  - `reactivationStaggerMs`: refetches from queries that mount together are spread across this window instead of all starting at once.
+  - `activity: { isActive(), subscribe(listener) }`: `poll()` stops while the app is inactive and resumes when it's active again. On React Native, wrap `AppState`. `pollResumeJitterMs` spreads out polls that were overdue on resume.
+  - Pass the topic to `TopicQueryAdapter.sendMutationEvent(event, topic)` so that topic's query counts the push as fresh data.
+
+- 82d67fc: New optional `shouldRetry(error, attempt, status)` on `QueryClientConfig` and on a query's or mutation's `retry` config. Return `false` to stop retrying an error you know is permanent, such as a 404.
+
+  `status` is the HTTP status when it is known, and `getErrorStatus` is exported. Without the hook, retries work as before. `retry.retries` is now optional.
+
+- 5c6824d: A refetch, poll or streamed update that returns the same data no longer re-renders your components. `isPending` and `isFetching` still change as before.
+  - Values that can't be compared reliably (a `Date`, a typed array, a class instance) always count as changed.
+  - `t.record(...)` fields now apply updates. Previously a record field kept its old value.
+
+### Patch Changes
+
+- a23ad4b: Fixed spurious errors and wrong data when a query mounts, unmounts or changes params quickly.
+  - Unmounting and remounting a query, in the same task or mid-fetch (switching a chart timeframe and back), no longer shows an `AbortError`. The query shows its cached data, or stays pending, while it refetches. One exception: a topic query with no data that mounts and unmounts in the same task shows the `AbortError` on its next mount until its data arrives (before, it stayed pending forever).
+  - Changing a Signal param mid-fetch fetches the new params instead of showing the old params' response. A query whose result is not an entity now caches each params value separately; a cold start could show another params value's data.
+  - `QueryClient.destroy()` aborts every fetch in flight, and code awaiting one gets an `AbortError`.
+
+- 33458ce: `AsyncQueryStore` now honors a query's `cache.maxCount`, as `SyncQueryStore` does. It used to always keep the default of 50 keys.
+- a23ad4b: `useSuspenseQuery` no longer refetches in a loop when a slow retry render takes a while to reach the component. The error goes to the error boundary, and resetting the boundary retries.
+
+  Custom `QueryClientConfig` keys still reach queries as `this.context`, except the reserved option names `shouldRetry`, `reactivationGraceMs`, `reactivationStaggerMs`, `activity` and `pollResumeJitterMs`. An invalid value for one of these options is ignored instead of breaking queries.
+
+- 5c6824d: Query results rebuild faster after an update: entities whose data didn't change are not read again.
+
+  List results also keep each row's object identity when the list is inserted into or re-sorted, so memoized rows don't re-render. Development builds still re-read everything to check the result, so the speedup shows in production builds only.
+
+- a23ad4b: Fixed memoized children (`component()` or `React.memo`) showing a stale value when given a nested value such as `token.price` as a prop. A nested `t.object`, `t.record` or live-collection value is now a new object when it changes, and keeps its identity when it doesn't.
+- 5c636ff: Streamed updates write each changed entity to the store once instead of two or three times, and an update that changes nothing writes nothing.
+
+  A `create` event for an entity that no live collection shows is no longer written to the store, where it was never cleaned up.
+
+- 46e237f: Fixed stale data in components when a second query loads entities that are already in memory, and streamed updates that were lost on restart.
+  - Development builds freeze query results, so mutating one (such as calling `sort()` on a list in render) throws a `TypeError`. Copy the data first, and treat production results as read-only too.
+  - In development, the stale-data check logs an error instead of throwing and blocking other components' updates.
+  - Custom stores can add the new optional `QueryStore.mergeEntity`, so an entity built from streamed updates doesn't overwrite stored fields those updates didn't include. Without it, writes work as before.
+
+- 33458ce: Fixed components not updating when an entity changes inside a union that has an array or record member, such as `t.union(t.array(t.entity(A)), t.object({ ... }))`.
+- 33458ce: Fixed cached queries failing to load after a restart ("the query cache may be corrupted or invalid") when a query had more than `cache.maxCount` cached params and refetched unchanged data.
+  - Custom stores: `QueryStore` has a new optional `onDelete(listener)`. Call the listener with every id the store deletes on its own. A store without it keeps writing every update, as before.
+  - A `t.array(t.entity(X))` field whose typename two entity classes share now shows an item as soon as it gains the fields `X` requires.
+
+- 0600009: With `SyncQueryStore`, a cached query renders its data on the first render instead of showing a loading frame first.
+  - The first fetch starts on a microtask instead of after `setTimeout(0)`. Tests that wait for a loading state or count renders may need updating.
+  - A cached entry that can't be loaded is treated as a cache miss and fetched. Previously a fresh-looking entry could leave the query pending without fetching.
+
+- a23ad4b: Faster streamed updates with `SyncQueryStore` for entities that aren't in memory, which is common when two entity classes share a typename.
+
 ## 0.5.2
 
 ### Patch Changes
