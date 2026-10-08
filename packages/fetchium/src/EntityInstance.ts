@@ -497,15 +497,7 @@ function reportDrift(source: EntitySnapshotSource, key: string, what: string): v
   snapshotDriftHandler(error, source.instance._queryClient);
 }
 
-/**
- * Checks the fast path's assumptions: `data` only changes through a `notify()`
- * that bumps `version`, and every field outside `keys.dynamic` is a pure
- * function of `data`. Returns the static fields that drifted, if any.
- * Dynamic fields are skipped, since re-reading them is not identity-stable.
- *
- * The re-read cancels the fast path's savings, so the speedup only shows in
- * production builds.
- */
+/** Dev-only: returns the static fields whose cached value no longer matches a re-read of `data`. */
 function verifyStaticFields(
   source: EntitySnapshotSource,
   keys: EntityKeys,

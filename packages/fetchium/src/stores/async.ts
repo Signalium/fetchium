@@ -175,7 +175,6 @@ export class AsyncQueryStore implements QueryStore {
       console.error('Ignoring a message the store does not understand:', msg);
       return;
     }
-    // Enqueue the message for serial processing
     this.enqueueMessage(msg);
   }
 
