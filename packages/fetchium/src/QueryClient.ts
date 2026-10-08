@@ -31,6 +31,7 @@ import {
   type QueryStore,
   type QueryParams,
   type PreloadedEntityMap,
+  type ActivitySource,
   queryKeyFor,
 } from './query-types.js';
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
@@ -47,10 +48,23 @@ export interface QueryClientConfig {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
+  /**
+   * Ms. A reactivating query with data younger than this skips its stale refetch.
+   * Subscription pushes count as fresh data, `poll()` only through its fetches.
+   * Reconnects, `refetch()`, invalidation and a failed last fetch still refetch. Default: 0.
+   */
+  reactivationGraceMs?: number;
+  /** Ms. Reactivation refetches started in the same task are spread evenly across this window. Default: 0. */
+  reactivationStaggerMs?: number;
+  /** Foreground/background source. `poll()` stops its timers while the app is inactive. */
+  activity?: ActivitySource;
+  /** Ms. Overdue `poll()` ticks on resume fire at a random point in this window, not all at once. Default: 0. */
+  pollResumeJitterMs?: number;
 }
 
 export {
   type QueryContext,
+  type ActivitySource,
   type QueryCacheOptions,
   type QueryConfigOptions,
   type FetchNextConfig,
@@ -77,6 +91,12 @@ export class QueryClient {
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
 
+  readonly reactivationGraceMs: number;
+  readonly reactivationStaggerMs: number;
+
+  private staggerQueue = new Set<QueryInstance<any>>();
+  private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
   private constraintRegistry = new Map<string, ConstraintMatcher>();
@@ -90,6 +110,8 @@ export class QueryClient {
       store = new SyncQueryStore(new MemoryPersistentStore()),
       log,
       evictionMultiplier,
+      reactivationGraceMs,
+      reactivationStaggerMs,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -97,6 +119,9 @@ export class QueryClient {
     } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
+    this.reactivationGraceMs = nonNegative(reactivationGraceMs);
+    this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
+    // poll() reads `activity` and `pollResumeJitterMs` from the context, via `rest`.
     this.context = { ...rest, log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -437,6 +462,33 @@ export class QueryClient {
   }
 
   // ======================================================
+  // Reactivation stagger
+  // ======================================================
+
+  /** Queues a reactivation refetch. Each task's queue is spread across `reactivationStaggerMs`. */
+  scheduleReactivationRefetch(instance: QueryInstance<any>): void {
+    this.staggerQueue.add(instance);
+    this.staggerTimer ??= setTimeout(this.flushStaggerQueue, 0);
+  }
+
+  private flushStaggerQueue = (): void => {
+    this.staggerTimer = undefined;
+    const spread: QueryInstance<any>[] = [];
+    for (const instance of this.staggerQueue) {
+      if (this.getAdapter(instance.def.statics.adapterClass).coalescesRequests === true) {
+        instance.runReactivationRefetch(0);
+      } else {
+        spread.push(instance);
+      }
+    }
+    this.staggerQueue.clear();
+    const step = spread.length > 1 ? this.reactivationStaggerMs / spread.length : 0;
+    for (let i = 0; i < spread.length; i++) {
+      spread[i].runReactivationRefetch(Math.round(i * step));
+    }
+  };
+
+  // ======================================================
   // Query Invalidation
   // ======================================================
 
@@ -524,6 +576,9 @@ export class QueryClient {
   }
 
   destroy(): void {
+    clearTimeout(this.staggerTimer);
+    this.staggerTimer = undefined;
+    this.staggerQueue.clear();
     this.networkUnsubscribe?.();
     this.gcManager.destroy();
     this.networkManager.destroy();
@@ -541,6 +596,10 @@ export class QueryClient {
 }
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
+
+function nonNegative(value: unknown): number {
+  return typeof value === 'number' && value > 0 ? value : 0;
+}
 
 function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset: Record<string, unknown>): boolean {
   if (instanceParams === undefined) return false;

@@ -7,6 +7,13 @@ import { QueryDefinition } from './query.js';
 // Query Types
 // -----------------------------------------------------------------------------
 
+/** Host-supplied foreground state, e.g. wrapping React Native's `AppState`. */
+export interface ActivitySource {
+  isActive(): boolean;
+  /** Calls `listener` whenever `isActive()` may have changed. Returns an unsubscribe function. */
+  subscribe(listener: () => void): () => void;
+}
+
 export interface QueryContext {
   log?: {
     error?: (message: string, error?: unknown) => void;
@@ -15,6 +22,8 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
+  activity?: ActivitySource;
+  pollResumeJitterMs?: number;
 }
 
 /**
@@ -47,6 +56,8 @@ export interface QueryConfigOptions {
   networkMode?: NetworkMode; // default: NetworkMode.Online
   retry?: RetryConfig | number | boolean; // default: 3 on client, 0 on server
   refreshStaleOnReconnect?: boolean; // default: true
+  /** Ms. Overrides `QueryClientConfig.reactivationGraceMs` for this query. */
+  reactivationGraceMs?: number;
   subscribe?: (this: any, onEvent: (event: import('./types.js').MutationEvent) => void) => () => void;
 }
 

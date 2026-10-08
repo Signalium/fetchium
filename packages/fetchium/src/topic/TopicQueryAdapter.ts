@@ -23,6 +23,7 @@ interface TopicState {
 
 export abstract class TopicQueryAdapter extends QueryAdapter {
   private _topics = new Map<string, TopicState>();
+  private _pushListeners = new Map<string, Set<() => void>>();
 
   /**
    * Called when a query activates for a given topic.
@@ -128,8 +129,27 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
   /**
    * Convenience wrapper — pushes a mutation event through the QueryClient
    * so that entities and live collections are updated reactively.
+   * Pass `topic` so its queries' `reactivationGraceMs` counts from this event.
    */
-  protected sendMutationEvent(event: MutationEvent): void {
+  protected sendMutationEvent(event: MutationEvent, topic?: string): void {
+    if (topic !== undefined) {
+      const listeners = this._pushListeners.get(topic);
+      if (listeners !== undefined) for (const listener of listeners) listener();
+    }
     this.queryClient!.applyMutationEvent(event);
+  }
+
+  /** @internal */
+  _addPushListener(topic: string, listener: () => void): () => void {
+    let listeners = this._pushListeners.get(topic);
+    if (listeners === undefined) {
+      listeners = new Set();
+      this._pushListeners.set(topic, listeners);
+    }
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0 && this._pushListeners.get(topic) === listeners) this._pushListeners.delete(topic);
+    };
   }
 }

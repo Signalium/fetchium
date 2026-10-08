@@ -50,8 +50,16 @@ export class QueryInstance<T extends Query> {
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
   private wasPaused: boolean = false;
+  private reconnectsAtDeactivate: number = 0;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  /** Errored, not aborted. Disables the reactivation grace. */
+  private lastFetchFailed: boolean = false;
+  /** Not set by poll(): it delivers by refetching, which moves `updatedAt`. */
+  private lastPushAt: number | undefined = undefined;
+  /** Lets a queued reactivation refetch detect that another fetch overtook it. */
+  private fetchStarts: number = 0;
+  private reactivationQueuedAt: number = -1;
 
   // Invalidates on any signal consumed by getConfig() (such as
   // responseNotifier, fired by the adapter after each fetch). Param
@@ -129,6 +137,7 @@ export class QueryInstance<T extends Query> {
         // but skip GC, so resuming reuses the cached result instead of refetching.
         const deactivate = ({ isPausing = false }: DeactivateOptions = {}) => {
           this._isActive = false;
+          this.reconnectsAtDeactivate = this.queryClient.networkManager.reconnects;
 
           clearTimeout(this.debounceTimer);
           this.debounceTimer = undefined;
@@ -191,8 +200,20 @@ export class QueryInstance<T extends Query> {
               this.runQueryImmediately();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
-              if (refreshStaleOnReconnect && this.isStale) {
-                this.runDebounced();
+              // No grace after a reconnect: data may have been missed while offline.
+              const withinGrace =
+                activating &&
+                !wasPaused &&
+                !paramsDidChange &&
+                this.queryClient.networkManager.reconnects === this.reconnectsAtDeactivate &&
+                this.isWithinReactivationGrace;
+              if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
+                if (this.queryClient.reactivationStaggerMs > 0) {
+                  this.reactivationQueuedAt = this.fetchStarts;
+                  this.queryClient.scheduleReactivationRefetch(this);
+                } else {
+                  this.runDebounced();
+                }
               }
             }
           } else if (paramsDidChange) {
@@ -353,6 +374,7 @@ export class QueryInstance<T extends Query> {
 
     const ctx = this._executionCtx;
     this.unsubscribe = subscribeFn.call(ctx, (event: import('./types.js').MutationEvent) => {
+      this.notePush();
       // Collections register under their parent entity's key, so the query key
       // matches nothing. Undefined until the first apply: no collection yet.
       event.__eventSource = this.rootEntity?.key;
@@ -368,6 +390,8 @@ export class QueryInstance<T extends Query> {
         this.queryClient.getContext(),
       );
       this._executionCtx.refetch = () => this.refetch();
+      // `TopicQuery.getConfig.subscribe` passes this to its adapter.
+      (this._executionCtx as unknown as Record<string, unknown>)._notePush = this.notePush;
       this._executionCtx.rawFetchNext = this.def.statics.rawFetchNext;
       // `TopicQuery.getConfig.subscribe` reads `_topicAdapter` from the ctx;
       // set it eagerly so subscribe/unsubscribe work on the cache-fresh and
@@ -393,28 +417,37 @@ export class QueryInstance<T extends Query> {
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
 
-    return withRetry(
-      async () => {
-        try {
-          const freshData = await adapter.send(ctx, signal);
-          this.updatedAt = Date.now();
+    try {
+      const result = await withRetry(
+        async () => {
+          try {
+            const freshData = await adapter.send(ctx, signal);
+            this.updatedAt = Date.now();
 
-          const result = this.applyData(freshData, true);
-          this.saveQueryMetadata();
+            const result = this.applyData(freshData, true);
+            this.saveQueryMetadata();
 
-          return result;
-        } finally {
-          // In finally so reactive getConfig() reacts to error responses
-          // (e.g. 404 → subscribe: undefined) even when applyData throws.
-          this.reconcileSubscription();
-        }
-      },
-      this.retryConfig,
-      signal,
-    );
+            return result;
+          } finally {
+            // In finally so reactive getConfig() reacts to error responses
+            // (e.g. 404 → subscribe: undefined) even when applyData throws.
+            this.reconcileSubscription();
+          }
+        },
+        this.retryConfig,
+        signal,
+      );
+      // An aborted fetch may have been replaced by one that failed.
+      if (!signal.aborted) this.lastFetchFailed = false;
+      return result;
+    } catch (error) {
+      if (!signal.aborted) this.lastFetchFailed = true;
+      throw error;
+    }
   }
 
   private runQueryImmediately(): void {
+    this.fetchStarts++;
     clearTimeout(this.debounceTimer);
     this.debounceTimer = undefined;
     this._abortController?.abort();
@@ -425,18 +458,41 @@ export class QueryInstance<T extends Query> {
     this.relayState.setPromise(this.runQuery());
   }
 
-  private runDebounced(): void {
+  private runDebounced(extraDelay: number = 0): void {
     if (this.relayState.isPending) return;
 
     const debounce = this.config?.debounce ?? 0;
+    // Drops a queued reactivation refetch, which would replace this timer.
+    this.reactivationQueuedAt = -1;
 
     clearTimeout(this.debounceTimer);
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       this.runQueryImmediately();
-    }, debounce);
+    }, debounce + extraDelay);
   }
+
+  /** Runs a task after queueing. Skipped if a fetch started since, rather than aborting and repeating it. */
+  runReactivationRefetch(delay: number): void {
+    if (!this._isActive || this.isPaused || this.relayState.isPending) return;
+    const queuedAt = this.reactivationQueuedAt;
+    if (this.fetchStarts !== queuedAt) return;
+
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = setTimeout(
+      () => {
+        this.debounceTimer = undefined;
+        if (this.fetchStarts !== queuedAt) return;
+        this.runQueryImmediately();
+      },
+      (this.config?.debounce ?? 0) + delay,
+    );
+  }
+
+  private notePush = (): void => {
+    if (this._isActive) this.lastPushAt = Date.now();
+  };
 
   // ======================================================
   // Public methods
@@ -472,6 +528,8 @@ export class QueryInstance<T extends Query> {
     if (this._fetchNextPromise !== undefined) {
       return this._fetchNextPromise;
     }
+    // Cancels a waiting staggered refetch, which would reset the pages.
+    this.fetchStarts++;
     // Schedule notification so __isFetchingNext becomes true reactively.
     // Must be async to avoid "dirtied after consumed" when called from
     // within a reactive context (the proxy consumes the notifier on access).
@@ -538,6 +596,15 @@ export class QueryInstance<T extends Query> {
 
     const staleTime = this.config?.staleTime ?? 0;
     return Date.now() - this.updatedAt >= staleTime;
+  }
+
+  private get isWithinReactivationGrace(): boolean {
+    const { updatedAt } = this;
+    if (updatedAt === undefined || updatedAt === 0 || this.lastFetchFailed) return false;
+    const grace = this.config?.reactivationGraceMs ?? this.queryClient.reactivationGraceMs;
+    if (!(grace > 0)) return false;
+    const freshAt = Math.max(updatedAt, this.lastPushAt ?? 0);
+    return Date.now() - freshAt < grace;
   }
 
   private get isPaused(): boolean {

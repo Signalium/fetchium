@@ -35,6 +35,9 @@ export type QueryAdapterClass<T extends QueryAdapter = QueryAdapter> = abstract 
 export abstract class QueryAdapter {
   protected queryClient: IQueryClientForAdapter | undefined;
 
+  /** Set if the adapter merges nearby requests into one. Its reactivation refetches are then not staggered. */
+  declare readonly coalescesRequests?: boolean;
+
   /**
    * Called once by QueryClient when this adapter is registered.
    * Subclasses can override to do setup (e.g. open a WebSocket connection).
