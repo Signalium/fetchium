@@ -2,12 +2,12 @@ import { task, type ReactiveTask } from 'signalium';
 import { ComplexTypeDef, MutationEffects, EntityClassOrTypename } from './types.js';
 import { ValidatorDef, getEntityDef } from './typeDefs.js';
 import { type QueryClient } from './QueryClient.js';
-import { MutationDefinition } from './mutation.js';
+import { MutationDefinition, type Mutation } from './mutation.js';
 import { resolveRetryConfig } from './query.js';
 import { parseEntities, ParseContext } from './parseEntities.js';
 import { createExecutionContext, reifyValue } from './fieldRef.js';
 import { Entity } from './proxy.js';
-import { withRetry } from './retry.js';
+import { getFailedResponseStatus, withRetry } from './retry.js';
 
 /**
  * Internal mutation manager. Consumers interact with the public `task` property,
@@ -112,16 +112,28 @@ export class MutationResultImpl<Request, Result> {
       );
     }
 
-    return withRetry(async () => {
-      const abortController = new AbortController();
-      const ctx = createExecutionContext(
-        this.def.captured,
-        (request ?? {}) as Record<string, unknown>,
-        this.queryClient.getContext(),
-      );
+    let attemptCtx: Mutation | undefined;
+    return withRetry(
+      async () => {
+        attemptCtx = undefined;
+        const abortController = new AbortController();
+        const ctx = createExecutionContext(
+          this.def.captured,
+          (request ?? {}) as Record<string, unknown>,
+          this.queryClient.getContext(),
+        );
+        attemptCtx = ctx;
 
-      return (await adapter.sendMutation!(ctx, abortController.signal)) as Result;
-    }, retryConfig);
+        return (await adapter.sendMutation!(ctx, abortController.signal)) as Result;
+      },
+      retryConfig,
+      undefined,
+      {
+        shouldRetry: this.queryClient.shouldRetry,
+        // Each attempt has a fresh ctx, so a response here is this attempt's.
+        getAttemptStatus: () => getFailedResponseStatus((attemptCtx as { response?: unknown } | undefined)?.response),
+      },
+    );
   }
 }
 

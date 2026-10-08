@@ -25,6 +25,8 @@ import type { QueryAdapter, QueryAdapterClass } from './QueryAdapter.js';
 export interface ResolvedRetryConfig {
   retries: number;
   retryDelay: (attempt: number) => number;
+  /** Undefined defers to the client's `shouldRetry`. */
+  shouldRetry?: (error: unknown, attempt: number, status: number | undefined) => boolean;
 }
 
 export function resolveRetryConfig(
@@ -40,7 +42,7 @@ export function resolveRetryConfig(
   } else if (typeof retryOption === 'number') {
     retries = retryOption;
   } else {
-    retries = retryOption.retries;
+    retries = retryOption.retries ?? (isServer ? 0 : 3);
   }
 
   const retryDelay =
@@ -48,7 +50,9 @@ export function resolveRetryConfig(
       ? retryOption.retryDelay
       : (attempt: number) => 1000 * Math.pow(2, attempt);
 
-  return { retries, retryDelay };
+  const shouldRetry = typeof retryOption === 'object' ? retryOption.shouldRetry : undefined;
+
+  return { retries, retryDelay, shouldRetry };
 }
 
 // ================================

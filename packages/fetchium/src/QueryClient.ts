@@ -1,4 +1,4 @@
-import { context, watcher, ReactiveTask, type Context } from 'signalium';
+import { context, signal, watcher, withContexts, ReactivePromise, ReactiveTask, type Context } from 'signalium';
 import { hashValue } from 'signalium/utils';
 import {
   EntityDef,
@@ -26,6 +26,7 @@ import { ValidatorDef } from './typeDefs.js';
 import { ConstraintMatcher, EVENT_SOURCE_FIELD } from './ConstraintMatcher.js';
 import { LiveCollectionBinding } from './LiveCollection.js';
 import { QueryAdapter, type QueryAdapterClass } from './QueryAdapter.js';
+import type { ShouldRetry } from './retry.js';
 import {
   type QueryContext,
   type QueryStore,
@@ -35,6 +36,8 @@ import {
   queryKeyFor,
 } from './query-types.js';
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
+import type { ExtractType } from './types.js';
+import type { Optionalize, Signalize } from './type-utils.js';
 
 export interface QueryClientConfig {
   store?: QueryStore;
@@ -54,12 +57,52 @@ export interface QueryClientConfig {
    * Reconnects, `refetch()`, invalidation and a failed last fetch still refetch. Default: 0.
    */
   reactivationGraceMs?: number;
-  /** Ms. Reactivation refetches started in the same task are spread evenly across this window. Default: 0. */
+  /**
+   * Decides whether a failed query or mutation attempt is retried, for example
+   * to stop on a 4xx. A query's or mutation's own `retry.shouldRetry` overrides
+   * it. Default: every failed attempt is retried.
+   */
+  shouldRetry?: ShouldRetry;
+  /**
+   * Milliseconds. Reactivation refetches that start in the same task (for
+   * example every query on a screen that just resumed) are spread evenly
+   * across this window, in activation order, instead of all starting at once.
+   * Queries of an adapter that `coalescesRequests` are not spread. Default: 0
+   * (all start together).
+   */
   reactivationStaggerMs?: number;
   /** Foreground/background source. `poll()` stops its timers while the app is inactive. */
   activity?: ActivitySource;
   /** Ms. Overdue `poll()` ticks on resume fire at a random point in this window, not all at once. Default: 0. */
   pollResumeJitterMs?: number;
+}
+
+export interface RetainOptions {
+  /** Milliseconds until the lease releases itself. Omit to hold until `release` is called. */
+  ttl?: number;
+}
+
+export interface PrefetchOptions {
+  /** Milliseconds to keep the query active. Default: `DEFAULT_PREFETCH_TTL` (10 s). */
+  ttl?: number;
+}
+
+export const DEFAULT_PREFETCH_TTL = 10_000;
+
+/** How long a hold outlives its fetch when no reader commits (abandoned tree). */
+const SUSPENSE_HOLD_TTL = 10_000;
+
+/** React retries a suspended render within a task or two. An error unclaimed by then is dropped. */
+const UNCLAIMED_FAILURE_TTL = 50;
+
+interface SuspenseHold {
+  release: () => void;
+  /** Never rejects. */
+  settled: Promise<void> | undefined;
+  done: boolean;
+  /** The error has been handed to a render. */
+  failed: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 export {
@@ -93,9 +136,20 @@ export class QueryClient {
 
   readonly reactivationGraceMs: number;
   readonly reactivationStaggerMs: number;
+  /** See `QueryClientConfig.shouldRetry`. */
+  readonly shouldRetry: ShouldRetry | undefined;
 
   private staggerQueue = new Set<QueryInstance<any>>();
   private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+
+  private leases = new Set<() => void>();
+  /** During a lease's first run: queries with a start queued on a microtask, for the lease to run now. */
+  private leaseStarts: Set<QueryInstance<any>> | undefined = undefined;
+  /** Leases `retain()` took inside a reactive computation, by computation and run. */
+  private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
+  private warnedReactiveRetain = false;
+  /** `useSuspenseQuery` cold-miss leases, by query key. */
+  private suspenseHolds = new Map<number, SuspenseHold>();
 
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
@@ -112,6 +166,7 @@ export class QueryClient {
       evictionMultiplier,
       reactivationGraceMs,
       reactivationStaggerMs,
+      shouldRetry,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -121,7 +176,8 @@ export class QueryClient {
     this.store = store;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
     this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
-    // poll() reads `activity` and `pollResumeJitterMs` from the context, via `rest`.
+    this.shouldRetry = shouldRetry;
+    // `activity` and `pollResumeJitterMs` ride along in `rest`: poll() reads them from the context.
     this.context = { ...rest, log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
@@ -300,7 +356,209 @@ export class QueryClient {
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
     }
 
+    // An earlier reader may have activated it with its start still queued.
+    this.leaseStarts?.add(queryInstance);
+
     return queryInstance.relay;
+  }
+
+  // ======================================================
+  // Leases (retain / prefetch)
+  // ======================================================
+
+  /**
+   * Keeps the queries `fn` reads or returns active (fetched, subscribed, exempt
+   * from GC) until `release` is called or `ttl` elapses. `fn` reruns when what
+   * it reads changes. First-run fetches start before `retain` returns. Call it
+   * from an event handler or effect, not a reactive computation.
+   *
+   * ```ts
+   * const release = client.retain(() => [fetchQuery(GetTokens), fetchQuery(GetPrices, { ids })]);
+   * release();
+   * ```
+   */
+  retain(fn: () => unknown, options?: RetainOptions): () => void {
+    const owner = currentReactiveOwner();
+    if (owner === undefined) return this.lease(fn, options, true);
+
+    if (IS_DEV && !this.warnedReactiveRetain) {
+      this.warnedReactiveRetain = true;
+      this.context.log?.warn?.(
+        'QueryClient.retain() (or prefetch()) was called inside a reactive computation. Call it from an event handler or effect instead.',
+      );
+    }
+
+    const release = this.lease(fn, options, false);
+    const previous = this.reactiveLeases.get(owner.ref);
+    if (previous === undefined || previous.run !== owner.run) {
+      this.reactiveLeases.set(owner.ref, { run: owner.run, releases: [release] });
+      // After taking the new lease, so queries both runs read stay active.
+      if (previous !== undefined) for (const prior of previous.releases) prior();
+    } else {
+      previous.releases.push(release);
+    }
+    return release;
+  }
+
+  /** `startNow: false` leaves first-run fetches on their microtask, for callers inside a render. */
+  private lease(fn: () => unknown, options: RetainOptions | undefined, startNow: boolean): () => void {
+    const w = withContexts([[QueryClientContext, this]], () => watcher(() => holdReturned(fn())));
+    const unsubscribe = w.addListener(noop);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let released = false;
+
+    const release = (): void => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      this.leases.delete(release);
+      unsubscribe();
+    };
+
+    this.leases.add(release);
+
+    const outerStarts = this.leaseStarts;
+    const starts = startNow ? new Set<QueryInstance<any>>() : undefined;
+    this.leaseStarts = starts;
+    try {
+      // Activate now, not on Signalium's next flush.
+      void w.value;
+    } catch (error) {
+      release();
+      throw error;
+    } finally {
+      this.leaseStarts = outerStarts;
+    }
+
+    // Outside the watcher's computation now, so adapter code may run.
+    if (starts !== undefined) {
+      try {
+        for (const instance of starts) instance.startPendingNow();
+      } catch (error) {
+        release();
+        throw error;
+      }
+    }
+
+    const ttl = options?.ttl;
+    if (ttl !== undefined && Number.isFinite(ttl)) {
+      timer = setTimeout(release, Math.max(0, ttl));
+    }
+
+    return release;
+  }
+
+  /**
+   * Starts `QueryClass` now and keeps it active for `ttl` ms (default
+   * {@link DEFAULT_PREFETCH_TTL}) or until `release` is called, so a reader
+   * mounting within that window reuses the fetch. The lease ends at `ttl` even
+   * if the fetch is in flight, which aborts it unless a reader has joined.
+   */
+  prefetch<T extends Query>(
+    QueryClass: new () => T,
+    params?: Optionalize<Signalize<ExtractType<T['params']>>>,
+    options?: PrefetchOptions,
+  ): () => void {
+    const def = QueryDefinition.for(QueryClass);
+    return this.retain(() => this.getQuery(def, params as QueryParams | undefined), {
+      ttl: options?.ttl ?? DEFAULT_PREFETCH_TTL,
+    });
+  }
+
+  /**
+   * On a cold miss, returns a promise to suspend on and holds the query active
+   * until the reader commits. A failed cold fetch returns `error` instead.
+   * @internal
+   */
+  suspendOnColdMiss(
+    def: QueryDefinition<any, any, any>,
+    params: QueryParams | undefined,
+  ): { promise: Promise<void> | undefined; failed?: true; error?: unknown; key: number } {
+    const key = queryKeyFor(def, params);
+    const relay = this.getQuery(def, params);
+    if (relay.isReady) return { promise: undefined, key };
+
+    let hold = this.suspenseHolds.get(key);
+    if (hold === undefined) {
+      const release = this.lease(() => this.getQuery(def, params), undefined, false);
+      hold = { release, settled: undefined, done: false, failed: false, timer: undefined };
+      this.suspenseHolds.set(key, hold);
+    }
+
+    if (relay.isReady) {
+      // Hydrated by the activation. Keep the hold until the reader commits.
+      this.expireSuspenseHold(key, hold);
+      return { promise: undefined, key };
+    }
+
+    if (relay.isPending && hold.done) {
+      // Another fetch started after ours settled. Rethrowing the resolved
+      // promise would re-render at once.
+      clearTimeout(hold.timer);
+      hold.timer = undefined;
+      hold.done = false;
+      hold.failed = false;
+      hold.settled = undefined;
+    }
+
+    if (!relay.isPending) {
+      if (hold.done) {
+        // Keep the hold one task: React re-renders a throwing component once
+        // more, and that render must throw the same error, not refetch.
+        const error = relay.error;
+        if (!hold.failed) {
+          hold.failed = true;
+          clearTimeout(hold.timer);
+          hold.timer = setTimeout(() => {
+            if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
+          }, 0);
+        }
+        return { promise: undefined, failed: true, error, key };
+      }
+      // Start now, not after the activation's refetch hop.
+      this.queryInstances.get(key)?.refetch();
+    }
+
+    if (hold.settled === undefined) {
+      const current = hold;
+      current.settled = new Promise<void>(resolve => {
+        relay.then(
+          () => {
+            current.done = true;
+            this.expireSuspenseHold(key, current);
+            resolve();
+          },
+          () => {
+            current.done = true;
+            // Dropped unless the retried render claims the error first.
+            clearTimeout(current.timer);
+            current.timer = setTimeout(() => {
+              if (this.suspenseHolds.get(key) === current && !current.failed) this.releaseSuspenseHold(key);
+            }, UNCLAIMED_FAILURE_TTL);
+            resolve();
+          },
+        );
+      });
+    }
+
+    return { promise: hold.settled, key };
+  }
+
+  /** Releases a `useSuspenseQuery` hold once its reader has committed. @internal */
+  releaseSuspenseHold(key: number): void {
+    const hold = this.suspenseHolds.get(key);
+    if (hold === undefined) return;
+    this.suspenseHolds.delete(key);
+    clearTimeout(hold.timer);
+    hold.release();
+  }
+
+  private expireSuspenseHold(key: number, hold: SuspenseHold): void {
+    if (hold.timer !== undefined || this.suspenseHolds.get(key) !== hold) return;
+    hold.timer = setTimeout(() => {
+      if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
+    }, SUSPENSE_HOLD_TTL);
   }
 
   /**
@@ -465,7 +723,20 @@ export class QueryClient {
   // Reactivation stagger
   // ======================================================
 
-  /** Queues a reactivation refetch. Each task's queue is spread across `reactivationStaggerMs`. */
+  /**
+   * A query queued a start on a microtask. A lease in its first run starts it now.
+   * @internal
+   */
+  noteDeferredStart(instance: QueryInstance<any>): void {
+    this.leaseStarts?.add(instance);
+  }
+
+  /**
+   * Queues a reactivation refetch. One flush per task spreads the queue evenly
+   * across `reactivationStaggerMs` in reactivation order, the first starting
+   * immediately. Queries of an adapter that `coalescesRequests` all start
+   * immediately.
+   */
   scheduleReactivationRefetch(instance: QueryInstance<any>): void {
     this.staggerQueue.add(instance);
     this.staggerTimer ??= setTimeout(this.flushStaggerQueue, 0);
@@ -576,6 +847,8 @@ export class QueryClient {
   }
 
   destroy(): void {
+    for (const key of [...this.suspenseHolds.keys()]) this.releaseSuspenseHold(key);
+    for (const release of [...this.leases]) release();
     clearTimeout(this.staggerTimer);
     this.staggerTimer = undefined;
     this.staggerQueue.clear();
@@ -596,6 +869,38 @@ export class QueryClient {
 }
 
 export const QueryClientContext: Context<QueryClient | undefined> = context<QueryClient | undefined>(undefined);
+
+const noop = (): void => {};
+
+/**
+ * The running reactive computation and its run, if any. Signalium has no public
+ * API for this, so read a throwaway signal and inspect the consumer it recorded.
+ */
+function currentReactiveOwner(): { ref: object; run: number } | undefined {
+  try {
+    const probe = signal(0);
+    void probe.value;
+    const subs = (probe as unknown as { _subs?: Map<object, number> })._subs;
+    if (!(subs instanceof Map) || subs.size === 0) return undefined;
+    const [ref, run] = subs.entries().next().value!;
+    return typeof ref === 'object' && ref !== null && typeof run === 'number' ? { ref, run } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Reads `isReady` on returned query promises so the lease's watcher keeps them active. */
+function holdReturned(returned: unknown): void {
+  if (Array.isArray(returned)) {
+    for (const item of returned) holdOne(item);
+  } else {
+    holdOne(returned);
+  }
+}
+
+function holdOne(value: unknown): void {
+  if (value instanceof ReactivePromise) void value.isReady;
+}
 
 function nonNegative(value: unknown): number {
   return typeof value === 'number' && value > 0 ? value : 0;

@@ -449,6 +449,7 @@ export class LiveValueInstance {
         this._value = this._onDelete(this._value, entity ?? entityData);
         break;
     }
+    // Notify even for the same reference: the reducer may mutate in place.
     this._notifier.notify();
   }
 

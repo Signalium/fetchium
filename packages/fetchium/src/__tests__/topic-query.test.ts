@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { reactive } from 'signalium';
+import { reactive, withContexts } from 'signalium';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { QueryClient } from '../QueryClient.js';
+import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { t } from '../typeDefs.js';
 import { Entity } from '../proxy.js';
 import { fetchQuery } from '../query.js';
 import { getMutation } from '../mutation.js';
 import { RESTMutation } from '../rest/index.js';
 import { reifyValue } from '../fieldRef.js';
-import { createMockFetch, testWithClient, sleep, getEntityMapSize } from './utils.js';
+import { createMockFetch, createTestWatcher, testWithClient, sleep, getEntityMapSize } from './utils.js';
 import { TopicQuery } from '../topic/TopicQuery.js';
 import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
@@ -2271,5 +2271,86 @@ describe('TopicQuery', () => {
         expect(relay.value!.items[0].token).toBe('BTC');
       });
     });
+  });
+});
+
+describe('TopicQuery reactivation before it ever loaded', () => {
+  class SlowTopicAdapter extends TopicQueryAdapter {
+    subscribes = 0;
+    reject = false;
+    private timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    subscribe(topic: string): void {
+      this.subscribes++;
+      this.timers.set(
+        topic,
+        setTimeout(() => {
+          if (this.reject) this.rejectTopic(topic, new Error('topic unavailable'));
+          else this.fulfillTopic(topic, { n: 1 });
+        }, 30),
+      );
+    }
+
+    unsubscribe(topic: string): void {
+      clearTimeout(this.timers.get(topic));
+      this.clearTopic(topic);
+    }
+  }
+
+  class GetCount extends TopicQuery {
+    static override adapter = SlowTopicAdapter;
+    topic = 'count';
+    result = { n: t.number };
+  }
+
+  let client: QueryClient;
+  let adapter: SlowTopicAdapter;
+
+  beforeEach(() => {
+    adapter = new SlowTopicAdapter();
+    client = new QueryClient({ store: new SyncQueryStore(new MemoryPersistentStore()), adapters: [adapter] });
+  });
+
+  afterEach(() => {
+    client.destroy();
+  });
+
+  function mount(): () => void {
+    return withContexts([[QueryClientContext, client]], () => createTestWatcher(() => fetchQuery(GetCount).value))
+      .unsub;
+  }
+
+  function relay() {
+    return withContexts([[QueryClientContext, client]], () => fetchQuery(GetCount));
+  }
+
+  it('loads when a reader mounts after a prefetch was released before the snapshot arrived', async () => {
+    const release = client.prefetch(GetCount);
+    await sleep(5);
+    release();
+    await sleep(10);
+
+    const unmount = mount();
+    await sleep(100);
+    expect(adapter.subscribes).toBe(2);
+    expect(relay().isReady).toBe(true);
+    expect(relay().value!.n).toBe(1);
+    unmount();
+  });
+
+  it('subscribes again before refetching a topic whose snapshot was rejected', async () => {
+    adapter.reject = true;
+    const unmount = mount();
+    await sleep(60);
+    expect(relay().isRejected).toBe(true);
+    unmount();
+    await sleep(10);
+
+    adapter.reject = false;
+    const remount = mount();
+    await sleep(100);
+    expect(adapter.subscribes).toBe(2);
+    expect(relay().isReady).toBe(true);
+    remount();
   });
 });

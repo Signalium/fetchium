@@ -8,7 +8,7 @@ description: API reference for the fetchium React integration.
 React hooks for using Fetchium queries in React components. Built on top of Signalium's `useReactive` hook.
 
 ```ts
-import { useQuery } from 'fetchium/react';
+import { useQuery, useSuspenseQuery } from 'fetchium/react';
 ```
 
 ---
@@ -39,14 +39,14 @@ React hook for fetching a query. Subscribes the component to the query's reactiv
 
 The returned promise object has the following properties:
 
-| Property     | Type             | Description                                                                                                                                          |
-| ------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`      | `QueryResult<T>` | The resolved query result. Reading this while pending triggers React Suspense. Returns a deep clone to avoid accidental mutation of cached entities. |
-| `isReady`    | `boolean`        | `true` once the query has loaded a value at least once. Use for type narrowing on `value`.                                                           |
-| `isPending`  | `boolean`        | `true` while the query is loading. Also true during refetches, even if a value already exists.                                                       |
-| `isResolved` | `boolean`        | `true` when the most recent execution resolved successfully.                                                                                         |
-| `isRejected` | `boolean`        | `true` when the most recent execution failed.                                                                                                        |
-| `error`      | `unknown`        | The error if `isRejected` is `true`.                                                                                                                 |
+| Property     | Type             | Description                                                                                                                                    |
+| ------------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`      | `QueryResult<T>` | The resolved query result, or `undefined` until the first value arrives. Returns a deep clone to avoid accidental mutation of cached entities. |
+| `isReady`    | `boolean`        | `true` once the query has loaded a value at least once. Use for type narrowing on `value`.                                                     |
+| `isPending`  | `boolean`        | `true` while the query is loading. Also true during refetches, even if a value already exists.                                                 |
+| `isResolved` | `boolean`        | `true` when the most recent execution resolved successfully.                                                                                   |
+| `isRejected` | `boolean`        | `true` when the most recent execution failed.                                                                                                  |
+| `error`      | `unknown`        | The error if `isRejected` is `true`.                                                                                                           |
 
 The resolved `QueryResult<T>` includes pagination helpers:
 
@@ -133,4 +133,39 @@ const SearchResults = component(() => {
 - `useQuery` is a thin wrapper around Signalium v3's `useReactive`, which is deep-by-default. It returns a **structurally-shared snapshot** of the query result, so memoized children that receive subtrees as props keep stable references when the underlying data is unchanged.
 - Fetchium registers a custom snapshot for entity proxies so the snapshot walks into entities (instead of returning them by reference), giving you correct re-rendering on entity field changes.
 - The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Use `draft()` from `fetchium` if you need a mutable copy for mutations.
-- When used with React Suspense, reading `.value` on a pending query will suspend the component.
+- `useQuery` never suspends. Reading `.value` while pending returns `undefined`. Use [`useSuspenseQuery`](#usesuspensequery) to suspend on a cold miss.
+
+---
+
+### `useSuspenseQuery`
+
+```ts
+function useSuspenseQuery<T extends Query>(
+  QueryClass: new () => T,
+  params?: ExtractQueryParams<T>,
+): ReadyReactivePromise<QueryResult<T>>;
+```
+
+`useQuery` for components under a React `<Suspense>` boundary. It suspends only on a **cold miss**: the query has never produced a value, neither in memory nor, with a synchronous store, in the persisted cache. Anything else renders at once, including a stale value whose refetch is in flight. Refetches never suspend. Because the hook only returns once a value exists, `value` is always defined.
+
+A cold fetch that fails is thrown to the nearest error boundary. Resetting the boundary (remounting the component) tries the fetch again.
+
+Changing params to ones with no value yet is a cold miss, so the component suspends. Wrap the change in `startTransition` to keep showing the previous result.
+
+Call it from a plain function component. Like `useQuery`, it cannot run inside a Signalium `component()`, which is a reactive context.
+
+```tsx
+import { Suspense } from 'react';
+import { useSuspenseQuery } from 'fetchium/react';
+
+function UserName({ id }: { id: number }) {
+  const user = useSuspenseQuery(GetUser, { id });
+  return <span>{user.value.name}</span>;
+}
+
+<Suspense fallback={<Spinner />}>
+  <UserName id={42} />
+</Suspense>;
+```
+
+While suspended, the client keeps the query active, since React discards a suspended render without subscribing to anything. The component's commit takes over.

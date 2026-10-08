@@ -147,6 +147,22 @@ class GetUser extends RESTQuery {
 
 The default retry delay uses exponential backoff --- each successive attempt waits longer than the last (roughly 1s, 2s, 4s, ...). This avoids hammering a struggling server with rapid retries.
 
+Every failed attempt is retried, whatever its status, including `4xx` responses. When you know an error is permanent, opt out with `shouldRetry`, either per query in `retry` or for every query on the `QueryClient`. It receives the error, the attempt index and the attempt's HTTP status when known: the response the adapter received (a REST error response whose body doesn't match `result`), or `status`, `statusCode` or `response.status` on the thrown error. A query's `shouldRetry` overrides the client's.
+
+```ts
+class GetUser extends RESTQuery {
+  // ...
+  config = {
+    retry: {
+      // A 404 won't change on retry; status is undefined for network errors
+      shouldRetry: (error, attempt, status) => status !== 404,
+    },
+  };
+}
+```
+
+`getErrorStatus(error)` reads the status from an error, if you need it elsewhere.
+
 To disable retries entirely:
 
 ```ts
@@ -295,7 +311,7 @@ if (result.isRejected) {
 
 ### Opting into throw behavior
 
-If you _want_ error boundaries to catch query failures --- for example, when using React Suspense or when you prefer a centralized error UI --- you can read `.value` directly. Reading `.value` on a rejected `ReactivePromise` throws the error, which will propagate up to the nearest error boundary.
+If you _want_ error boundaries to catch query failures --- for example, when using React Suspense or when you prefer a centralized error UI --- throw the error yourself. Reading `.value` does not throw: on a rejected query it holds the last successful value, or `undefined` if there never was one.
 
 ```tsx
 import { ErrorBoundary } from 'react-error-boundary';
@@ -303,13 +319,13 @@ import { ErrorBoundary } from 'react-error-boundary';
 function UserProfile({ userId }: { userId: number }) {
   const result = useQuery(GetUser, { id: userId });
 
-  // This throws if the query is rejected,
-  // which the ErrorBoundary above will catch
-  const user = result.value;
+  // Hand a failure with nothing to show to the ErrorBoundary above
+  if (result.isRejected && !result.isReady) throw result.error;
+  if (!result.isReady) return <Spinner />;
 
   return (
     <div>
-      <h1>{user.name}</h1>
+      <h1>{result.value.name}</h1>
     </div>
   );
 }
@@ -322,6 +338,8 @@ function App() {
   );
 }
 ```
+
+`useSuspenseQuery` from `fetchium/react` does this for you: it suspends while a query with no value loads, and throws a failed cold fetch to the error boundary.
 
 This is a conscious opt-in. The default explicit-checking pattern (`isRejected` + `error`) is recommended for most use cases because it gives you the most flexibility. Error boundaries are best reserved for catching truly unexpected failures that shouldn't be handled inline.
 

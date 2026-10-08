@@ -21,7 +21,7 @@ import { GcKeyType } from './GcManager.js';
 import { Query, QueryDefinition, type ResolvedRetryConfig, resolveRetryConfig } from './query.js';
 import { EntityInstance } from './EntityInstance.js';
 import { hashValue } from 'signalium/utils';
-import { withRetry } from './retry.js';
+import { getFailedResponseStatus, withRetry, type WithRetryOptions } from './retry.js';
 
 function isThenable<T>(value: MaybePromise<T>): value is Promise<T> {
   return typeof (value as { then?: unknown } | null | undefined)?.then === 'function';
@@ -53,8 +53,14 @@ export class QueryInstance<T extends Query> {
   private reconnectsAtDeactivate: number = 0;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  /** Errored, not aborted. Disables the reactivation grace. */
+  /** Bumped to cancel a zero-delay refetch, which runs on a microtask that can't be cleared. */
+  private debounceGeneration: number = 0;
+  private pendingDebouncedRun: (() => void) | undefined = undefined;
+  private startPending: boolean = false;
+  private pendingRestart: (() => void) | undefined = undefined;
+  /** The last fetch ended in an error (not an abort). Disables the reactivation grace. */
   private lastFetchFailed: boolean = false;
+  private rejectedByConfig: boolean = false;
   /** Not set by poll(): it delivers by refetching, which moves `updatedAt`. */
   private lastPushAt: number | undefined = undefined;
   /** Lets a queued reactivation refetch detect that another fetch overtook it. */
@@ -68,7 +74,22 @@ export class QueryInstance<T extends Query> {
   private _resolvedOptions: ReadonlySignal<{
     config: QueryConfigOptions | undefined;
     retryConfig: ResolvedRetryConfig;
-  }> = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+    error?: unknown;
+  }> = reactiveSignal(() => this.resolveOptionsSafely());
+
+  // A throw here would escape Signalium's flush and stall its scheduler.
+  private resolveOptionsSafely() {
+    try {
+      return this.def.resolveOptions(this._executionCtx!);
+    } catch (error) {
+      return { config: undefined, retryConfig: resolveRetryConfig(undefined), error };
+    }
+  }
+
+  private get configError(): unknown {
+    if (this._executionCtx === undefined) return undefined;
+    return this._resolvedOptions.value.error;
+  }
 
   get config(): QueryConfigOptions | undefined {
     if (this._executionCtx === undefined) return undefined;
@@ -139,8 +160,7 @@ export class QueryInstance<T extends Query> {
           this._isActive = false;
           this.reconnectsAtDeactivate = this.queryClient.networkManager.reconnects;
 
-          clearTimeout(this.debounceTimer);
-          this.debounceTimer = undefined;
+          this.cancelDebounced();
 
           this._abortController?.abort();
           this._abortController = undefined;
@@ -180,9 +200,24 @@ export class QueryInstance<T extends Query> {
 
           this.getOrCreateExecutionContext();
 
+          const configError = this.configError;
+          if (configError !== undefined) {
+            this.stopSubscription();
+            this.rejectedByConfig = true;
+            this.relayState.setError(configError as Error);
+            return;
+          }
+
+          const recovering = this.rejectedByConfig;
+          this.rejectedByConfig = false;
+
           if (!this.initialized) {
             this.queryClient.activateQuery(this);
             this.initialize();
+          } else if (recovering) {
+            if (wasPaused || activating) this.queryClient.activateQuery(this);
+            this.reconcileSubscription();
+            this.runDebounced();
           } else if (wasPaused || activating) {
             this.queryClient.activateQuery(this);
 
@@ -190,14 +225,10 @@ export class QueryInstance<T extends Query> {
               this.reconcileSubscription();
             }
 
-            // If the relay shows pending but the abort controller is gone, the
-            // previous fetch was aborted during deactivation.  runDebounced()
-            // would bail out because isPending is still true from the doomed
-            // promise.  Force an immediate refetch so the new setPromise() call
-            // replaces _promise, causing the stale AbortError rejection to hit
-            // the `promise !== this._promise` guard and be silently ignored.
+            // Pending with no abort controller: the fetch was aborted or never started, and its
+            // promise may never settle. runDebounced() would bail on that isPending.
             if (this.relayState.isPending && this._abortController === undefined) {
-              this.runQueryImmediately();
+              this.restartAbortedFetch();
             } else {
               const refreshStaleOnReconnect = this.config?.refreshStaleOnReconnect ?? true;
               // No grace after a reconnect: data may have been missed while offline.
@@ -304,9 +335,28 @@ export class QueryInstance<T extends Query> {
       );
     } else {
       this.hydrate(loaded);
-      // Adapter and app code must not touch signals while the relay is the current consumer.
-      queueMicrotask(() => this.startSubscriptionAndFetch());
+      this.startPending = true;
+      this.queryClient.noteDeferredStart(this);
+      queueMicrotask(this.runPendingStart);
     }
+  }
+
+  private runPendingStart = (): void => {
+    if (!this.startPending) return;
+    this.startPending = false;
+    this.startSubscriptionAndFetch();
+  };
+
+  /**
+   * Runs any microtask-queued start now. Called by a lease outside its reactive read.
+   * @internal
+   */
+  startPendingNow(): void {
+    this.runPendingStart();
+    const run = this.pendingDebouncedRun;
+    this.pendingDebouncedRun = undefined;
+    run?.();
+    this.pendingRestart?.();
   }
 
   private discardCorruptCache(error: unknown): void {
@@ -331,7 +381,7 @@ export class QueryInstance<T extends Query> {
 
   private startSubscriptionAndFetch(): void {
     // If deactivated meanwhile, update() fetches on reactivation.
-    if (!this._isActive || this.isPaused) {
+    if (!this._isActive || this.isPaused || this.configError !== undefined) {
       return;
     }
 
@@ -400,7 +450,7 @@ export class QueryInstance<T extends Query> {
         this.def.statics.adapterClass,
       );
 
-      this._resolvedOptions = reactiveSignal(() => this.def.resolveOptions(this._executionCtx!));
+      this._resolvedOptions = reactiveSignal(() => this.resolveOptionsSafely());
     }
 
     return this._executionCtx;
@@ -414,12 +464,16 @@ export class QueryInstance<T extends Query> {
     }
 
     const ctx = this.getOrCreateExecutionContext();
+    // A topic query's send() waits on its subscription, which deactivation may have torn down.
+    this.reconcileSubscription();
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
     const signal = this._abortController?.signal ?? new AbortController().signal;
+    const attempt = this.attemptStatusTracker(ctx);
 
     try {
       const result = await withRetry(
         async () => {
+          attempt.start();
           try {
             const freshData = await adapter.send(ctx, signal);
             this.updatedAt = Date.now();
@@ -436,6 +490,7 @@ export class QueryInstance<T extends Query> {
         },
         this.retryConfig,
         signal,
+        attempt.options,
       );
       // An aborted fetch may have been replaced by one that failed.
       if (!signal.aborted) this.lastFetchFailed = false;
@@ -446,10 +501,42 @@ export class QueryInstance<T extends Query> {
     }
   }
 
+  /**
+   * Sets the new promise now so the aborted one can't settle the relay. The
+   * request runs adapter code, so it starts outside the read, on a microtask.
+   */
+  private restartAbortedFetch(): void {
+    this.fetchStarts++;
+    this._fetchNextAbort?.abort();
+    this._fetchNextAbort = undefined;
+    this._fetchNextPromise = undefined;
+    const controller = new AbortController();
+    this._abortController = controller;
+
+    let resolve!: (value: QueryResult<T>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<QueryResult<T>>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const run = (): void => {
+      if (this.pendingRestart !== run) return;
+      this.pendingRestart = undefined;
+      if (controller.signal.aborted) {
+        reject(controller.signal.reason);
+        return;
+      }
+      this.runQuery().then(resolve, reject);
+    };
+    this.pendingRestart = run;
+    this.queryClient.noteDeferredStart(this);
+    queueMicrotask(run);
+    this.relayState.setPromise(promise);
+  }
+
   private runQueryImmediately(): void {
     this.fetchStarts++;
-    clearTimeout(this.debounceTimer);
-    this.debounceTimer = undefined;
+    this.cancelDebounced();
     this._abortController?.abort();
     this._abortController = new AbortController();
     this._fetchNextAbort?.abort();
@@ -458,19 +545,47 @@ export class QueryInstance<T extends Query> {
     this.relayState.setPromise(this.runQuery());
   }
 
-  private runDebounced(extraDelay: number = 0): void {
+  /**
+   * With no delay the fetch starts on a microtask (a zero timer can wait a frame on
+   * React Native). `nextTask` forces a timer so a deactivation flush in the same
+   * task can cancel the fetch instead of starting and aborting it.
+   */
+  private runDebounced(extraDelay: number = 0, nextTask: boolean = false): void {
     if (this.relayState.isPending) return;
 
-    const debounce = this.config?.debounce ?? 0;
+    const delay = (this.config?.debounce ?? 0) + extraDelay;
     // Drops a queued reactivation refetch, which would replace this timer.
     this.reactivationQueuedAt = -1;
 
-    clearTimeout(this.debounceTimer);
+    this.cancelDebounced();
 
-    this.debounceTimer = setTimeout(() => {
-      this.debounceTimer = undefined;
+    if (delay > 0 || nextTask) {
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = undefined;
+        this.runQueryImmediately();
+      }, delay);
+      return;
+    }
+
+    const generation = this.debounceGeneration;
+    const run = (): void => {
+      if (generation !== this.debounceGeneration) return;
+      this.debounceGeneration++;
+      this.pendingDebouncedRun = undefined;
+      // Another path started a fetch in the meantime.
+      if (this.relayState.isPending && this._abortController !== undefined) return;
       this.runQueryImmediately();
-    }, debounce + extraDelay);
+    };
+    this.pendingDebouncedRun = run;
+    this.queryClient.noteDeferredStart(this);
+    queueMicrotask(run);
+  }
+
+  private cancelDebounced(): void {
+    this.debounceGeneration++;
+    this.pendingDebouncedRun = undefined;
+    clearTimeout(this.debounceTimer);
+    this.debounceTimer = undefined;
   }
 
   /** Runs a task after queueing. Skipped if a fetch started since, rather than aborting and repeating it. */
@@ -479,15 +594,18 @@ export class QueryInstance<T extends Query> {
     const queuedAt = this.reactivationQueuedAt;
     if (this.fetchStarts !== queuedAt) return;
 
-    clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(
-      () => {
-        this.debounceTimer = undefined;
-        if (this.fetchStarts !== queuedAt) return;
-        this.runQueryImmediately();
-      },
-      (this.config?.debounce ?? 0) + delay,
-    );
+    const totalDelay = (this.config?.debounce ?? 0) + delay;
+    if (totalDelay === 0) {
+      this.runDebounced();
+      return;
+    }
+
+    this.cancelDebounced();
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = undefined;
+      if (this.fetchStarts !== queuedAt) return;
+      this.runQueryImmediately();
+    }, totalDelay);
   }
 
   private notePush = (): void => {
@@ -507,7 +625,7 @@ export class QueryInstance<T extends Query> {
   markStale(): void {
     this.updatedAt = 0;
     if (this._isActive && !this.isPaused) {
-      this.runDebounced();
+      this.runDebounced(0, true);
     }
   }
 
@@ -568,9 +686,11 @@ export class QueryInstance<T extends Query> {
     const ctx = this.getOrCreateExecutionContext();
     ctx.resultData = this.rootEntity!.data;
     const adapter = this.queryClient.getAdapter(def.statics.adapterClass);
+    const attempt = this.attemptStatusTracker(ctx);
 
     return withRetry(
       async () => {
+        attempt.start();
         const freshData = await adapter.sendNext!(ctx, signal);
         this.updatedAt = Date.now();
 
@@ -581,7 +701,27 @@ export class QueryInstance<T extends Query> {
       },
       this.retryConfig,
       signal,
+      attempt.options,
     );
+  }
+
+  /**
+   * Reports the status of `ctx.response` when the failed attempt set it, for a
+   * REST error response whose body failed validation and so carries no status.
+   */
+  private attemptStatusTracker(ctx: Query): { start: () => void; options: WithRetryOptions } {
+    const holder = ctx as unknown as { response?: unknown };
+    let responseBefore: unknown;
+    return {
+      start: () => {
+        responseBefore = holder.response;
+      },
+      options: {
+        shouldRetry: this.queryClient.shouldRetry,
+        getAttemptStatus: () =>
+          holder.response !== responseBefore ? getFailedResponseStatus(holder.response) : undefined,
+      },
+    };
   }
 
   // ======================================================
