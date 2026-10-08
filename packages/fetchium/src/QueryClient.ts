@@ -399,7 +399,8 @@ export class QueryClient {
       const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
-      applyEntityRefs(parseCtx, parsedData, true);
+      // A new entity is written only once something routes it.
+      applyEntityRefs(parseCtx, parsedData, /* persist */ existing !== undefined);
     } catch (e) {
       // Unknown required-union variant: surface as an error (not a silent warn)
       // so the dropped update is visible. Optional unions degrade during parse.
@@ -418,8 +419,6 @@ export class QueryClient {
     const entity = this.entityMap.getEntity(key);
     if (entity === undefined) return;
 
-    this.entityMap.save(entity);
-
     const wasNew = existing === undefined;
     let matched = false;
 
@@ -427,8 +426,13 @@ export class QueryClient {
       matched = true;
     });
 
-    if (wasNew && !matched) {
-      entity.evict();
+    if (wasNew) {
+      if (matched) {
+        // The parent persisted a ref to it, so its record must exist.
+        persistUnwritten(entity);
+      } else {
+        entity.evict();
+      }
     }
   }
 
@@ -544,4 +548,13 @@ function paramsMatch(instanceParams: Record<string, unknown> | undefined, subset
     if (instanceParams[key] !== subset[key]) return false;
   }
   return true;
+}
+
+function persistUnwritten(entity: EntityInstance): void {
+  if (!entity._persisted) entity.save();
+  const refs = entity.entityRefs;
+  if (refs === undefined) return;
+  for (const child of refs.keys()) {
+    if (!child._persisted) persistUnwritten(child);
+  }
 }

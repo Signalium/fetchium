@@ -310,8 +310,8 @@ export class LiveArrayInstance {
 
     const child = this._queryClient.entityMap.getEntity(key);
     if (child !== undefined) {
+      // The child's record is already current.
       this._parent.addChildRef(child);
-      child.save();
     }
 
     this._notifier.notify();
