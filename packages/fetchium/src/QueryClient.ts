@@ -53,40 +53,21 @@ export interface QueryClientConfig {
   };
   evictionMultiplier?: number;
   /**
-   * Milliseconds. A query that reactivates (a watcher returns, or a paused
-   * scope resumes) with data younger than this is not refetched, even if stale.
-   * Subscription pushes count as fresh data. Queries can override it with
-   * `reactivationGraceMs`. Reconnects, `refetch()`, invalidation, `markStale()`
-   * and a failed last fetch still refetch. Default: 0. `Infinity` never
-   * refetches on reactivation.
+   * Ms a reactivated query's data counts as fresh, skipping the refetch. Reconnects,
+   * `refetch()`, invalidation and failed fetches still refetch. Queries can override it.
+   * Default 0.
    */
   reactivationGraceMs?: number;
-  /**
-   * Decides whether a failed query or mutation attempt is retried, for example
-   * to stop on a 4xx. A query's or mutation's own `retry.shouldRetry` overrides
-   * it. Default: every failed attempt is retried.
-   */
+  /** Decides whether a failed attempt is retried. A query's or mutation's `retry.shouldRetry` wins. */
   shouldRetry?: ShouldRetry;
   /**
-   * Milliseconds. Reactivation refetches that start in the same task (for
-   * example every query on a screen that just resumed) are spread evenly
-   * across this window, in activation order, instead of all starting at once.
-   * Queries of an adapter that `coalescesRequests` are not spread. Values that
-   * are not finite and positive count as 0. Default: 0.
+   * Ms window over which refetches from queries that reactivate together are spread, instead of
+   * all starting at once. Default 0.
    */
   reactivationStaggerMs?: number;
-  /**
-   * Foreground/background source. When set, `poll()` stops its timers while
-   * the app is inactive and resumes them when it becomes active again. Values
-   * without `isActive` and `subscribe` are ignored. Default: undefined.
-   */
+  /** Foreground/background source. `poll()` stops while it reports inactive. */
   activity?: ActivitySource;
-  /**
-   * Milliseconds. A `poll()` tick that is overdue on resume, or whose timer
-   * fires over a second late, runs at a random point within this window
-   * instead of immediately. Values that are not finite and positive count as
-   * 0. Default: 0.
-   */
+  /** Ms window over which `poll()` ticks that are overdue on resume are randomized. Default 0. */
   pollResumeJitterMs?: number;
 }
 

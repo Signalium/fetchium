@@ -100,11 +100,10 @@ export interface QueryStore {
   saveEntity(entityKey: number, value: unknown, refIds?: Set<number>): void;
 
   /**
-   * Writes the fields streamed events supplied, merged over the stored record
-   * if one exists (references derived from the merged value). Without it the
-   * client calls `saveEntity`, dropping fields the events did not carry.
-   * With `ifStored`, nothing is written when no record is stored, and a store
-   * with `onDelete` reports the key as dropped.
+   * Merges streamed fields over the stored record, deriving `refIds` from the
+   * merged value. Without it, `saveEntity` overwrites the record. With
+   * `ifStored`, writes nothing if no record exists and, if the store has
+   * `onDelete`, reports the key as dropped.
    */
   mergeEntity?(entityKey: number, fields: unknown, refIds?: Set<number>, ifStored?: boolean): void;
 
@@ -115,36 +114,29 @@ export interface QueryStore {
   purgeStaleQueries?(): MaybePromise<void>;
 
   /**
-   * Called with the key of every record the store drops on its own (eviction,
-   * cascade, purge). May return an unsubscribe, called from `destroy()`.
+   * Reports every record the store drops on its own (eviction, cascade, purge).
    * Without it, entities are written on every apply.
    */
   onDelete?(listener: (key: number) => void): void | (() => void);
 
   /**
-   * Async stores: called with each entity key once its write is applied. The
-   * client treats an entity as persisted only after this acknowledgement.
+   * Async stores: reports each entity key once its write is applied. Without it, an entity
+   * counts as persisted when `saveEntity` returns.
    */
   onPersisted?(listener: (key: number) => void): void | (() => void);
 
   /**
-   * Async stores: whether every queued operation has been processed. While
-   * `false` the client does not skip unchanged entity writes. Absent means
-   * always settled.
+   * Async stores: whether every queued operation has been processed. Absent means settled.
+   * While `false`, unchanged entity writes aren't skipped.
    */
   isSettled?(): boolean;
 
-  /**
-   * Async stores: a narrower `isSettled` that ignores the client's own entity
-   * writes, reporting only queued operations that could delete a record.
-   * Takes precedence over `isSettled` when present.
-   */
+  /** Like `isSettled`, but ignores the client's own entity writes. Wins over `isSettled` if both are set. */
   hasQueuedDeletes?(): boolean;
 
   /**
-   * Whether the store holds a record for this key, or `undefined` if it can't
-   * tell yet. An event for an entity not in memory is written as an `ifStored`
-   * merge unless this returns `false`. Without `mergeEntity`, only when `true`.
+   * Whether the store holds a record for this key, or `undefined` if unknown. When unknown,
+   * streamed events are merged only if the store has `mergeEntity`.
    */
   hasEntity?(key: number): boolean | undefined;
 }

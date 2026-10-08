@@ -1,10 +1,8 @@
 import type { ResolvedRetryConfig } from './query.js';
 
 /**
- * Decides whether a failed attempt is retried. Consulted only while retries
- * remain. `attempt` starts at 0. `status` comes from the error (`status`,
- * `statusCode`, `response.status`) or the adapter's `ctx.response`, and is
- * undefined for network errors.
+ * Decides whether a failed attempt is retried. Called only while retries remain. `attempt`
+ * starts at 0; `status` is undefined for network errors.
  */
 export type ShouldRetry = (error: unknown, attempt: number, status: number | undefined) => boolean;
 
