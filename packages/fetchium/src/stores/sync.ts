@@ -72,8 +72,13 @@ export class MemoryPersistentStore implements SyncPersistentStore {
 
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
+  private deleteListeners: Array<(key: number) => void> = [];
 
   constructor(private readonly kv: SyncPersistentStore) {}
+
+  onDelete(listener: (key: number) => void): void {
+    this.deleteListeners.push(listener);
+  }
 
   loadQuery(queryDef: QueryDefinition<any, any, any>, queryKey: number): CachedQuery | undefined {
     const updatedAt = this.kv.getNumber(updatedAtKeyFor(queryKey));
@@ -275,6 +280,7 @@ export class SyncQueryStore implements QueryStore {
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));
+    for (let i = 0; i < this.deleteListeners.length; i++) this.deleteListeners[i](id);
 
     const refIds = kv.getBuffer(refIdsKeyFor(id));
     kv.delete(refIdsKeyFor(id)); // Clean up the refIds key
