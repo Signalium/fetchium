@@ -1,4 +1,5 @@
 import { QueryAdapter } from '../QueryAdapter.js';
+import { getAbortReason } from '../retry.js';
 import type { Query } from '../query.js';
 import type { MutationEvent } from '../types.js';
 
@@ -19,6 +20,26 @@ interface TopicState {
   reject?: (error: unknown) => void;
   data?: unknown;
   error?: unknown;
+}
+
+/** `promise`, or a rejection once `signal` aborts. A topic fetch would otherwise hang after deactivation. */
+function untilAborted(promise: Promise<unknown>, signal: AbortSignal): Promise<unknown> {
+  // React Native's AbortController sets no `reason`, so getAbortReason() falls back.
+  if (signal.aborted) return Promise.reject(getAbortReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(getAbortReason(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      value => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      error => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export abstract class TopicQueryAdapter extends QueryAdapter {
@@ -91,7 +112,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
     this._topics.clear();
   }
 
-  override async send(ctx: Query, _signal: AbortSignal): Promise<unknown> {
+  override async send(ctx: Query, signal: AbortSignal): Promise<unknown> {
     const topicCtx = ctx as TopicCtx;
     const topic = topicCtx.getTopic ? topicCtx.getTopic() : topicCtx.topic;
 
@@ -108,7 +129,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
         case 'rejected':
           throw existing.error;
         case 'pending':
-          return existing.promise;
+          return untilAborted(existing.promise!, signal);
       }
     }
 
@@ -123,7 +144,7 @@ export abstract class TopicQueryAdapter extends QueryAdapter {
 
     this._topics.set(topic, { status: 'pending', promise, resolve, reject });
 
-    return promise;
+    return untilAborted(promise, signal);
   }
 
   /**

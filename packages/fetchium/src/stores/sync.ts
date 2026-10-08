@@ -11,7 +11,8 @@ import {
   refIdsKeyFor,
   updatedAtKeyFor,
   valueKeyFor,
-  mergeStoredRecord,
+  storedRecordRest,
+  entityRefsInJson,
   notifyListeners,
 } from './shared.js';
 
@@ -75,9 +76,22 @@ export class MemoryPersistentStore implements SyncPersistentStore {
 /** Keyed by kv, not store: two stores over one kv delete each other's records. */
 const deleteListenersByKv = new WeakMap<SyncPersistentStore, Array<(key: number) => void>>();
 
+/** A `mergeEntity()` write's fields and the record's rest, so a same-fields merge skips the read. */
+interface MergeRest {
+  fields: string;
+  json: string;
+  refIds: number[];
+}
+
+/** Keyed by kv. Writes through any store over it drop entries. Direct kv writes do not. */
+const mergeRestsByKv = new WeakMap<SyncPersistentStore, Map<number, MergeRest>>();
+/** LRU bound. An evicted record's next merge reads it again. */
+const MAX_MERGE_RESTS = 1024;
+
 export class SyncQueryStore implements QueryStore {
   queues: Map<string, Uint32Array> = new Map();
   private readonly deleteListeners: Array<(key: number) => void>;
+  private readonly mergeRests: Map<number, MergeRest>;
 
   constructor(private readonly kv: SyncPersistentStore) {
     let listeners = deleteListenersByKv.get(kv);
@@ -86,6 +100,12 @@ export class SyncQueryStore implements QueryStore {
       deleteListenersByKv.set(kv, listeners);
     }
     this.deleteListeners = listeners;
+    let rests = mergeRestsByKv.get(kv);
+    if (rests === undefined) {
+      rests = new Map();
+      mergeRestsByKv.set(kv, rests);
+    }
+    this.mergeRests = rests;
   }
 
   onDelete(listener: (key: number) => void): () => void {
@@ -171,10 +191,33 @@ export class SyncQueryStore implements QueryStore {
   }
 
   mergeEntity(entityKey: number, fields: unknown, refIds?: Set<number>): void {
-    const stored = this.kv.getString(valueKeyFor(entityKey));
-    const merged = stored !== undefined ? mergeStoredRecord(stored, fields) : undefined;
-    if (merged !== undefined) this.setValue(entityKey, merged.value, merged.refIds);
-    else this.setValue(entityKey, fields, refIds);
+    const partial = fields as Record<string, unknown>;
+    // The fields this write carries: JSON drops the undefined ones.
+    let carried = '';
+    for (const key in partial) if (partial[key] !== undefined) carried += key + '\n';
+
+    const rests = this.mergeRests;
+    let rest = rests.get(entityKey);
+    if (rest === undefined || rest.fields !== carried) {
+      const stored = this.kv.getString(valueKeyFor(entityKey));
+      const split = stored !== undefined ? storedRecordRest(stored, partial) : undefined;
+      if (split === undefined) {
+        // No record to merge into, or not an object: the fields are the record.
+        this.setValue(entityKey, fields, refIds);
+        return;
+      }
+      rest = { fields: carried, json: split.json, refIds: split.refIds };
+    }
+
+    let json = JSON.stringify(fields);
+    if (rest.json !== '') json = json.length === 2 ? `{${rest.json}}` : `${json.slice(0, -1)},${rest.json}}`;
+    const merged = new Set<number>(rest.refIds);
+    entityRefsInJson(json, merged);
+    this.writeValue(entityKey, json, merged);
+
+    rests.delete(entityKey);
+    rests.set(entityKey, rest);
+    if (rests.size > MAX_MERGE_RESTS) rests.delete(rests.keys().next().value!);
   }
 
   activateQuery(queryDef: QueryDefinition<any, any, any>, queryKey: number): void {
@@ -268,9 +311,15 @@ export class SyncQueryStore implements QueryStore {
   }
 
   private setValue(id: number, value: unknown, refIds?: Set<number>): void {
+    const rests = this.mergeRests;
+    if (rests.size !== 0) rests.delete(id);
+    this.writeValue(id, JSON.stringify(value), refIds);
+  }
+
+  private writeValue(id: number, json: string, refIds?: Set<number>): void {
     const kv = this.kv;
 
-    kv.setString(valueKeyFor(id), JSON.stringify(value));
+    kv.setString(valueKeyFor(id), json);
 
     const refIdsKey = refIdsKeyFor(id);
 
@@ -317,6 +366,8 @@ export class SyncQueryStore implements QueryStore {
 
   deleteQuery(id: number): void {
     const kv = this.kv;
+    const rests = this.mergeRests;
+    if (rests.size !== 0) rests.delete(id);
 
     kv.delete(valueKeyFor(id));
     kv.delete(refCountKeyFor(id));

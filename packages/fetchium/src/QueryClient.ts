@@ -39,6 +39,7 @@ import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
 
+/** Options for `new QueryClient(config)`. Every key also reaches queries and mutations as `this.context`. */
 export interface QueryClientConfig {
   store?: QueryStore;
   adapters?: QueryAdapter[];
@@ -52,9 +53,12 @@ export interface QueryClientConfig {
   };
   evictionMultiplier?: number;
   /**
-   * Ms. A reactivating query with data younger than this skips its stale refetch.
-   * Subscription pushes count as fresh data, `poll()` only through its fetches.
-   * Reconnects, `refetch()`, invalidation and a failed last fetch still refetch. Default: 0.
+   * Milliseconds. A query that reactivates (a watcher returns, or a paused
+   * scope resumes) with data younger than this is not refetched, even if stale.
+   * Subscription pushes count as fresh data. Queries can override it with
+   * `reactivationGraceMs`. Reconnects, `refetch()`, invalidation, `markStale()`
+   * and a failed last fetch still refetch. Default: 0. `Infinity` never
+   * refetches on reactivation.
    */
   reactivationGraceMs?: number;
   /**
@@ -67,13 +71,22 @@ export interface QueryClientConfig {
    * Milliseconds. Reactivation refetches that start in the same task (for
    * example every query on a screen that just resumed) are spread evenly
    * across this window, in activation order, instead of all starting at once.
-   * Queries of an adapter that `coalescesRequests` are not spread. Default: 0
-   * (all start together).
+   * Queries of an adapter that `coalescesRequests` are not spread. Values that
+   * are not finite and positive count as 0. Default: 0.
    */
   reactivationStaggerMs?: number;
-  /** Foreground/background source. `poll()` stops its timers while the app is inactive. */
+  /**
+   * Foreground/background source. When set, `poll()` stops its timers while
+   * the app is inactive and resumes them when it becomes active again. Values
+   * without `isActive` and `subscribe` are ignored. Default: undefined.
+   */
   activity?: ActivitySource;
-  /** Ms. Overdue `poll()` ticks on resume fire at a random point in this window, not all at once. Default: 0. */
+  /**
+   * Milliseconds. A `poll()` tick that is overdue on resume, or whose timer
+   * fires over a second late, runs at a random point within this window
+   * instead of immediately. Values that are not finite and positive count as
+   * 0. Default: 0.
+   */
   pollResumeJitterMs?: number;
 }
 
@@ -92,8 +105,12 @@ export const DEFAULT_PREFETCH_TTL = 10_000;
 /** How long a hold outlives its fetch when no reader commits (abandoned tree). */
 const SUSPENSE_HOLD_TTL = 10_000;
 
-/** React retries a suspended render within a task or two. An error unclaimed by then is dropped. */
-const UNCLAIMED_FAILURE_TTL = 50;
+/**
+ * How long a failed cold fetch's error waits for a render to claim it. A
+ * time-sliced retry render can take far longer than a task. An unclaimed
+ * error belongs to an abandoned tree, so a later mount retries.
+ */
+const UNCLAIMED_FAILURE_TTL = 1_000;
 
 interface SuspenseHold {
   release: () => void;
@@ -131,6 +148,8 @@ export class QueryClient {
   store: QueryStore;
 
   currentParseId: number = 0;
+  /** Set first by `destroy()`. Gates store writes and new requests. */
+  destroyed: boolean = false;
   /** Without `store.onDelete`, `_persisted` cannot be trusted. */
   storeReportsDeletes: boolean = false;
   /** With `store.onPersisted`, `_persisted` is set on acknowledgement, not by `save()`. */
@@ -154,6 +173,8 @@ export class QueryClient {
   private warnedReactiveRetain = false;
   /** `useSuspenseQuery` cold-miss leases, by query key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
+  /** Keys whose last cold failure expired unclaimed. The next one waits `SUSPENSE_HOLD_TTL` for a slow reader. */
+  private unclaimedFailures = new Set<number>();
 
   private context!: QueryContext;
   private typenameRegistry = new Map<string, ValidatorDef<any>[]>();
@@ -169,9 +190,6 @@ export class QueryClient {
       store = new SyncQueryStore(new MemoryPersistentStore()),
       log,
       evictionMultiplier,
-      reactivationGraceMs,
-      reactivationStaggerMs,
-      shouldRetry,
       adapters: _c,
       networkManager: _n,
       gcManager: _g,
@@ -179,16 +197,19 @@ export class QueryClient {
     } = config as QueryClientConfig & Record<string, unknown>;
     this.isServer = typeof window === 'undefined';
     this.store = store;
+    const { reactivationGraceMs, reactivationStaggerMs, shouldRetry } = config;
     this.reactivationGraceMs = nonNegative(reactivationGraceMs);
-    this.reactivationStaggerMs = nonNegative(reactivationStaggerMs);
-    this.shouldRetry = shouldRetry;
-    // `activity` and `pollResumeJitterMs` ride along in `rest`: poll() reads them from the context.
-    this.context = { ...rest, log: log ?? console, evictionMultiplier };
+    // Must be finite: the window is split into setTimeout delays.
+    this.reactivationStaggerMs = Number.isFinite(reactivationStaggerMs) ? nonNegative(reactivationStaggerMs) : 0;
+    this.shouldRetry = typeof shouldRetry === 'function' ? shouldRetry : undefined;
+    // The rest, including `activity` and `pollResumeJitterMs` for poll(), go to the context.
+    this.context = { ...(rest as Record<string, unknown>), log: log ?? console, evictionMultiplier };
     this.gcManager =
       config.gcManager ??
       (this.isServer ? new NoOpGcManager() : new GcManager(this.handleEviction, evictionMultiplier));
     this.networkManager = config.networkManager ?? new NetworkManager();
     this.entityMap = new EntityStore((key, data, refs, merge, ifStored) => {
+      if (this.destroyed) return;
       if (merge) this.store.mergeEntity!(key, data, refs, ifStored);
       else this.store.saveEntity(key, data, refs);
     });
@@ -268,6 +289,7 @@ export class QueryClient {
       return match;
     }
 
+    if (this.destroyed) throw new Error(`QueryClient was destroyed. No adapter for ${adapterClass.name}.`);
     let adapter: QueryAdapter;
     try {
       adapter = new (adapterClass as new () => QueryAdapter)();
@@ -314,6 +336,8 @@ export class QueryClient {
     } else {
       this.typenameRegistry.set(typename, [def]);
     }
+    // Builds V8's enum cache for the shape, which speeds up later iterations over it.
+    Object.keys(def.shape as object);
   }
 
   getEntityDefsForTypename(typename: string): ValidatorDef<any>[] | undefined {
@@ -339,6 +363,7 @@ export class QueryClient {
     updatedAt: number,
     entityRefs?: Map<EntityInstance, number>,
   ): void {
+    if (this.destroyed) return;
     const refKeys =
       entityRefs !== undefined && entityRefs.size > 0
         ? new Set<number>([...entityRefs.keys()].map(e => e.key))
@@ -347,11 +372,16 @@ export class QueryClient {
   }
 
   activateQuery(queryInstance: QueryInstance<any>): void {
+    if (this.destroyed) return;
     const { def, queryKey, storageKey, config } = queryInstance;
     this.store.activateQuery(def as any, storageKey);
 
     const gcTime = config?.gcTime ?? DEFAULT_GC_TIME;
     this.gcManager.cancel(queryKey, gcTime);
+  }
+
+  deleteQuery(queryKey: number): void {
+    if (!this.destroyed) this.store.deleteQuery(queryKey);
   }
 
   loadCachedQuery(queryDef: QueryDefinition<QueryParams | undefined, unknown, unknown>, queryKey: number) {
@@ -489,8 +519,14 @@ export class QueryClient {
   }
 
   /**
-   * On a cold miss, returns a promise to suspend on and holds the query active
-   * until the reader commits. A failed cold fetch returns `error` instead.
+   * For `useSuspenseQuery`. Returns a promise to suspend on when the query has
+   * never produced a value (a cold miss), or `undefined` when it has one to
+   * render (in memory, or hydrated now from a synchronous store).
+   *
+   * A cold miss takes a hold that keeps the query active while suspended,
+   * since React discards a suspended render without subscribing. A failed
+   * query refetches once per hold, and a second failure sets `error`.
+   *
    * @internal
    */
   suspendOnColdMiss(
@@ -531,6 +567,7 @@ export class QueryClient {
         const error = relay.error;
         if (!hold.failed) {
           hold.failed = true;
+          this.unclaimedFailures.delete(key);
           clearTimeout(hold.timer);
           hold.timer = setTimeout(() => {
             if (this.suspenseHolds.get(key) === hold) this.releaseSuspenseHold(key);
@@ -548,6 +585,7 @@ export class QueryClient {
         relay.then(
           () => {
             current.done = true;
+            this.unclaimedFailures.delete(key);
             this.expireSuspenseHold(key, current);
             resolve();
           },
@@ -555,9 +593,12 @@ export class QueryClient {
             current.done = true;
             // Dropped unless the retried render claims the error first.
             clearTimeout(current.timer);
+            const ttl = this.unclaimedFailures.has(key) ? SUSPENSE_HOLD_TTL : UNCLAIMED_FAILURE_TTL;
             current.timer = setTimeout(() => {
-              if (this.suspenseHolds.get(key) === current && !current.failed) this.releaseSuspenseHold(key);
-            }, UNCLAIMED_FAILURE_TTL);
+              if (this.suspenseHolds.get(key) !== current || current.failed) return;
+              this.unclaimedFailures.add(key);
+              this.releaseSuspenseHold(key);
+            }, ttl);
             resolve();
           },
         );
@@ -916,12 +957,29 @@ export class QueryClient {
   // In-Memory GC
   // ======================================================
 
+  /**
+   * Evicts `owner`'s old non-entity root unless another instance still shows it.
+   * @internal
+   */
+  releaseQueryRoot(root: EntityInstance, owner: QueryInstance<any>): void {
+    if (this.entityMap.getEntity(root.key) !== root) return;
+    for (const instance of this.queryInstances.values()) {
+      if (instance !== owner && instance.rootEntity === root) return;
+    }
+    root.evict();
+  }
+
   private handleEviction = (key: number, type: GcKeyType): void => {
     if (type === GcKeyType.Query) {
       const instance = this.queryInstances.get(key);
       if (instance === undefined) return;
-      instance.stopSubscription();
-      instance.rootEntity?.evict();
+      // Nothing may settle its relay or reach the store after this.
+      instance.abortForDestroy();
+      const root = instance.rootEntity;
+      if (root !== undefined) {
+        if (instance.def.statics.isEntityResult) root.evict();
+        else this.releaseQueryRoot(root, instance);
+      }
       this.queryInstances.delete(key);
       return;
     }
@@ -978,7 +1036,9 @@ export class QueryClient {
   }
 
   destroy(): void {
+    this.destroyed = true;
     for (const key of [...this.suspenseHolds.keys()]) this.releaseSuspenseHold(key);
+    this.unclaimedFailures.clear();
     for (const release of [...this.leases]) release();
     clearTimeout(this.staggerTimer);
     this.staggerTimer = undefined;
@@ -992,6 +1052,7 @@ export class QueryClient {
       adapter.destroy?.();
     }
     this.adapters.clear();
+    for (const instance of this.queryInstances.values()) instance.abortForDestroy();
     this.queryInstances.clear();
     this.mutationInstances.clear();
     this.entityMap.clear();

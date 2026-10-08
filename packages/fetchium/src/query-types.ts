@@ -22,8 +22,8 @@ export interface QueryContext {
     debug?: (message: string) => void;
   };
   evictionMultiplier?: number;
-  activity?: ActivitySource;
-  pollResumeJitterMs?: number;
+  // `activity` and `pollResumeJitterMs` reach the context undeclared: an app may
+  // have augmented this interface with the same names.
 }
 
 /**

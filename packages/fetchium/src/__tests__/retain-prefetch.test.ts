@@ -356,6 +356,18 @@ describe('client.prefetch()', () => {
     expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
     await sleep(40);
   });
+
+  it('release() in the same task as prefetch() aborts the fetch it started', async () => {
+    const { client, mockFetch } = setup();
+    mockFetch.reset();
+    mockFetch.get('/item', { n: 3 }, { delay: 30 });
+    const release = client.prefetch(GetItem);
+    expect(mockFetch.calls).toHaveLength(1);
+    release();
+    await sleep(10);
+    expect(mockFetch.calls[0].options.signal?.aborted).toBe(true);
+    await sleep(40);
+  });
 });
 
 describe('client.retain()', () => {
@@ -584,6 +596,94 @@ describe('client.retain()', () => {
     await sleep(10);
     expect(subscribed).toBe(1);
     expect(unsubscribed).toBe(1);
+  });
+});
+
+describe('useSuspenseQuery holds (suspendOnColdMiss)', () => {
+  class GetFailing extends RESTQuery {
+    path = '/failing';
+    result = { n: t.number };
+    config = { retry: false };
+  }
+
+  type ColdMiss = { promise: Promise<void> | undefined; failed?: true; error?: unknown };
+
+  function failingClient() {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/failing', { error: 'down' }, { status: 500 });
+    const client = new QueryClient({
+      store: new SyncQueryStore(new MemoryPersistentStore()),
+      adapters: [new RESTQueryAdapter({ fetch: mockFetch as any, baseUrl: 'http://localhost' })],
+    });
+    clients.push(client);
+    const def = QueryDefinition.for(GetFailing);
+    // What a useSuspenseQuery render does before it throws.
+    const render = (): ColdMiss =>
+      (client as unknown as { suspendOnColdMiss(d: typeof def, p: undefined): ColdMiss }).suspendOnColdMiss(
+        def,
+        undefined,
+      );
+    return { client, mockFetch, render };
+  }
+
+  /** Destroys the clients and drains their timers (and Signalium's flush) before restoring real timers. */
+  async function destroyOnFakeClock(): Promise<void> {
+    for (const c of clients) c.destroy();
+    clients = [];
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.useRealTimers();
+  }
+
+  it('hands a failed cold fetch to a render that reaches the reader long after it failed', async () => {
+    vi.useFakeTimers();
+    try {
+      const { mockFetch, render } = failingClient();
+      const first = render();
+      expect(first.promise).toBeDefined();
+      await vi.advanceTimersByTimeAsync(5);
+      await first.promise;
+
+      // A time-sliced retry render that takes several hundred ms to reach the reader.
+      await vi.advanceTimersByTimeAsync(400);
+      const retry = render();
+      expect(retry).toMatchObject({ failed: true, promise: undefined });
+      expect(mockFetch.calls).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(5);
+      expect(render().promise).toBeDefined();
+      expect(mockFetch.calls).toHaveLength(2);
+    } finally {
+      await destroyOnFakeClock();
+    }
+  });
+
+  it('lets an unclaimed failure go after a while, then keeps the next one until a render claims it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { mockFetch, render } = failingClient();
+      const first = render();
+      await vi.advanceTimersByTimeAsync(5);
+      await first.promise;
+
+      // Nobody claimed the error (the tree was abandoned): a later mount makes a new attempt.
+      await vi.advanceTimersByTimeAsync(1_500);
+      const remount = render();
+      expect(remount.promise).toBeDefined();
+      await vi.advanceTimersByTimeAsync(5);
+      await remount.promise;
+      expect(mockFetch.calls).toHaveLength(2);
+
+      // That attempt failed too. A render slower than the first window still gets its error.
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(render()).toMatchObject({ failed: true, promise: undefined });
+      expect(mockFetch.calls).toHaveLength(2);
+
+      await vi.advanceTimersByTimeAsync(5);
+      expect(render().promise).toBeDefined();
+      expect(mockFetch.calls).toHaveLength(3);
+    } finally {
+      await destroyOnFakeClock();
+    }
   });
 });
 

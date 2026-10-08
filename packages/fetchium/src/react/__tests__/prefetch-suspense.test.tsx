@@ -371,9 +371,10 @@ describe('useSuspenseQuery', () => {
 
     const screen = render(tree(true));
     await expect.element(screen.getByText('Suspended')).toBeInTheDocument();
-    // Unmount while suspended, so the fetch fails with no reader.
+    // Navigated away while suspended. The fetch fails and no render claims the
+    // error within the 1 s window.
     screen.rerender(tree(false));
-    await sleep(150);
+    await sleep(1_150);
     expect(mockFetch.calls).toHaveLength(1);
 
     mockFetch.get('/item', { name: 'recovered' });
@@ -381,6 +382,50 @@ describe('useSuspenseQuery', () => {
     await expect.element(screen.getByText('recovered')).toBeInTheDocument();
     expect(mockFetch.calls).toHaveLength(2);
     expect(errors).toEqual([]);
+  });
+
+  it('throws a failed cold fetch to the boundary once when the retry render is slow to reach the reader', async () => {
+    const mockFetch = createMockFetch();
+    mockFetch.get('/item', { error: 'down' }, { status: 500, delay: 10 });
+    const client = makeClient(mockFetch);
+
+    class GetNoRetry extends RESTQuery {
+      path = '/item';
+      result = { name: t.string };
+      config = { retry: false };
+    }
+
+    // Siblings that take ~100 ms to render: React's time-sliced retry render
+    // reaches the reader long after the fetch failed.
+    function Slow(): React.ReactNode {
+      const until = performance.now() + 10;
+      while (performance.now() < until) {
+        // busy
+      }
+      return null;
+    }
+    function Item(): React.ReactNode {
+      const item = useSuspenseQuery(GetNoRetry);
+      return <div>{item.value.name}</div>;
+    }
+
+    const errors: unknown[] = [];
+    const screen = render(
+      <ContextProvider contexts={[[QueryClientContext, client]]}>
+        <Boundary onError={e => errors.push(e)}>
+          <Suspense fallback={<div>Suspended</div>}>
+            {Array.from({ length: 10 }, (_, i) => (
+              <Slow key={i} />
+            ))}
+            <Item />
+          </Suspense>
+        </Boundary>
+      </ContextProvider>,
+    );
+    await expect.element(screen.getByText('Boundary caught'), { timeout: 3000 }).toBeInTheDocument();
+    await sleep(300);
+    expect(mockFetch.calls).toHaveLength(1);
+    expect(errors.length).toBeGreaterThan(0);
   });
 
   it('hands the query to the reader on commit, so unmounting deactivates it', async () => {

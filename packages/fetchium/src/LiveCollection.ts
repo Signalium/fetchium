@@ -74,6 +74,7 @@ export interface LiveCollectionParent {
 // ======================================================
 
 export interface LiveInstance {
+  readonly _notifier: Notifier;
   getValue(): unknown;
   getRawValue(): unknown;
   /** Returns whether the value or membership changed. */
@@ -99,6 +100,8 @@ export class LiveCollectionBinding {
   _entityDefsByTypename: Map<string, ValidatorDef<any>[]>;
   _constraintFieldRefs: Map<string, Array<[string, unknown]>>;
   readonly instance: LiveInstance;
+  /** Consumed by reads of the value's contents, which can change in place. */
+  readonly _valueOwner: Notifier;
 
   constructor(
     entityDefs: ValidatorDef<any>[],
@@ -113,6 +116,7 @@ export class LiveCollectionBinding {
     this._constraintHashes = constraintHashes;
     this._constraintFieldRefs = constraintFieldRefs;
     this.instance = instance;
+    this._valueOwner = instance._notifier;
 
     this._entityDefsByTypename = new Map();
     for (const def of entityDefs) {

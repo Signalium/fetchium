@@ -38,6 +38,43 @@ export function mergeStoredRecord(
   return { value, refIds: refIds.size > 0 ? refIds : undefined };
 }
 
+/**
+ * The stored record's fields not in `partial`, as a JSON fragment plus their refs.
+ * Appended to `partial`'s JSON it gives the merged record. Undefined for a non-object.
+ */
+export function storedRecordRest(
+  stored: string,
+  partial: Record<string, unknown>,
+): { json: string; refIds: number[] } | undefined {
+  let record: unknown;
+  try {
+    record = JSON.parse(stored);
+  } catch {
+    return undefined;
+  }
+  if (typeof record !== 'object' || record === null || Array.isArray(record)) return undefined;
+  const rest: Record<string, unknown> = {};
+  let any = false;
+  for (const key in record as Record<string, unknown>) {
+    // JSON drops a field the partial holds as undefined, so the stored value stays.
+    if (partial[key] !== undefined) continue;
+    rest[key] = (record as Record<string, unknown>)[key];
+    any = true;
+  }
+  if (!any) return { json: '', refIds: [] };
+  const refIds = new Set<number>();
+  collectEntityRefs(rest, refIds);
+  return { json: JSON.stringify(rest).slice(1, -1), refIds: [...refIds] };
+}
+
+/** Adds the `__entityRef` ids in a record's JSON to `into`. */
+export function entityRefsInJson(json: string, into: Set<number>): void {
+  if (json.indexOf('"__entityRef":') === -1) return;
+  const re = /"__entityRef":(\d+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(json)) !== null) into.add(Number(match[1]));
+}
+
 function collectEntityRefs(value: unknown, into: Set<number>): void {
   if (typeof value !== 'object' || value === null) return;
   if (Array.isArray(value)) {
