@@ -295,6 +295,7 @@ describe('Format System', () => {
       // Type check - ExtractType should extract Date
       type FormatType = ExtractType<typeof formatType>;
       const _typeCheck: FormatType = new Date();
+      const _assignableToDate: Date = _typeCheck;
 
       // Runtime check - formatType is a number (mask)
       expect(typeof formatType).toBe('number');
@@ -314,6 +315,8 @@ describe('Format System', () => {
 
       const _createdAtCheck: UserCreatedAt = new Date();
       const _birthDateCheck: UserBirthDate = new Date();
+      const _createdAtAsDate: Date = _createdAtCheck;
+      const _birthDateAsDate: Date = _birthDateCheck;
     });
   });
 

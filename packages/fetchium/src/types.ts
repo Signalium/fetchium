@@ -308,9 +308,12 @@ export type ExtractType<T> =
       ? ExtractType<U>
       : T extends (...args: infer V) => infer Q
         ? (...args: V) => ExtractType<Q>
-        : T extends object
-          ? { [K in keyof T]: ExtractType<T[K]> }
-          : T;
+        : // Mapping over Date's overloaded methods yields a structural type not assignable to Date.
+          T extends Date
+          ? T
+          : T extends object
+            ? { [K in keyof T]: ExtractType<T[K]> }
+            : T;
 
 export type TypeDefShape = Record<string, TypeDef> | TypeDef;
 
