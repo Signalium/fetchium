@@ -297,6 +297,40 @@ describe('adapter snapshots on consumer reactivation', () => {
     expect(adapter.snapshot.mock.calls.every(([ctx]) => (ctx as RESTQuery).path === '/a')).toBe(true);
   });
 
+  it.each(['debounce', 'stagger'] as const)(
+    'fetches on remount if the reconnect refresh was canceled (%s)',
+    async mode => {
+      const client = makeClient({
+        networkManager: new NetworkManager(true),
+        reactivationStaggerMs: mode === 'stagger' ? 300 : 0,
+      });
+      const queries = mode === 'stagger' ? [GetA, GetB] : [GetDebounced];
+      const path = mode === 'stagger' ? '/b' : '/a';
+      const initial = watch(client, ...queries);
+      await vi.advanceTimersByTimeAsync(50);
+
+      client.networkManager.setNetworkStatus(false);
+      await vi.advanceTimersByTimeAsync(20);
+      client.networkManager.setNetworkStatus(true);
+      await vi.advanceTimersByTimeAsync(20);
+      expect(mockFetch.calls.filter(call => call.url.endsWith(path))).toHaveLength(1);
+      initial.unsub();
+      await vi.advanceTimersByTimeAsync(10);
+
+      const resumed = watch(client, ...queries);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(mockFetch.calls.filter(call => call.url.endsWith(path))).toHaveLength(2);
+      expect(adapter.snapshot.mock.calls.every(([ctx]) => (ctx as RESTQuery).path !== path)).toBe(true);
+
+      resumed.unsub();
+      await vi.advanceTimersByTimeAsync(10);
+      watch(client, ...queries);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(mockFetch.calls.filter(call => call.url.endsWith(path))).toHaveLength(2);
+      expect(adapter.snapshot.mock.calls.some(([ctx]) => (ctx as RESTQuery).path === path)).toBe(true);
+    },
+  );
+
   it('fetches after a failed load', async () => {
     const client = makeClient();
     const initial = watch(client, GetA);

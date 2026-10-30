@@ -76,6 +76,7 @@ export class QueryInstance<T extends Query> {
   private _isActive: boolean = false;
   private wasPaused: boolean = false;
   private reconnectsAtDeactivate: number = 0;
+  private reconnectsAtLastFetch: number;
   private currentParams: QueryParams | undefined = undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   /** Bumped to cancel a zero-delay refetch, which runs on a microtask that can't be cleared. */
@@ -175,6 +176,7 @@ export class QueryInstance<T extends Query> {
   ) {
     this.def = def;
     this.queryClient = queryClient;
+    this.reconnectsAtLastFetch = queryClient.networkManager.reconnects;
     this.queryKey = queryKey;
     this.params = params;
 
@@ -656,6 +658,7 @@ export class QueryInstance<T extends Query> {
               const snapshot = this.tryApplyCurrentSnapshot(ctx);
               if (snapshot !== undefined) return snapshot;
             }
+            const reconnectsAtStart = this.queryClient.networkManager.reconnects;
             const freshData = await adapter.send(ctx, signal);
             // Params changed or client destroyed mid-request, and the adapter ignored the abort.
             if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
@@ -664,6 +667,9 @@ export class QueryInstance<T extends Query> {
 
             const result = this.applyData(freshData, true);
             this.saveQueryMetadata();
+            if (!signal.aborted && this.fetchStarts === fetchStart) {
+              this.reconnectsAtLastFetch = reconnectsAtStart;
+            }
 
             return result;
           } finally {
@@ -787,7 +793,7 @@ export class QueryInstance<T extends Query> {
       this.updatedAt !== 0 &&
       !this.lastFetchFailed &&
       !this.abortedByDeactivation &&
-      this.queryClient.networkManager.reconnects === this.reconnectsAtDeactivate;
+      this.queryClient.networkManager.reconnects === this.reconnectsAtLastFetch;
     this.fetchStarts++;
     this.cancelDebounced();
     this.abortedByDeactivation = false;
