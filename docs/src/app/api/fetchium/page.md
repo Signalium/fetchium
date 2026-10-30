@@ -239,6 +239,8 @@ new QueryClient(config: QueryClientConfig)
 | `activity`              | `ActivitySource \| undefined`         | —                      | `{ isActive(), subscribe(listener) }` foreground source. When set, `poll()` stops its timers while inactive and resumes them on activation. A value without `isActive` and `subscribe` functions is ignored, with a warning in development.                                                                                                                                                                                                                                                                                  |
 | `pollResumeJitterMs`    | `number`                              | `0`                    | Milliseconds. A `poll()` tick that is overdue on resume (or whose timer fired over a second late, as after JS timers were frozen in the background) is rescheduled at a random point in this window instead of firing at once. A value that is not a finite positive number counts as 0. Per-poll override: `poll({ interval, resumeJitterMs })`.                                                                                                                                                                            |
 
+Even after `reactivationGraceMs` expires, Fetchium can reuse current adapter data through `getCurrentSnapshot()` instead of refetching. Explicit refreshes, invalidation, parameter changes, failed or aborted loads, and network reconnects still fetch normally.
+
 Every config key, including keys this table does not list, also reaches query and mutation code as `this.context`, so you can pass your own services through the config. The names in the table are reserved: a value under one of them is read as that option, so do not reuse them for your own context values.
 
 #### Methods
@@ -288,15 +290,20 @@ Base class for transport adapters. An adapter handles sending queries and mutati
 
 #### Methods
 
-| Method                  | Signature                                                | Description                                                                                                               |
-| ----------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `register`              | `(queryClient: IQueryClientForAdapter): void`            | Called once when the adapter is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection). |
-| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                             |
-| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                               |
-| `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                               |
-| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>` | Optional. Send a mutation and return the raw response data.                                                               |
-| `onNetworkStatusChange` | `(isOnline: boolean): void`                              | Optional. Called when the network comes online or goes offline.                                                           |
-| `destroy`               | `(): void`                                               | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.                                     |
+| Method                  | Signature                                                | Description                                                                                                                                |
+| ----------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `register`              | `(queryClient: IQueryClientForAdapter): void`            | Called once when the adapter is registered with a `QueryClient`. Override to do setup (e.g. open a WebSocket connection).                  |
+| `send`                  | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | **(abstract)** Send a query and return the raw response data.                                                                              |
+| `getCurrentSnapshot`    | `(ctx: Query): { data: unknown } \| undefined`           | Optional. Return `{ data }` with the current raw response for `ctx`, or `undefined` if it may be stale. Used only when a consumer resumes. |
+| `sendNext`              | `(ctx: Query, signal: AbortSignal): Promise<unknown>`    | Optional. Send the next-page request for a paginated query.                                                                                |
+| `hasNext`               | `(ctx: Query): boolean`                                  | Optional. Return `true` if more pages are available for the current result.                                                                |
+| `sendMutation`          | `(ctx: Mutation, signal: AbortSignal): Promise<unknown>` | Optional. Send a mutation and return the raw response data.                                                                                |
+| `onNetworkStatusChange` | `(isOnline: boolean): void`                              | Optional. Called when the network comes online or goes offline.                                                                            |
+| `destroy`               | `(): void`                                               | Optional. Called when the `QueryClient` is destroyed. Clean up connections or timers.                                                      |
+
+A snapshot must include the full response and all stream updates for `ctx`, not just the initial response. Reusing a snapshot does not set `isPending`.
+
+If retrieval or validation fails, Fetchium logs a warning and calls `send()`. After a reconnect, a fetch must succeed before snapshots can be reused because stream updates may have been missed.
 
 #### Properties
 

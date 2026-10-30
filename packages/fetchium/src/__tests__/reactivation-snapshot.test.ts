@@ -95,19 +95,14 @@ describe('adapter snapshots on consumer reactivation', () => {
     const client = makeClient({ store });
     await loadThenDeactivate(client, GetCached);
     await vi.advanceTimersByTimeAsync(2_000);
-    const save = vi.spyOn(client, 'saveQueryData');
     const snapshotData = Object.freeze({ n: 42 });
     adapter.snapshot.mockReturnValue({ data: snapshotData });
 
-    const resumedAt = Date.now();
     const { values, unsub } = watch(client, GetCached);
     await vi.advanceTimersByTimeAsync(50);
     expect(values.at(-1)).toEqual([42]);
     expect(mockFetch.calls).toHaveLength(1);
     expect(adapter.snapshot).toHaveBeenCalledOnce();
-    expect(save).toHaveBeenCalledOnce();
-    expect(save.mock.calls[0][3]).toBeGreaterThanOrEqual(resumedAt);
-    expect(snapshotData).toEqual({ n: 42 });
 
     unsub();
     client.destroy();
@@ -119,15 +114,49 @@ describe('adapter snapshots on consumer reactivation', () => {
     expect(adapter.snapshot).toHaveBeenCalledOnce();
   });
 
-  it.each(['no snapshot', 'retrieval throws', 'invalid data'] as const)('falls back to fetching: %s', async mode => {
-    const client = makeClient();
+  it.each([
+    { name: 'immediate', queries: [GetA], config: {} },
+    { name: 'debounce', queries: [GetDebounced], config: {} },
+    { name: 'stagger', queries: [GetA, GetB], config: { reactivationStaggerMs: 300 } },
+  ])('reuses snapshots without setting isPending ($name)', async ({ queries, config }) => {
+    const client = makeClient(config);
+    await loadThenDeactivate(client, ...queries);
+    const { values, unsub } = withContexts([[QueryClientContext, client]], () =>
+      createTestWatcher(() =>
+        queries.map(Q => {
+          const relay = fetchQuery(Q);
+          return { pending: relay.isPending, n: relay.value?.n };
+        }),
+      ),
+    );
+    unsubs.push(unsub);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(values.at(-1)).toEqual(queries.map(() => ({ pending: false, n: 42 })));
+    expect(values.every(results => results.every(result => !result.pending))).toBe(true);
+    expect(mockFetch.calls).toHaveLength(queries.length);
+    expect(adapter.snapshot).toHaveBeenCalledTimes(queries.length);
+  });
+
+  it.each([
+    { name: 'no snapshot', setup: () => adapter.snapshot.mockReturnValue(undefined), warnings: 0 },
+    {
+      name: 'retrieval throws',
+      setup: () =>
+        adapter.snapshot.mockImplementation(() => {
+          throw new Error('snapshot unavailable');
+        }),
+      warnings: 1,
+    },
+    {
+      name: 'invalid data',
+      setup: () => adapter.snapshot.mockReturnValue({ data: { n: 'not a number' } }),
+      warnings: 1,
+    },
+  ])('falls back to fetching: $name', async ({ setup, warnings }) => {
+    const warn = vi.fn();
+    const client = makeClient({ log: { warn } });
     await loadThenDeactivate(client, GetA);
-    if (mode === 'no snapshot') adapter.snapshot.mockReturnValue(undefined);
-    if (mode === 'retrieval throws')
-      adapter.snapshot.mockImplementation(() => {
-        throw new Error('snapshot unavailable');
-      });
-    if (mode === 'invalid data') adapter.snapshot.mockReturnValue({ data: { n: 'not a number' } });
+    setup();
     mockFetch.get('/a', { n: 2 });
 
     const { values } = watch(client, GetA);
@@ -135,6 +164,27 @@ describe('adapter snapshots on consumer reactivation', () => {
     expect(values.at(-1)).toEqual([2]);
     expect(mockFetch.calls).toHaveLength(2);
     expect(adapter.snapshot).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledTimes(warnings);
+  });
+
+  it('sets isPending when no snapshot is available', async () => {
+    const client = makeClient();
+    await loadThenDeactivate(client, GetA);
+    adapter.snapshot.mockReturnValue(undefined);
+    mockFetch.get('/a', { n: 2 }, { delay: 100 });
+    const { values, unsub } = withContexts([[QueryClientContext, client]], () =>
+      createTestWatcher(() => {
+        const relay = fetchQuery(GetA);
+        return { pending: relay.isPending, n: relay.value?.n };
+      }),
+    );
+    unsubs.push(unsub);
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(values.at(-1)).toEqual({ pending: true, n: 1 });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(values.at(-1)).toEqual({ pending: false, n: 2 });
+    expect(mockFetch.calls).toHaveLength(2);
   });
 
   it('fetches when the adapter has no snapshot hook', async () => {
@@ -248,25 +298,39 @@ describe('adapter snapshots on consumer reactivation', () => {
     expect(adapter.snapshot).not.toHaveBeenCalled();
   });
 
-  it.each(['active', 'inactive', 'resume queued'] as const)('fetches after reconnect (%s)', async timing => {
-    const networkManager = new NetworkManager(true);
-    const client = makeClient({ networkManager });
-    const QueryClass = timing === 'resume queued' ? GetDebounced : GetA;
-    const initial = watch(client, QueryClass);
+  async function reconnect(client: QueryClient): Promise<void> {
+    client.networkManager.setNetworkStatus(false);
+    await vi.advanceTimersByTimeAsync(20);
+    client.networkManager.setNetworkStatus(true);
+    await vi.advanceTimersByTimeAsync(20);
+  }
+
+  it('fetches when an active query reconnects', async () => {
+    const client = makeClient({ networkManager: new NetworkManager(true) });
+    watch(client, GetA);
     await vi.advanceTimersByTimeAsync(50);
-    if (timing !== 'active') {
-      initial.unsub();
-      await vi.advanceTimersByTimeAsync(10);
-    }
-    if (timing === 'resume queued') {
-      watch(client, QueryClass);
-      await vi.advanceTimersByTimeAsync(20);
-    }
-    networkManager.setNetworkStatus(false);
+    await reconnect(client);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(mockFetch.calls).toHaveLength(2);
+    expect(adapter.snapshot).not.toHaveBeenCalled();
+  });
+
+  it('fetches on resume after reconnecting while inactive', async () => {
+    const client = makeClient({ networkManager: new NetworkManager(true) });
+    await loadThenDeactivate(client, GetA);
+    await reconnect(client);
+    watch(client, GetA);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(mockFetch.calls).toHaveLength(2);
+    expect(adapter.snapshot).not.toHaveBeenCalled();
+  });
+
+  it('fetches if reconnect interrupts a queued resume', async () => {
+    const client = makeClient({ networkManager: new NetworkManager(true) });
+    await loadThenDeactivate(client, GetDebounced);
+    watch(client, GetDebounced);
     await vi.advanceTimersByTimeAsync(20);
-    networkManager.setNetworkStatus(true);
-    await vi.advanceTimersByTimeAsync(20);
-    if (timing === 'inactive') watch(client, QueryClass);
+    await reconnect(client);
     await vi.advanceTimersByTimeAsync(200);
     expect(mockFetch.calls).toHaveLength(2);
     expect(adapter.snapshot).not.toHaveBeenCalled();

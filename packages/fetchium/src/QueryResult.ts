@@ -306,8 +306,8 @@ export class QueryInstance<T extends Query> {
               this.reconcileSubscription();
             }
 
-            const reuseSnapshot =
-              activating && !wasPaused && !paramsDidChange && !this.abortedByDeactivation && !this.lastFetchFailed;
+            // A canceled request must be retried, not replaced by a snapshot.
+            const reuseSnapshot = activating && !wasPaused && !this.abortedByDeactivation;
 
             // If the relay shows pending but the abort controller is gone, the
             // previous fetch was aborted during deactivation (or never started).
@@ -618,19 +618,22 @@ export class QueryInstance<T extends Query> {
 
   private tryApplyCurrentSnapshot(ctx: Query): QueryResult<T> | undefined {
     try {
+      this.reconcileSubscription();
       const adapter = this.queryClient.getAdapter(this.def.statics.adapterClass);
       const snapshot = adapter.getCurrentSnapshot?.(ctx);
       if (snapshot === undefined) return undefined;
       const result = this.applyData(snapshot.data, true);
       this.updatedAt = Date.now();
       this.saveQueryMetadata();
+      this.reconcileSubscription();
       return result;
-    } catch {
+    } catch (error) {
+      this.queryClient.getContext().log?.warn?.('Failed to reuse query snapshot, fetching instead', error);
       return undefined;
     }
   }
 
-  private async runQuery(reuseSnapshot: boolean = false): Promise<QueryResult<T>> {
+  private async runQuery(): Promise<QueryResult<T>> {
     const def = this.def;
 
     if (this.isPaused) {
@@ -653,11 +656,6 @@ export class QueryInstance<T extends Query> {
           attempt.start();
           try {
             this.throwIfDestroyed();
-            if (reuseSnapshot) {
-              reuseSnapshot = false;
-              const snapshot = this.tryApplyCurrentSnapshot(ctx);
-              if (snapshot !== undefined) return snapshot;
-            }
             const reconnectsAtStart = this.queryClient.networkManager.reconnects;
             const freshData = await adapter.send(ctx, signal);
             // Params changed or client destroyed mid-request, and the adapter ignored the abort.
@@ -787,7 +785,8 @@ export class QueryInstance<T extends Query> {
 
   private runQueryImmediately(reuseSnapshot: boolean = false): void {
     if (this.stoppedByDestroy()) return;
-    reuseSnapshot =
+    // Fetch after reconnecting to recover any missed stream updates.
+    const canReuseSnapshot =
       reuseSnapshot &&
       this.updatedAt !== undefined &&
       this.updatedAt !== 0 &&
@@ -800,11 +799,21 @@ export class QueryInstance<T extends Query> {
     this.parkedRestart = undefined;
     this.heldAbortSignal = undefined;
     this._abortController?.abort();
-    this._abortController = new AbortController();
+    this._abortController = undefined;
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
     this._fetchNextPromise = undefined;
-    this.relayState.setPromise(this.runQuery(reuseSnapshot));
+
+    if (canReuseSnapshot) {
+      const snapshot = this.tryApplyCurrentSnapshot(this.getOrCreateExecutionContext());
+      if (snapshot !== undefined) {
+        this.relayState.value = snapshot;
+        return;
+      }
+    }
+
+    this._abortController = new AbortController();
+    this.relayState.setPromise(this.runQuery());
   }
 
   /**

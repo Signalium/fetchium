@@ -66,9 +66,8 @@ export abstract class QueryAdapter {
   abstract send(ctx: Query, signal: AbortSignal): Promise<unknown>;
 
   /**
-   * Complete, current raw response for this query and account context, including stream updates.
-   * Return undefined if the data may be out of date. Used only for consumer reactivation;
-   * retrieval or validation failures fall back to send().
+   * Return the current raw response for ctx, or undefined if it may be stale.
+   * Consumer reactivation only. After a reconnect, a fetch must succeed first.
    */
   getCurrentSnapshot?(ctx: Query): { data: unknown } | undefined;
 
