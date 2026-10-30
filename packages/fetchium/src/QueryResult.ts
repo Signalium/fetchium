@@ -304,6 +304,9 @@ export class QueryInstance<T extends Query> {
               this.reconcileSubscription();
             }
 
+            const reuseSnapshot =
+              activating && !wasPaused && !paramsDidChange && !this.abortedByDeactivation && !this.lastFetchFailed;
+
             // If the relay shows pending but the abort controller is gone, the
             // previous fetch was aborted during deactivation (or never started).
             // runDebounced() would bail on the doomed promise. A rejected relay restarts
@@ -337,9 +340,9 @@ export class QueryInstance<T extends Query> {
               if (refreshStaleOnReconnect && this.isStale && !withinGrace) {
                 if (this.queryClient.reactivationStaggerMs > 0) {
                   this.reactivationQueuedAt = this.fetchStarts;
-                  this.queryClient.scheduleReactivationRefetch(this);
+                  this.queryClient.scheduleReactivationRefetch(this, reuseSnapshot);
                 } else {
-                  this.runDebounced();
+                  this.runDebounced({ reuseSnapshot });
                 }
               }
             }
@@ -353,7 +356,7 @@ export class QueryInstance<T extends Query> {
               // Replace the in-flight or queued fetch for the old params.
               this.restartAbortedFetch(true);
             } else {
-              this.runDebounced(0, false, true);
+              this.runDebounced({ afterFlush: true });
             }
           }
         };
@@ -611,7 +614,21 @@ export class QueryInstance<T extends Query> {
     return this._executionCtx;
   }
 
-  private async runQuery(): Promise<QueryResult<T>> {
+  private tryApplyCurrentSnapshot(ctx: Query): QueryResult<T> | undefined {
+    try {
+      const adapter = this.queryClient.getAdapter(this.def.statics.adapterClass);
+      const snapshot = adapter.getCurrentSnapshot?.(ctx);
+      if (snapshot === undefined) return undefined;
+      const result = this.applyData(snapshot.data, true);
+      this.updatedAt = Date.now();
+      this.saveQueryMetadata();
+      return result;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async runQuery(reuseSnapshot: boolean = false): Promise<QueryResult<T>> {
     const def = this.def;
 
     if (this.isPaused) {
@@ -634,6 +651,11 @@ export class QueryInstance<T extends Query> {
           attempt.start();
           try {
             this.throwIfDestroyed();
+            if (reuseSnapshot) {
+              reuseSnapshot = false;
+              const snapshot = this.tryApplyCurrentSnapshot(ctx);
+              if (snapshot !== undefined) return snapshot;
+            }
             const freshData = await adapter.send(ctx, signal);
             // Params changed or client destroyed mid-request, and the adapter ignored the abort.
             if (this.storageKey !== storageKey || this.destroyCount !== destroyCount) throw abortError();
@@ -757,8 +779,15 @@ export class QueryInstance<T extends Query> {
     }
   }
 
-  private runQueryImmediately(): void {
+  private runQueryImmediately(reuseSnapshot: boolean = false): void {
     if (this.stoppedByDestroy()) return;
+    reuseSnapshot =
+      reuseSnapshot &&
+      this.updatedAt !== undefined &&
+      this.updatedAt !== 0 &&
+      !this.lastFetchFailed &&
+      !this.abortedByDeactivation &&
+      this.queryClient.networkManager.reconnects === this.reconnectsAtDeactivate;
     this.fetchStarts++;
     this.cancelDebounced();
     this.abortedByDeactivation = false;
@@ -769,7 +798,7 @@ export class QueryInstance<T extends Query> {
     this._fetchNextAbort?.abort();
     this._fetchNextAbort = undefined;
     this._fetchNextPromise = undefined;
-    this.relayState.setPromise(this.runQuery());
+    this.relayState.setPromise(this.runQuery(reuseSnapshot));
   }
 
   /**
@@ -777,10 +806,10 @@ export class QueryInstance<T extends Query> {
    * React Native). `nextTask` forces a timer so a deactivation flush in the same
    * task can cancel the fetch instead of starting and aborting it.
    */
-  private runDebounced(extraDelay: number = 0, nextTask: boolean = false, afterFlush: boolean = false): void {
+  private runDebounced({ nextTask = false, afterFlush = false, reuseSnapshot = false } = {}): void {
     if (this.stoppedByDestroy() || this.relayState.isPending) return;
 
-    const delay = (this.config?.debounce ?? 0) + extraDelay;
+    const delay = this.config?.debounce ?? 0;
     // Drops a queued reactivation refetch, which would replace this timer.
     this.reactivationQueuedAt = -1;
 
@@ -790,7 +819,7 @@ export class QueryInstance<T extends Query> {
       this.debounceTimer = setTimeout(() => {
         this.debounceTimer = undefined;
         if (!this._isActive || this.isPaused) return;
-        this.runQueryImmediately();
+        this.runQueryImmediately(reuseSnapshot);
       }, delay);
       return;
     }
@@ -804,7 +833,7 @@ export class QueryInstance<T extends Query> {
       if (!this._isActive || this.isPaused) return;
       // Another path started a fetch in the meantime (refetch(), activation).
       if (this.relayState.isPending && this._abortController !== undefined) return;
-      this.runQueryImmediately();
+      this.runQueryImmediately(reuseSnapshot);
     };
     this.pendingDebouncedRun = run;
     this.queryClient.noteDeferredStart(this);
@@ -819,14 +848,14 @@ export class QueryInstance<T extends Query> {
   }
 
   /** Runs a task after queueing. Skipped if a fetch started since, rather than aborting and repeating it. */
-  runReactivationRefetch(delay: number): void {
+  runReactivationRefetch(delay: number, reuseSnapshot: boolean = false): void {
     if (!this._isActive || this.isPaused || this.relayState.isPending) return;
     const queuedAt = this.reactivationQueuedAt;
     if (this.fetchStarts !== queuedAt) return;
 
     const totalDelay = (this.config?.debounce ?? 0) + delay;
     if (totalDelay === 0) {
-      this.runDebounced();
+      this.runDebounced({ reuseSnapshot });
       return;
     }
 
@@ -834,7 +863,7 @@ export class QueryInstance<T extends Query> {
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       if (this.fetchStarts !== queuedAt) return;
-      this.runQueryImmediately();
+      this.runQueryImmediately(reuseSnapshot);
     }, totalDelay);
   }
 
@@ -899,7 +928,7 @@ export class QueryInstance<T extends Query> {
   markStale(): void {
     this.updatedAt = 0;
     if (this._isActive && !this.isPaused) {
-      this.runDebounced(0, true);
+      this.runDebounced({ nextTask: true });
     }
   }
 

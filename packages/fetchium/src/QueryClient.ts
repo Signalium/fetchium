@@ -162,7 +162,7 @@ export class QueryClient {
   /** See `QueryClientConfig.shouldRetry`. */
   readonly shouldRetry: ShouldRetry | undefined;
 
-  private staggerQueue = new Set<QueryInstance<any>>();
+  private staggerQueue = new Map<QueryInstance<any>, { reuseSnapshot: boolean }>();
   private staggerTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
   private leases = new Set<() => void>();
@@ -908,25 +908,26 @@ export class QueryClient {
    * immediately. Queries of an adapter that `coalescesRequests` all start
    * immediately.
    */
-  scheduleReactivationRefetch(instance: QueryInstance<any>): void {
-    this.staggerQueue.add(instance);
+  scheduleReactivationRefetch(instance: QueryInstance<any>, reuseSnapshot: boolean = false): void {
+    this.staggerQueue.set(instance, { reuseSnapshot });
     this.staggerTimer ??= setTimeout(this.flushStaggerQueue, 0);
   }
 
   private flushStaggerQueue = (): void => {
     this.staggerTimer = undefined;
-    const spread: QueryInstance<any>[] = [];
-    for (const instance of this.staggerQueue) {
+    const spread: Array<{ instance: QueryInstance<any>; reuseSnapshot: boolean }> = [];
+    for (const [instance, { reuseSnapshot }] of this.staggerQueue) {
       if (this.getAdapter(instance.def.statics.adapterClass).coalescesRequests === true) {
-        instance.runReactivationRefetch(0);
+        instance.runReactivationRefetch(0, reuseSnapshot);
       } else {
-        spread.push(instance);
+        spread.push({ instance, reuseSnapshot });
       }
     }
     this.staggerQueue.clear();
     const step = spread.length > 1 ? this.reactivationStaggerMs / spread.length : 0;
     for (let i = 0; i < spread.length; i++) {
-      spread[i].runReactivationRefetch(Math.round(i * step));
+      const { instance, reuseSnapshot } = spread[i];
+      instance.runReactivationRefetch(Math.round(i * step), reuseSnapshot);
     }
   };
 
