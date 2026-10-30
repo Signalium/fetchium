@@ -36,6 +36,97 @@ describe('useQuery Hook', () => {
     });
   });
 
+  describe('enabled option', () => {
+    it('skips fetching while disabled and uses the latest params when enabled', async () => {
+      class GetItem extends RESTQuery {
+        params = { id: t.string };
+        path = `/item/${this.params.id}`;
+        result = { name: t.string };
+      }
+
+      mockFetch.get('/item/[id]', { name: 'Latest' });
+      let query: QueryPromise<GetItem>;
+
+      function Component({ id, enabled }: { id: string; enabled: boolean }): React.ReactNode {
+        query = useQuery(GetItem, { id }, { enabled });
+        return <div data-testid="status">{query.isReady ? query.value!.name : 'Pending'}</div>;
+      }
+
+      const tree = (id: string, enabled: boolean) => (
+        <ContextProvider contexts={[[QueryClientContext, client]]}>
+          <Component id={id} enabled={enabled} />
+        </ContextProvider>
+      );
+      const { rerender, getByTestId } = render(tree('1', false));
+      await sleep(20);
+      expect(query!.value).toBeUndefined();
+      expect(query!.isPending).toBe(true);
+      expect(query!.isReady).toBe(false);
+      expect(query!.isRejected).toBe(false);
+      expect(query!.isResolved).toBe(false);
+      expect(query!.error).toBeUndefined();
+      expect(mockFetch.calls).toHaveLength(0);
+
+      rerender(tree('2', false));
+      await sleep(20);
+      expect(mockFetch.calls).toHaveLength(0);
+
+      rerender(tree('2', true));
+      await expect.element(getByTestId('status')).toHaveTextContent('Latest');
+      expect(mockFetch.calls).toHaveLength(1);
+      expect(mockFetch.calls[0].url).toBe('http://localhost/item/2');
+
+      rerender(tree('2', false));
+      await expect.element(getByTestId('status')).toHaveTextContent('Pending');
+      expect(query!.value).toBeUndefined();
+
+      rerender(tree('2', true));
+      await expect.element(getByTestId('status')).toHaveTextContent('Latest');
+    });
+
+    it('does not activate a stream while disabled and unsubscribes when disabled again', async () => {
+      let subscriptions = 0;
+      let unsubscriptions = 0;
+      class Item extends Entity {
+        __typename = t.typename('EnabledItem');
+        id = t.id;
+        name = t.string;
+        __subscribe() {
+          subscriptions++;
+          return () => unsubscriptions++;
+        }
+      }
+      class GetItem extends RESTQuery {
+        path = '/item';
+        result = t.entity(Item);
+      }
+      mockFetch.get('/item', { __typename: 'EnabledItem', id: '1', name: 'Item' });
+
+      function Component({ enabled }: { enabled?: boolean }): React.ReactNode {
+        const query = useQuery(GetItem, undefined, { enabled });
+        return <div data-testid="status">{query.isReady ? query.value!.name : 'Pending'}</div>;
+      }
+      const tree = (enabled?: boolean) => (
+        <ContextProvider contexts={[[QueryClientContext, client]]}>
+          <Component enabled={enabled} />
+        </ContextProvider>
+      );
+      const { rerender, getByTestId } = render(tree(false));
+      await sleep(20);
+      expect(mockFetch.calls).toHaveLength(0);
+      expect(subscriptions).toBe(0);
+
+      rerender(tree());
+      await expect.element(getByTestId('status')).toHaveTextContent('Item');
+      expect(subscriptions).toBe(1);
+
+      rerender(tree(false));
+      await expect.element(getByTestId('status')).toHaveTextContent('Pending');
+      await expect.poll(() => unsubscriptions).toBe(1);
+      expect(mockFetch.calls).toHaveLength(1);
+    });
+  });
+
   describe('Basic Cloning and Re-rendering', () => {
     it('should return a cloned result, not the same reference', async () => {
       class User extends Entity {
