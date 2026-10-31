@@ -1,5 +1,11 @@
 # fetchium
 
+## 1.1.0
+
+### Minor Changes
+
+- e0b8cd7: Add an optional adapter hook to reuse current data when queries resume instead of sending repeat requests.
+
 ## 1.0.0
 
 ### Major Changes
