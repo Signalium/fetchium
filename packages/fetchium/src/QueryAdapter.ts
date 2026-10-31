@@ -66,6 +66,12 @@ export abstract class QueryAdapter {
   abstract send(ctx: Query, signal: AbortSignal): Promise<unknown>;
 
   /**
+   * Return the current raw response for ctx, or undefined if it may be stale.
+   * Consumer reactivation only. After a reconnect, a fetch must succeed first.
+   */
+  getCurrentSnapshot?(ctx: Query): { data: unknown } | undefined;
+
+  /**
    * Fetch the next page of results. Only implement if the adapter supports pagination.
    * @param ctx  The query execution context. `ctx.resultData` contains the current page's data.
    * @param signal  AbortSignal to cancel the in-flight request.
