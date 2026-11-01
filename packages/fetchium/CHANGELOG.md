@@ -1,5 +1,11 @@
 # fetchium
 
+## 1.1.1
+
+### Patch Changes
+
+- b00c6d5: `ExtractType` keeps `Date` as `Date`, so `t.format('date-time')` and `t.format('date')` fields are assignable to `Date`.
+
 ## 1.1.0
 
 ### Minor Changes
