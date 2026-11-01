@@ -21,6 +21,7 @@ import { useQuery, useSuspenseQuery } from 'fetchium/react';
 function useQuery<T extends Query>(
   QueryClass: new () => T,
   params?: ExtractQueryParams<T>,
+  options?: { enabled?: boolean },
 ): QueryPromise<T>;
 ```
 
@@ -28,10 +29,11 @@ React hook for fetching a query. Subscribes the component to the query's reactiv
 
 #### Parameters
 
-| Parameter    | Type                    | Description                                                                                                                                                     |
-| ------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `QueryClass` | `new () => T`           | The query class to instantiate and execute. Must extend `Query` or `RESTQuery`.                                                                                 |
-| `params`     | `ExtractQueryParams<T>` | Parameters matching the query's `params` shape. Optional if the query has no required params. Values can be Signalium `Signal`s for reactive parameter changes. |
+| Parameter         | Type                    | Description                                                                                                                                                     |
+| ----------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QueryClass`      | `new () => T`           | The query class to instantiate and execute. Must extend `Query` or `RESTQuery`.                                                                                 |
+| `params`          | `ExtractQueryParams<T>` | Parameters matching the query's `params` shape. Optional if the query has no required params. Values can be Signalium `Signal`s for reactive parameter changes. |
+| `options.enabled` | `boolean`               | Defaults to `true`. When `false`, skips fetching and subscribing to the query.                                                                                  |
 
 #### Returns
 
@@ -127,6 +129,32 @@ const SearchResults = component(() => {
   return <div>{query.value.results.length} results</div>;
 });
 ```
+
+#### Conditional queries
+
+```tsx
+function UserProfile({
+  userId,
+  enabled,
+}: {
+  userId: string;
+  enabled: boolean;
+}) {
+  const query = useQuery(GetUser, { id: userId }, { enabled });
+
+  if (!enabled) {
+    return <div>Select a user to load their profile.</div>;
+  }
+
+  if (!query.isReady) {
+    return <div>Loading...</div>;
+  }
+  
+  return <div>{query.value!.name}</div>;
+}
+```
+
+While disabled, the result has `isPending: true`, `isReady: false`, and `value: undefined`, even if the query is cached. Setting `enabled` to `true` activates the query with the current parameters. Setting it back to `false` releases this hook's subscription; other consumers of the same query remain active. For queries without parameters, pass `undefined` as the second argument: `useQuery(GetUsers, undefined, { enabled })`.
 
 #### Notes
 
