@@ -149,7 +149,7 @@ function UserProfile({
   if (!query.isReady) {
     return <div>Loading...</div>;
   }
-  
+
   return <div>{query.value!.name}</div>;
 }
 ```
