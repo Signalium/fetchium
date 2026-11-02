@@ -67,6 +67,8 @@ export class QueryInstance<T extends Query> {
   private queryClient: QueryClient;
   private initialized: boolean = false;
   private updatedAt: number | undefined = undefined;
+  /** Last `markStale()`. A seed fetched before it is stale and is ignored. */
+  private invalidatedAt: number = 0;
   private params: QueryParams | undefined = undefined;
 
   private unsubscribe?: () => void = undefined;
@@ -90,7 +92,8 @@ export class QueryInstance<T extends Query> {
   private keptFetchSignal: AbortSignal | undefined = undefined;
   /** Aborted fetch that leaves the relay pending instead of rejected. */
   private heldAbortSignal: AbortSignal | undefined = undefined;
-  private hasSignalParams: boolean = false;
+  /** @internal */
+  hasSignalParams: boolean = false;
   private firstFetchController: AbortController | undefined = undefined;
   /** Bumped by `abortForDestroy()` so a late response is dropped. */
   private destroyCount: number = 0;
@@ -432,6 +435,15 @@ export class QueryInstance<T extends Query> {
     const storageKey = this.storageKey;
     const fetchStarts = this.fetchStarts;
 
+    // Before the store: the first read must not depend on it, so a server and a hydrating client agree.
+    const seed = this.queryClient.takeSeed(storageKey);
+    if (seed !== undefined && this.applySeed(seed.raw, seed.updatedAt)) {
+      this.startPending = true;
+      this.queryClient.noteDeferredStart(this);
+      queueMicrotask(this.runPendingStart);
+      return;
+    }
+
     try {
       loaded = this.queryClient.loadCachedQuery(this.def, storageKey);
     } catch (error) {
@@ -466,6 +478,37 @@ export class QueryInstance<T extends Query> {
       this.queryClient.noteDeferredStart(this);
       queueMicrotask(this.runPendingStart);
     }
+  }
+
+  /**
+   * Applies a raw response as if it had just been fetched. False, with the instance untouched,
+   * when it already holds data or an invalidation as new, or the response does not parse.
+   */
+  private applySeed(raw: unknown, updatedAt: number): boolean {
+    // Equal to the invalidation is accepted: a default `Date.now()` can share its millisecond.
+    if (updatedAt <= (this.updatedAt ?? 0) || updatedAt < this.invalidatedAt) return false;
+    const previous = this.updatedAt;
+    try {
+      this.updatedAt = updatedAt;
+      this.relayState.value = this.applyData(raw, true);
+      this.saveQueryMetadata();
+      return true;
+    } catch (error) {
+      this.updatedAt = previous;
+      this.queryClient.getContext().log?.warn?.('Failed to apply seeded query data', error);
+      return false;
+    }
+  }
+
+  /**
+   * `setQueryData` on an instance that may be read already. `unread`: its first read applies
+   * the seed instead. `ignored`: it holds data or an invalidation as new, or the response
+   * does not parse.
+   * @internal
+   */
+  seedLive(raw: unknown, updatedAt: number): 'unread' | 'applied' | 'ignored' {
+    if (this._relayState === undefined) return 'unread';
+    return this.applySeed(raw, updatedAt) ? 'applied' : 'ignored';
   }
 
   /** Drops a cache load for old params. Fetches unless the change already did. */
@@ -525,7 +568,8 @@ export class QueryInstance<T extends Query> {
   }
 
   private hydrate(cached: CachedQuery | undefined): void {
-    if (cached === undefined) return;
+    // A seed or fetch that landed while an async store loaded is newer than the record.
+    if (cached === undefined || this.rootEntity !== undefined) return;
 
     try {
       // Keep an invalidation made before the cache loaded.
@@ -942,6 +986,7 @@ export class QueryInstance<T extends Query> {
 
   markStale(): void {
     this.updatedAt = 0;
+    this.invalidatedAt = Date.now();
     if (this._isActive && !this.isPaused) {
       this.runDebounced({ nextTask: true });
     }
@@ -1057,8 +1102,9 @@ export class QueryInstance<T extends Query> {
       return true;
     }
 
+    // A timestamp ahead of this clock (a server clock that runs ahead) counts as fetched just now.
     const staleTime = this.config?.staleTime ?? 0;
-    return Date.now() - this.updatedAt >= staleTime;
+    return Math.max(0, Date.now() - this.updatedAt) >= staleTime;
   }
 
   private get isWithinReactivationGrace(): boolean {

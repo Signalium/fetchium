@@ -31,6 +31,7 @@ If `$ARGUMENTS` contains "hooks" or "signalium", use that mode for all examples.
    | Auth & Headers        | https://fetchium.dev/guides/auth             |
    | Error Handling        | https://fetchium.dev/guides/error-handling   |
    | Offline & Persistence | https://fetchium.dev/guides/offline          |
+   | Server Rendering      | https://fetchium.dev/guides/server-rendering |
    | Testing               | https://fetchium.dev/guides/testing          |
    | REST Queries          | https://fetchium.dev/reference/rest-queries  |
    | Pagination            | https://fetchium.dev/reference/pagination    |
@@ -94,6 +95,7 @@ All documentation files are at `node_modules/fetchium/plugin/docs/`:
 | `guides/auth.md`             | Authentication patterns, headers, context                           |
 | `guides/error-handling.md`   | Error handling, retry configuration                                 |
 | `guides/offline.md`          | Offline support, persistent stores                                  |
+| `guides/server-rendering.md` | Seeding queries from a server loader, per-request clients           |
 | `guides/testing.md`          | Testing patterns, mock fetch, store setup                           |
 | `reference/rest-queries.md`  | RESTQuery field reference, dynamic overrides                        |
 | `reference/pagination.md`    | Pagination and infinite query patterns                              |

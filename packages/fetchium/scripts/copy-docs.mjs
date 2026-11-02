@@ -30,6 +30,7 @@ const docPages = [
   { src: 'guides/auth/page.md', dest: 'guides/auth.md' },
   { src: 'guides/error-handling/page.md', dest: 'guides/error-handling.md' },
   { src: 'guides/offline/page.md', dest: 'guides/offline.md' },
+  { src: 'guides/server-rendering/page.md', dest: 'guides/server-rendering.md' },
   { src: 'guides/testing/page.md', dest: 'guides/testing.md' },
   { src: 'reference/rest-queries/page.md', dest: 'reference/rest-queries.md' },
   { src: 'reference/pagination/page.md', dest: 'reference/pagination.md' },

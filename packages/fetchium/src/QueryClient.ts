@@ -34,10 +34,11 @@ import {
   type PreloadedEntityMap,
   type ActivitySource,
   queryKeyFor,
+  extractParamsForKey,
 } from './query-types.js';
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
-import type { Optionalize, Signalize } from './type-utils.js';
+import type { HasRequiredKeys, Optionalize, Signalize } from './type-utils.js';
 
 /** Options for `new QueryClient(config)`. Every key also reaches queries and mutations as `this.context`. */
 export interface QueryClientConfig {
@@ -98,6 +99,20 @@ export interface RetainOptions {
 export interface PrefetchOptions {
   /** Milliseconds to keep the query active. Default: `DEFAULT_PREFETCH_TTL` (10 s). */
   ttl?: number;
+}
+
+export interface SetQueryDataOptions {
+  /** Epoch milliseconds the data was fetched at. Default: now. Drives staleness and which of two writes wins. */
+  updatedAt?: number;
+}
+
+/** A raw response waiting for its query's first read. */
+interface QuerySeed {
+  defId: string;
+  /** Params as the query key sees them, for `invalidateQueries` filters. */
+  params: Record<string, unknown> | undefined;
+  raw: unknown;
+  updatedAt: number;
 }
 
 export const DEFAULT_PREFETCH_TTL = 10_000;
@@ -171,8 +186,13 @@ export class QueryClient {
   /** Leases `retain()` took inside a reactive computation, by computation and run. */
   private reactiveLeases = new WeakMap<object, { run: number; releases: Array<() => void> }>();
   private warnedReactiveRetain = false;
+  private warnedReactiveSeed = false;
   /** `useSuspenseQuery` cold-miss leases, by query key. */
   private suspenseHolds = new Map<number, SuspenseHold>();
+  /** Raw responses from `setQueryData` for queries not read yet, by storage key. Dropped by `destroy()`. */
+  private seeds = new Map<number, QuerySeed>();
+  /** Live instances with a Signal param, whose instance key differs from their storage key. */
+  private signalParamInstances = new Set<QueryInstance<any>>();
   /** Keys whose last cold failure expired unclaimed. The next one waits `SUSPENSE_HOLD_TTL` for a slow reader. */
   private unclaimedFailures = new Set<number>();
 
@@ -389,6 +409,80 @@ export class QueryClient {
   }
 
   /**
+   * Seeds a query with a raw API response (for example the JSON a server loader
+   * returned), parsed with the query's own schema as a fetch would be. The query's
+   * first read then has the data synchronously, so `renderToString` and the
+   * hydration render agree, whatever the query's `cacheTime`.
+   *
+   * `data` is the response as the server sent it, not parsed values (TanStack's
+   * `setQueryData` takes parsed data). `params` is required: pass `undefined` for a
+   * query without params. `updatedAt` is when the data was fetched. The first read
+   * refetches when it is older than the query's `staleTime`, which is every seed
+   * under the default `staleTime` of 0.
+   *
+   * Call it before the query's first read: in a loader, an event handler, or the
+   * render of a component above the reader. The response is parsed at that first
+   * read, so one that does not parse warns then, and the query falls back to the
+   * store and a fetch. A query that was read already applies it now.
+   *
+   * Newer wins per query, not per entity. A query that exists keeps data newer than
+   * `updatedAt` and ignores a seed older than its last `invalidateQueries` (an
+   * invalidation from before the query existed is not remembered), but an older
+   * seed still overwrites an entity that a fresher query wrote. A seed that is never
+   * read stays until `destroy()`.
+   */
+  setQueryData<T extends Query>(
+    QueryClass: new () => T,
+    params: HasRequiredKeys<ExtractType<T['params']>> extends true
+      ? Optionalize<Signalize<ExtractType<T['params']>>>
+      : Optionalize<Signalize<ExtractType<T['params']>>> | undefined,
+    data: unknown,
+    options?: SetQueryDataOptions,
+  ): void {
+    if (this.destroyed) return;
+    const updatedAt = options?.updatedAt ?? Date.now();
+    if (!Number.isFinite(updatedAt) || updatedAt <= 0) {
+      this.context.log?.warn?.(`setQueryData ignored: updatedAt must be a positive number, got ${updatedAt}`);
+      return;
+    }
+
+    const def = QueryDefinition.for(QueryClass);
+    const extracted = extractParamsForKey(params as QueryParams | undefined);
+    const storageKey = queryKeyFor(def, extracted);
+
+    // A Signal param puts the instance under a different key than the storage key.
+    let instance = this.queryInstances.get(storageKey);
+    if (instance === undefined) {
+      for (const candidate of this.signalParamInstances) {
+        if (candidate.storageKey === storageKey) {
+          instance = candidate;
+          break;
+        }
+      }
+    }
+    const outcome = instance?.seedLive(data, updatedAt);
+    if (outcome === 'applied' && IS_DEV && !this.warnedReactiveSeed && currentReactiveOwner() !== undefined) {
+      this.warnedReactiveSeed = true;
+      this.context.log?.warn?.(
+        'QueryClient.setQueryData() updated a query inside a reactive computation. A computation that already read the query keeps the old data. Call it before the first read, or from a loader, event handler or effect.',
+      );
+    }
+    if (outcome === 'applied' || outcome === 'ignored') return;
+
+    const held = this.seeds.get(storageKey);
+    if (held === undefined || held.updatedAt < updatedAt) {
+      this.seeds.set(storageKey, { defId: def.statics.id, params: extracted, raw: data, updatedAt });
+    }
+  }
+
+  /** @internal */
+  takeSeed(storageKey: number): { raw: unknown; updatedAt: number } | undefined {
+    const seed = this.seeds.get(storageKey);
+    if (seed !== undefined) this.seeds.delete(storageKey);
+    return seed;
+  }
+
+  /**
    * Loads a query from the document store and returns a QueryResult
    * that triggers fetches and prepopulates with cached data
    */
@@ -406,6 +500,7 @@ export class QueryClient {
 
       // Store for future use
       this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
+      if (queryInstance.hasSignalParams) this.signalParamInstances.add(queryInstance);
     }
 
     // An earlier reader may have activated it with its start still queued.
@@ -951,6 +1046,13 @@ export class QueryClient {
           instance.markStale();
         }
       }
+
+      // A seed not read yet would otherwise bring back the data this call invalidates.
+      for (const [key, seed] of this.seeds) {
+        if (seed.defId === defId && (paramSubset === undefined || paramsMatch(seed.params, paramSubset))) {
+          this.seeds.delete(key);
+        }
+      }
     }
   }
 
@@ -982,6 +1084,7 @@ export class QueryClient {
         else this.releaseQueryRoot(root, instance);
       }
       this.queryInstances.delete(key);
+      this.signalParamInstances.delete(instance);
       return;
     }
     const entity = this.entityMap.getEntity(key);
@@ -1055,6 +1158,7 @@ export class QueryClient {
     this.adapters.clear();
     for (const instance of this.queryInstances.values()) instance.abortForDestroy();
     this.queryInstances.clear();
+    this.seeds.clear();
     this.mutationInstances.clear();
     this.entityMap.clear();
     this.constraintRegistry.clear();

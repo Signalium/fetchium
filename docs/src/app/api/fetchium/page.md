@@ -250,6 +250,7 @@ Every config key, including keys this table does not list, also reaches query an
 | `getContext`         | `(): QueryContext`                                 | Returns the `QueryContext` passed at construction.                                                                                           |
 | `applyMutationEvent` | `(event: MutationEvent): void`                     | Applies an external mutation event (create/update/delete) to the entity store.                                                               |
 | `invalidateQueries`  | `(targets: ReadonlyArray<InvalidateTarget>): void` | Marks matching query instances as stale. Accepts query classes and optional param subsets for filtering.                                     |
+| `setQueryData`       | `(QueryClass, params, data, options?): void`       | Seeds a query with a raw API response, so its first read has data synchronously. See below.                                                  |
 | `prefetch`           | `(QueryClass, params?, { ttl? }?): () => void`     | Starts a query now and keeps it active for `ttl` ms (default `DEFAULT_PREFETCH_TTL`, 10 s). See below.                                       |
 | `retain`             | `(fn: () => unknown, { ttl? }?): () => void`       | Keeps the queries `fn` reads active until the returned `release` is called, or for `ttl` ms. See below.                                      |
 | `destroy`            | `(): void`                                         | Tears down the GC manager, network manager, and all caches, releases outstanding leases, and unsubscribes the store listeners it registered. |
@@ -281,6 +282,30 @@ release();
 ```
 
 Without a `ttl`, a `retain` lease lasts until `release` is called.
+
+#### `setQueryData` {% #set-query-data %}
+
+Parses `data`, a raw API response such as the JSON a server loader returned, with the query's own schema, and applies its entities like a fetch would. The query's first read then has the data synchronously, whatever its `cacheTime` and store, so `renderToString` and the hydration render agree. See [Server rendering](/guides/server-rendering).
+
+```ts
+client.setQueryData(GetToken, { id }, data, { updatedAt: fetchedAt });
+client.setQueryData(GetFeed, undefined, data, { updatedAt: fetchedAt }); // no params: pass `undefined`
+```
+
+| Case                     | Behavior                                                                                                                                                                                                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `data`                   | The response as the server sent it, not parsed values: TanStack's `setQueryData` takes parsed data. Parsed with the query's schema at its first read, or during the call for a query already read.                                                                       |
+| `params`                 | Required. Pass `undefined` for a query without params (`prefetch` lets you omit it). Keyed as `fetchQuery` keys them, so pass what the reader passes: `{ id }` and `{ id, include: undefined }` are different queries. A Signal is read for its current value.           |
+| `options.updatedAt`      | Epoch milliseconds the server fetched the data at. Default: now. With `staleTime`, it decides whether the first read also refetches, and with the default `staleTime` of 0 it always does. Not a positive finite number: the whole call is dropped, with a warning.      |
+| Query not read yet       | The newest seed is kept until the first read takes it. It replaces what the store holds, which is not loaded. No timer: it stays until the client is destroyed.                                                                                                          |
+| Query already read       | A newer `updatedAt` is applied now, like a refetch result. An equal or older one, or one older than the query's last `invalidateQueries`, is ignored. A stale seed starts no refetch.                                                                                    |
+| Data that does not parse | Never throws. Warns through `log.warn` when it is parsed: at the first read of a query not read yet (never, if nothing reads it), or during the call for a query already read. The first read falls back to the store and a fetch. A query that was read keeps its data. |
+| `invalidateQueries`      | Drops seeds that were not read yet. A query that exists ignores a seed older than its last invalidation. One that does not exist yet remembers nothing, so an older seed is accepted.                                                                                    |
+| Shared entities          | Newer wins per query, not per entity. An older seed for one query still overwrites an entity a fresher query wrote.                                                                                                                                                      |
+| Signal params            | A reader's first read takes the seed for the value its Signal has then. If the Signal later moves to seeded params, the reader fetches and the unused seed stays until `destroy()`.                                                                                      |
+| `destroy()`              | Drops pending seeds. Later calls do nothing.                                                                                                                                                                                                                             |
+| Paginated queries        | Seed the first page. `__fetchNext()` continues from it, and a later seed replaces the pages like a refetch.                                                                                                                                                              |
+| Reactive computation     | Call it before the first read, or from a loader, a parent's render, an event handler or an effect. A computation that already read the query is not re-run, so development builds warn.                                                                                  |
 
 ---
 
@@ -658,6 +683,7 @@ The `t` object provides a declarative type definition DSL for describing query p
 | `QueryContext`                  | `{ log?, evictionMultiplier? }`                                                                                           | Context object provided to the `QueryClient`.                                                                              |
 | `QueryParams`                   | `Record<string, string \| number \| boolean \| undefined \| null \| Signal<...> \| unknown[] \| Record<string, unknown>>` | The shape of query parameters at runtime.                                                                                  |
 | `FetchNextConfig`               | `{ url?: unknown; searchParams?: Record<string, unknown> }`                                                               | Pagination configuration. Values can be FieldRefs.                                                                         |
+| `SetQueryDataOptions`           | `{ updatedAt?: number }`                                                                                                  | Options for `QueryClient.setQueryData`. `updatedAt` is when the data was fetched, in epoch milliseconds.                   |
 
 #### `QueryConfigOptions` properties
 

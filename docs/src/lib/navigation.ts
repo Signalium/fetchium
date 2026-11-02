@@ -110,6 +110,11 @@ export const navigation: GroupNavigationItem[] = [
         title: 'Offline & Persistence',
         href: '/guides/offline',
       },
+      {
+        type: 'link',
+        title: 'Server Rendering',
+        href: '/guides/server-rendering',
+      },
       { type: 'link', title: 'Testing', href: '/guides/testing' },
     ],
   },
