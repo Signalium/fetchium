@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { watcher, withContexts } from 'signalium';
 import { QueryClient, QueryClientContext } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
@@ -7,7 +7,6 @@ import { TopicQueryAdapter } from '../topic/TopicQueryAdapter.js';
 import type { QueryAdapterClass } from '../QueryAdapter.js';
 import { fetchQuery } from '../query.js';
 import { t } from '../typeDefs.js';
-import { sleep } from './utils.js';
 
 // Snapshots from separate tasks flush separately. Batching those is the adapter's job.
 
@@ -41,9 +40,18 @@ describe('batched topic snapshot delivery', () => {
   let client: QueryClient;
   let unsub: (() => void) | undefined;
 
-  afterEach(() => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(async () => {
     unsub?.();
     client?.destroy();
+    try {
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   async function setup(): Promise<{ adapter: SnapshotAdapter; runs: () => number; values: () => unknown[] }> {
@@ -69,7 +77,7 @@ describe('batched topic snapshot delivery', () => {
       });
     });
     unsub = () => unsubs.forEach(u => u());
-    await sleep(20);
+    await vi.runAllTimersAsync();
     return { adapter, runs: () => flushes, values: () => latest };
   }
 
@@ -79,7 +87,7 @@ describe('batched topic snapshot delivery', () => {
     const before = runs();
 
     TOPICS.forEach((topic, i) => adapter.deliver(topic, { n: i + 1 }));
-    await sleep(20);
+    await vi.runAllTimersAsync();
 
     expect(values()).toEqual([1, 2, 3, 4, 5]);
     expect(runs() - before).toBe(1);
@@ -91,9 +99,12 @@ describe('batched topic snapshot delivery', () => {
 
     for (const [i, topic] of TOPICS.entries()) {
       adapter.deliver(topic, { n: i + 1 });
-      await sleep(5);
+      // Drain the reactive flush and its counter-reset timer before the next delivery.
+      await vi.runAllTimersAsync();
+
+      expect(values()).toEqual(TOPICS.map((_, j) => (j <= i ? j + 1 : undefined)));
+      expect(runs() - before).toBe(i + 1);
     }
-    await sleep(20);
 
     expect(values()).toEqual([1, 2, 3, 4, 5]);
     expect(runs() - before).toBe(TOPICS.length);
