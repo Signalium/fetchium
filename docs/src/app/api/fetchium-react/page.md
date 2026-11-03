@@ -33,7 +33,7 @@ React hook for fetching a query. Subscribes the component to the query's reactiv
 | ----------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `QueryClass`      | `new () => T`           | The query class to instantiate and execute. Must extend `Query` or `RESTQuery`.                                                                                 |
 | `params`          | `ExtractQueryParams<T>` | Parameters matching the query's `params` shape. Optional if the query has no required params. Values can be Signalium `Signal`s for reactive parameter changes. |
-| `options.enabled` | `boolean`               | Defaults to `true`. When `false`, skips fetching and subscribing to the query.                                                                                  |
+| `options.enabled` | `boolean`               | Defaults to `true`. When `false`, skips fetching and subscribing to the query, but still returns cached data when there is some.                                |
 
 #### Returns
 
@@ -142,19 +142,23 @@ function UserProfile({
 }) {
   const query = useQuery(GetUser, { id: userId }, { enabled });
 
-  if (!enabled) {
-    return <div>Select a user to load their profile.</div>;
+  // A disabled query still shows cached data.
+  if (query.isReady) {
+    return <div>{query.value.name}</div>;
   }
 
-  if (!query.isReady) {
-    return <div>Loading...</div>;
-  }
-
-  return <div>{query.value!.name}</div>;
+  return (
+    <div>{enabled ? 'Loading...' : 'Select a user to load their profile.'}</div>
+  );
 }
 ```
 
-While disabled, the result has `isPending: true`, `isReady: false`, and `value: undefined`, even if the query is cached. Setting `enabled` to `true` activates the query with the current parameters. Setting it back to `false` releases this hook's subscription; other consumers of the same query remain active. For queries without parameters, pass `undefined` as the second argument: `useQuery(GetUsers, undefined, { enabled })`.
+A disabled query never fetches or subscribes, but it still reads the cache:
+
+- If the query has cached data (in memory, or in the persistent store and within its `cacheTime`), the result starts resolved: `isReady: true`, `isResolved: true`, `isPending: false`, with `value` set to the cached data. Stale data is shown as-is. It is not refetched while disabled.
+- If there is no cached data, the result stays `isPending: true` with `value: undefined` and no request is made.
+
+The cached value stays reactive. Entity updates and fetches by enabled consumers of the same query appear in the disabled result. Setting `enabled` to `true` activates the query with the current parameters. Setting it back to `false` releases this hook's subscription; other consumers of the same query remain active. For queries without parameters, pass `undefined` as the second argument: `useQuery(GetUsers, undefined, { enabled })`.
 
 #### Notes
 

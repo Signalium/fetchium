@@ -1,17 +1,14 @@
 import { useMemo } from 'react';
-import { ReactivePromise } from 'signalium';
 import { useReactive } from 'signalium/react';
 import { hashValue } from 'signalium/utils';
 import { ExtractType, QueryPromise } from '../types.js';
-import { fetchQuery, Query } from '../query.js';
+import { fetchQuery, peekQuery, Query } from '../query.js';
 import { HasRequiredKeys, Optionalize, Signalize } from '../type-utils.js';
 
 type QueryArgs<T extends Query> =
   HasRequiredKeys<ExtractType<T['params']>> extends true
     ? [params: Optionalize<Signalize<ExtractType<T['params']>>>]
     : [params?: Optionalize<Signalize<ExtractType<T['params']>>> | undefined];
-
-const disabledQuery = new ReactivePromise<never>();
 
 /**
  * Dev-only counter exported for tests to assert thunk identity stability
@@ -29,8 +26,9 @@ export function __debug_resetThunkAllocations(): void {
  * so memoized children that receive subtrees as props keep stable references
  * when the underlying data is unchanged. Implemented as a thin wrapper around
  * Signalium v3's `useReactive`, which is deep-by-default.
- * Pass `{ enabled: false }` as the third argument to return a pending result
- * without fetching or subscribing to the query. Defaults to enabled.
+ * Pass `{ enabled: false }` as the third argument to skip fetching and
+ * subscribing. A disabled query resolves with cached data when there is some
+ * (in memory or persisted), and otherwise stays pending. Defaults to enabled.
  */
 export function useQuery<T extends Query>(
   QueryClass: new () => T,
@@ -48,7 +46,7 @@ export function useQuery<T extends Query>(
   const thunk = useMemo(
     () => {
       if (IS_DEV) __debug_thunkAllocations++;
-      return () => (enabled ? fetchQuery(QueryClass, ...([args[0]] as QueryArgs<T>)) : disabledQuery);
+      return () => (enabled ? fetchQuery(QueryClass, ...([args[0]] as QueryArgs<T>)) : peekQuery(QueryClass, args[0]));
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [QueryClass, paramsHash, enabled],

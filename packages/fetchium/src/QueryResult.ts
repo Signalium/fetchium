@@ -7,6 +7,7 @@ import {
   type DeactivateOptions,
   settled,
   isSignal,
+  notifier,
 } from 'signalium';
 import { NetworkMode, type QueryResult, type EntityDef } from './types.js';
 import {
@@ -64,6 +65,12 @@ export class QueryInstance<T extends Query> {
   /** The public-facing ReactivePromise returned to consumers. */
   readonly relay: ReactivePromise<QueryResult<T>>;
 
+  /**
+   * Read-only view for disabled consumers: resolves with the cached value, if
+   * any, without fetching or subscribing. Stays pending when nothing is cached.
+   */
+  readonly peekRelay: ReactivePromise<QueryResult<T>>;
+
   private queryClient: QueryClient;
   private initialized: boolean = false;
   private updatedAt: number | undefined = undefined;
@@ -74,6 +81,15 @@ export class QueryInstance<T extends Query> {
 
   private _relayState: RelayState<QueryResult<T>> | undefined = undefined;
   private _isActive: boolean = false;
+  /** A disabled consumer is reading `peekRelay`. Holds off GC like `_isActive`. */
+  private _isPeeking: boolean = false;
+  /** Bumped per peek (de)activation so a stale async cache load is dropped. */
+  private peekGeneration: number = 0;
+  /** Storage key `peek()` last loaded the persistent cache for. */
+  private peekLoadedKey: number = -1;
+  private readonly peekNotifier = notifier();
+  /** Storage key of the params `rootEntity` was applied for. */
+  private rootStorageKey: number = -1;
   private wasPaused: boolean = false;
   private reconnectsAtDeactivate: number = 0;
   private currentParams: QueryParams | undefined = undefined;
@@ -367,7 +383,102 @@ export class QueryInstance<T extends Query> {
       },
       { desc: `Query(${def.statics.id})` },
     );
+
+    this.peekRelay = relay<QueryResult<T>>(
+      state => {
+        this.peekGeneration++;
+        this._isPeeking = true;
+        this.peek(state, true);
+        return {
+          update: () => this.peek(state, false),
+          deactivate: () => {
+            this._isPeeking = false;
+            this.peekGeneration++;
+            if (!this._isActive) {
+              this.scheduleGc();
+            }
+          },
+        };
+      },
+      { desc: `QueryPeek(${def.statics.id})` },
+    );
   }
+
+  /**
+   * Shows the root entity's value, hydrating it from the persistent cache first
+   * if the query never activated. Never fetches. The parsed root belongs to the
+   * instance, so GC owns it and a later activation picks up from it.
+   */
+  private peek(state: RelayState<QueryResult<T>>, activating: boolean): void {
+    // Applied data (a cache load or another consumer's fetch) reruns this.
+    this.peekNotifier.consume();
+    if (this.stoppedByDestroy()) {
+      return;
+    }
+    const extractedParams = extractParamsForKey(this.params);
+    const storageKey = queryKeyFor(this.def, extractedParams);
+    const loadCache = !this.initialized && this.peekLoadedKey !== storageKey;
+
+    if (loadCache && storageKey !== this.storageKey) {
+      this.adoptParams(extractedParams, storageKey);
+    }
+    if (activating) {
+      // Resolve config first so this cancels in the bucket GC was scheduled in.
+      this.getOrCreateExecutionContext();
+      this.queryClient.gcManager.cancel(this.queryKey, this.config?.gcTime ?? DEFAULT_GC_TIME);
+    }
+
+    if (loadCache) {
+      this.peekLoadedKey = storageKey;
+      const generation = this.peekGeneration;
+      const apply = (cached: CachedQuery | undefined): void => {
+        if (cached === undefined || this.stoppedByDestroy()) {
+          return;
+        }
+        // Deactivated, activated, or moved to other params while loading.
+        if (generation !== this.peekGeneration || this.initialized || this.storageKey !== storageKey) {
+          return;
+        }
+        try {
+          this.applyData(cached.value, false, false, cached.preloadedEntities);
+        } catch (error) {
+          this.discardCorruptCache(error, storageKey);
+        }
+      };
+
+      let loaded: MaybePromise<CachedQuery | undefined>;
+      try {
+        loaded = this.queryClient.loadCachedQuery(this.def, storageKey);
+      } catch (error) {
+        this.discardCorruptCache(error, storageKey);
+        loaded = undefined;
+      }
+      if (isThenable(loaded)) {
+        loaded.then(apply, error => {
+          if (!this.stoppedByDestroy()) {
+            this.discardCorruptCache(error, storageKey);
+          }
+        });
+      } else {
+        apply(loaded);
+      }
+    }
+
+    const root = this.rootEntity;
+    if (root !== undefined && this.rootStorageKey === storageKey) {
+      const value = root.getProxy(this.def.statics.shape as unknown as EntityDef) as QueryResult<T>;
+      if (state.isPending || state.value !== value) {
+        state.value = value;
+      }
+    } else if (!state.isPending) {
+      // Signal params moved to a key with nothing loaded.
+      state.setPromise(new Promise<never>(() => {}));
+    }
+  }
+
+  private notifyPeek = (): void => {
+    this.peekNotifier.notify();
+  };
 
   /** Apply raw data (fresh or cached) to the root entity and return the proxy. */
   private applyData(
@@ -386,6 +497,11 @@ export class QueryInstance<T extends Query> {
       appendMode,
       preloadedEntities,
     );
+    this.rootStorageKey = this.storageKey;
+    // Not synchronously: this can run inside the main relay's or a proxy's read.
+    if (this._isPeeking) {
+      queueMicrotask(this.notifyPeek);
+    }
 
     if (previousRoot !== undefined && previousRoot !== this.rootEntity && !def.statics.isEntityResult) {
       this.queryClient.releaseQueryRoot(previousRoot, this);
@@ -684,6 +800,10 @@ export class QueryInstance<T extends Query> {
   }
 
   private scheduleGc(): void {
+    // A disabled consumer still shows the cached value. Its deactivation schedules GC.
+    if (this._isPeeking) {
+      return;
+    }
     const gcTime = this.config?.gcTime ?? DEFAULT_GC_TIME;
     this.queryClient.gcManager.schedule(this.queryKey, gcTime, GcKeyType.Query);
   }
