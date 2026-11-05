@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { reactive, signal, watcher, withContexts } from 'signalium';
+import { reactive, settled, signal, watcher, withContexts } from 'signalium';
 import { MemoryPersistentStore, SyncQueryStore } from '../stores/sync.js';
 import { AsyncQueryStore, type AsyncPersistentStore } from '../stores/async.js';
 import { poll } from '../subscriptions/polling.js';
@@ -617,6 +617,7 @@ describe('A topic query mounted and unmounted in one task', () => {
 describe('A topic query unmounted before its first data, in a later task', () => {
   const hadWindow = 'window' in globalThis;
   afterEach(() => {
+    vi.useRealTimers();
     if (!hadWindow) delete (globalThis as any).window;
   });
 
@@ -631,21 +632,28 @@ describe('A topic query unmounted before its first data, in a later task', () =>
   }
 
   it('is pending, not rejected, when mounted again, until its data lands', async () => {
+    await settled();
+    vi.useFakeTimers();
     const client = makeTopicClient(new MemoryPersistentStore());
-    const { relay } = await mountAndLeave(client);
-    await sleep(20);
+    let relay: any;
+    const first = activate(client, () => (relay = fetchQuery(GetPrices)).isPending);
+    // Flush activation, then unmount before the topic's 5 ms response.
+    await vi.advanceTimersByTimeAsync(2);
+    first();
+    await vi.advanceTimersByTimeAsync(20);
     expect(relay.isRejected).toBe(false);
 
     const reads: ReturnType<typeof state>[] = [];
     const second = activate(client, () => reads.push(state(fetchQuery(GetPrices))));
     expect(reads[0]).toEqual({ isPending: true, isRejected: false, value: undefined });
-    await sleep(3);
+    await vi.advanceTimersByTimeAsync(3);
     expect(state(relay)).toEqual({ isPending: true, isRejected: false, value: undefined });
-    await sleep(30);
+    await vi.advanceTimersByTimeAsync(30);
     expect(reads.some(r => r.isRejected)).toBe(false);
     expect(state(relay)).toEqual({ isPending: false, isRejected: false, value: 'data:prices' });
     second();
     client.destroy();
+    await vi.advanceTimersByTimeAsync(0);
   });
 
   it('settles an awaiter of the first mount with the data a later mount brings', async () => {

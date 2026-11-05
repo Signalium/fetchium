@@ -243,3 +243,21 @@ export function fetchQuery<T extends Query>(
 
   return queryClient.getQuery(queryDef, params);
 }
+
+/**
+ * Reads a query's cached value without fetching or subscribing. Resolves when
+ * cached data exists (in memory or persisted), otherwise stays pending.
+ * @internal Backs `useQuery(..., { enabled: false })`.
+ */
+export function peekQuery<T extends Query>(
+  QueryClass: new () => T,
+  params: Optionalize<Signalize<ExtractType<T['params']>>> | undefined,
+): QueryPromise<T> {
+  const queryClient = getContext(QueryClientContext);
+
+  if (queryClient === undefined) {
+    throw new Error('QueryClient not found');
+  }
+
+  return queryClient.peekQuery(QueryDefinition.for(QueryClass), params as QueryParams | undefined);
+}

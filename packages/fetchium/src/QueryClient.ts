@@ -414,6 +414,25 @@ export class QueryClient {
     return queryInstance.relay;
   }
 
+  /**
+   * Like `getQuery`, but the returned promise never fetches or subscribes: it
+   * resolves with the cached value (in memory or persisted), or stays pending
+   * when there is none. Backs `useQuery(..., { enabled: false })`.
+   * @internal
+   */
+  peekQuery<T extends Query>(
+    queryDef: QueryDefinition<any, any, any>,
+    params: QueryParams | undefined,
+  ): QueryPromise<T> {
+    const queryKey = queryKeyFor(queryDef, params);
+    let queryInstance = this.queryInstances.get(queryKey) as QueryInstance<T> | undefined;
+    if (queryInstance === undefined) {
+      queryInstance = new QueryInstance(queryDef, this, queryKey, params);
+      this.queryInstances.set(queryKey, queryInstance as QueryInstance<any>);
+    }
+    return queryInstance.peekRelay as QueryPromise<T>;
+  }
+
   // ======================================================
   // Leases (retain / prefetch)
   // ======================================================
