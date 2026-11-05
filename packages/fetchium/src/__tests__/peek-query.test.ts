@@ -9,6 +9,7 @@ import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { fetchQuery, peekQuery, queryKeyForClass, Query } from '../query.js';
 import { QueryClient, QueryClientContext, type QueryClientConfig, type QueryStore } from '../QueryClient.js';
 import { GcManager } from '../GcManager.js';
+import { hashValue } from 'signalium/utils';
 import { createMockFetch, sleep } from './utils.js';
 
 class GetItem extends RESTQuery {
@@ -285,5 +286,141 @@ describe('peekQuery', () => {
 
     await sleep(20);
     expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('shows the cache after a disabled reader remounts across its async cache read', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-item/1', { name: 'One' });
+    mockFetch.get('/peek-item/2', { name: 'Two' });
+    await persist(kv, mockFetch, GetItem, { id: '1' });
+    await persist(kv, mockFetch, GetItem, { id: '2' });
+
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [20]) });
+
+    // Remounts after the first read settles.
+    const after = inContext(client, () => peekQuery(GetItem, { id: '1' }));
+    activate(client, () => after.value)();
+    await sleep(40);
+    activate(client, () => after.value);
+
+    // Remounts while the first read is still in flight.
+    const during = inContext(client, () => peekQuery(GetItem, { id: '2' }));
+    activate(client, () => during.value)();
+    activate(client, () => during.value);
+
+    await expect.poll(() => after.value?.name).toBe('One');
+    await expect.poll(() => during.value?.name).toBe('Two');
+    expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('follows Signal params to another cached key after the query was enabled', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-fresh/1', { name: 'One' });
+    mockFetch.get('/peek-fresh/2', { name: 'Two' });
+    await persist(kv, mockFetch, GetFreshItem, { id: '1' });
+    await persist(kv, mockFetch, GetFreshItem, { id: '2' });
+    expect(mockFetch.calls).toHaveLength(2);
+
+    const client = makeClient(kv, mockFetch);
+    const params = { id: signal('1') };
+    const fetched = inContext(client, () => fetchQuery(GetFreshItem, params));
+    const disposeEnabled = activate(client, () => fetched.value);
+    expect((await fetched).name).toBe('One');
+
+    // Disable, then move the param to another key that is cached and fresh.
+    const peeked = inContext(client, () => peekQuery(GetFreshItem, params));
+    const disposePeek = activate(client, () => peeked.value?.name);
+    disposeEnabled();
+    await sleep(10);
+    params.id.value = '2';
+    await expect.poll(() => peeked.value?.name).toBe('Two');
+    expect(peeked.isPending).toBe(false);
+
+    // Enabling again shows the same data, without refetching the fresh cache.
+    activate(client, () => fetched.value);
+    disposePeek();
+    await sleep(20);
+    expect(fetched.value!.name).toBe('Two');
+    expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('drops a cache read that finishes after the query fetched and was disabled again', async () => {
+    class Latest extends Entity {
+      __typename = t.typename('PeekLatest');
+      id = t.id;
+      name = t.string;
+    }
+    class GetLatest extends RESTQuery {
+      path = '/peek-latest';
+      result = t.entity(Latest);
+    }
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-latest', { __typename: 'PeekLatest', id: '1', name: 'Cached' });
+    mockFetch.get('/peek-latest', { __typename: 'PeekLatest', id: '2', name: 'Fresh' });
+    await persist(kv, mockFetch, GetLatest, undefined);
+
+    // The disabled reader's cache read is slow; the enabled reader fetches and leaves first.
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [50, 0]) });
+    const peeked = inContext(client, () => peekQuery(GetLatest, undefined));
+    activate(client, () => peeked.value);
+    const fetched = inContext(client, () => fetchQuery(GetLatest));
+    const disposeEnabled = activate(client, () => fetched.value);
+    await expect.poll(() => fetched.value?.name).toBe('Fresh');
+    disposeEnabled();
+    await sleep(80);
+
+    expect(peeked.value!.name).toBe('Fresh');
+    expect(mockFetch.calls).toHaveLength(2);
+  });
+
+  it('drops a cache read for Signal params that moved on while it loaded', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-item/1', { name: 'One' });
+    mockFetch.get('/peek-item/2', { name: 'Two' });
+    await persist(kv, mockFetch, GetItem, { id: '1' });
+    await persist(kv, mockFetch, GetItem, { id: '2' });
+
+    // The read for id 1 is slow and lands after the read for id 2.
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [50, 0]) });
+    const id = signal('1');
+    const peeked = inContext(client, () => peekQuery(GetItem, { id }));
+    activate(client, () => peeked.value?.name);
+    await sleep(5);
+    id.value = '2';
+    await expect.poll(() => peeked.value?.name).toBe('Two');
+    await sleep(80);
+
+    expect(peeked.value!.name).toBe('Two');
+    expect(peeked.isPending).toBe(false);
+  });
+
+  it('drops a cache read that finishes after the query was collected', async () => {
+    class Collected extends Entity {
+      __typename = t.typename('PeekCollected');
+      id = t.id;
+      name = t.string;
+    }
+    class GetCollected extends RESTQuery {
+      path = '/peek-collected';
+      result = t.entity(Collected);
+      config = { gcTime: 0 };
+    }
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-collected', { __typename: 'PeekCollected', id: '1', name: 'Cached' });
+    await persist(kv, mockFetch, GetCollected, undefined);
+
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [30]) });
+    const peeked = inContext(client, () => peekQuery(GetCollected, undefined));
+    activate(client, () => peeked.value)();
+    await sleep(60);
+
+    // gcTime 0 collected the query before its read settled; nothing may recreate its root.
+    expect(client.queryInstances.has(queryKeyForClass(GetCollected, undefined))).toBe(false);
+    expect(client.entityMap.getEntity(hashValue(['PeekCollected', '1']))).toBeUndefined();
   });
 });

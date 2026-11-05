@@ -83,8 +83,6 @@ export class QueryInstance<T extends Query> {
   private _isActive: boolean = false;
   /** A disabled consumer is reading `peekRelay`. Holds off GC like `_isActive`. */
   private _isPeeking: boolean = false;
-  /** Bumped per peek (de)activation so a stale async cache load is dropped. */
-  private peekGeneration: number = 0;
   /** Storage key `peek()` last loaded the persistent cache for. */
   private peekLoadedKey: number = -1;
   private readonly peekNotifier = notifier();
@@ -386,14 +384,12 @@ export class QueryInstance<T extends Query> {
 
     this.peekRelay = relay<QueryResult<T>>(
       state => {
-        this.peekGeneration++;
         this._isPeeking = true;
         this.peek(state, true);
         return {
           update: () => this.peek(state, false),
           deactivate: () => {
             this._isPeeking = false;
-            this.peekGeneration++;
             if (!this._isActive) {
               this.scheduleGc();
             }
@@ -405,9 +401,10 @@ export class QueryInstance<T extends Query> {
   }
 
   /**
-   * Shows the root entity's value, hydrating it from the persistent cache first
-   * if the query never activated. Never fetches. The parsed root belongs to the
-   * instance, so GC owns it and a later activation picks up from it.
+   * Shows the root entity's value. While the query is inactive and holds nothing
+   * for the current params, it loads them from the persistent cache first. Never
+   * fetches. The parsed root belongs to the instance, so GC owns it and a later
+   * activation picks up from it.
    */
   private peek(state: RelayState<QueryResult<T>>, activating: boolean): void {
     // Applied data (a cache load or another consumer's fetch) reruns this.
@@ -417,9 +414,11 @@ export class QueryInstance<T extends Query> {
     }
     const extractedParams = extractParamsForKey(this.params);
     const storageKey = queryKeyFor(this.def, extractedParams);
-    const loadCache = !this.initialized && this.peekLoadedKey !== storageKey;
+    // An active query loads its own data. A load that settles after this reader
+    // unmounted still applies, so a remount doesn't load again.
+    const loadCache = !this._isActive && this.rootStorageKey !== storageKey && this.peekLoadedKey !== storageKey;
 
-    if (loadCache && storageKey !== this.storageKey) {
+    if (loadCache && !this.initialized && storageKey !== this.storageKey) {
       this.adoptParams(extractedParams, storageKey);
     }
     if (activating) {
@@ -430,17 +429,29 @@ export class QueryInstance<T extends Query> {
 
     if (loadCache) {
       this.peekLoadedKey = storageKey;
-      const generation = this.peekGeneration;
+      const { destroyCount, fetchStarts, initialized } = this;
       const apply = (cached: CachedQuery | undefined): void => {
-        if (cached === undefined || this.stoppedByDestroy()) {
+        if (cached === undefined || this.stoppedByDestroy() || this.destroyCount !== destroyCount) {
           return;
         }
-        // Deactivated, activated, or moved to other params while loading.
-        if (generation !== this.peekGeneration || this.initialized || this.storageKey !== storageKey) {
+        // Fetched, or moved off these params, while loading.
+        if (
+          this.fetchStarts !== fetchStarts ||
+          queryKeyFor(this.def, extractParamsForKey(this.params)) !== storageKey
+        ) {
           return;
         }
         try {
-          this.applyData(cached.value, false, false, cached.preloadedEntities);
+          if (storageKey !== this.storageKey) {
+            this.adoptParams(extractedParams, storageKey);
+            this.getOrCreateExecutionContext();
+          }
+          const value = this.applyData(cached.value, false, false, cached.preloadedEntities);
+          if (initialized) {
+            // The inactive relay takes these params' data, so reactivating refetches only if stale.
+            this.updatedAt = cached.updatedAt;
+            this.relayState.value = value;
+          }
         } catch (error) {
           this.discardCorruptCache(error, storageKey);
         }
