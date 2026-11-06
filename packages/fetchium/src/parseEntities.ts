@@ -78,6 +78,7 @@ export class ParseContext {
    * Off for a fetch result or cached record, copied only where a value differs.
    */
   copyInput: boolean = true;
+  eagerFormats: boolean = false;
 
   reset(
     queryClient: QueryClient | undefined,
@@ -91,6 +92,7 @@ export class ParseContext {
     this.isPartialEvent = isPartialEvent;
     this.trusted = undefined;
     this.copyInput = true;
+    this.eagerFormats = false;
     if (queryClient !== undefined) {
       if (this.seen === undefined) {
         this.seen = new Map();
@@ -164,6 +166,7 @@ export function unwrapFormattedValues(value: unknown): unknown {
     return value;
   }
   if (typeof value === 'object' && value !== null) {
+    if (PROXY_ID.has(value)) return value;
     const obj = value as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
       obj[key] = unwrapFormattedValues(obj[key]);
@@ -179,7 +182,7 @@ function parseFormattedValue(
   path: string,
 ): FormattedValue | undefined {
   const formatId = mask >> FORMAT_MASK_SHIFT;
-  const eager = (mask & Mask.IS_EAGER_FORMAT) !== 0;
+  const eager = ctx.eagerFormats || (mask & Mask.IS_EAGER_FORMAT) !== 0;
   if (eager) {
     try {
       return new FormattedValue(value, formatId, true);

@@ -65,6 +65,8 @@ export class MutationResultImpl<Request, Result> {
     const warn = this.queryClient.getContext().log?.warn ?? (() => {});
     const ctx = new ParseContext();
     ctx.reset(undefined, undefined, warn);
+    // Validate lazy formats before effects run.
+    ctx.eagerFormats = true;
     return parseEntities(response, responseShape as ComplexTypeDef, ctx) as Result;
   }
 

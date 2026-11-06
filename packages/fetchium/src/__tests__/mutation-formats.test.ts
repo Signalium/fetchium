@@ -4,7 +4,7 @@ import { t, registerFormat } from '../typeDefs.js';
 import { Mask } from '../types.js';
 import { Entity } from '../proxy.js';
 import { getMutation } from '../mutation.js';
-import { RESTMutation, RESTQuery } from '../rest/index.js';
+import { RESTMutation, RESTQuery, RESTQueryAdapter } from '../rest/index.js';
 import { fetchQuery } from '../query.js';
 import { valueKeyFor } from '../stores/shared.js';
 import { setupTestClient, testWithClient } from './utils.js';
@@ -17,6 +17,18 @@ declare global {
       'mutation-lazy-money': { amount: number };
     }
   }
+}
+
+function registerFailingLazyFormat() {
+  registerFormat(
+    'mutation-lazy-money',
+    Mask.STRING,
+    () => {
+      throw new Error('Invalid money');
+    },
+    (value: { amount: number }) => String(value.amount),
+    { eager: false },
+  );
 }
 
 describe('Formatted mutation results', () => {
@@ -130,6 +142,96 @@ describe('Formatted mutation results', () => {
     await testWithClient(client, async () => {
       const result = await getMutation(OptionalDate).run(undefined);
       expect(result.value).toBeUndefined();
+    });
+  });
+
+  it('returns an existing entity without changing it', async () => {
+    const { client, mockFetch } = getClient();
+    class User extends Entity {
+      __typename = t.typename('MutationFormatUser');
+      id = t.id;
+      name = t.string;
+    }
+
+    class GetUser extends RESTQuery {
+      readonly path = '/user';
+      readonly result = { user: t.entity(User) };
+    }
+
+    class ReturnUser extends RESTMutation {
+      readonly path = '/user';
+      readonly method = 'POST' as const;
+      readonly result = { user: t.entity(User) };
+    }
+
+    mockFetch.get('/user', { user: { __typename: 'MutationFormatUser', id: '1', name: 'Alice' } });
+
+    await testWithClient(client, async () => {
+      const { user } = await fetchQuery(GetUser);
+      const adapter = client.getAdapter(RESTQueryAdapter) as RESTQueryAdapter;
+      vi.spyOn(adapter, 'sendMutation').mockResolvedValue({ user });
+      const result = await getMutation(ReturnUser).run(undefined);
+
+      expect(result.user).toBe(user);
+      expect(user.name).toBe('Alice');
+    });
+  });
+
+  it('returns format errors through t.result instead of rejecting the mutation', async () => {
+    const { client, mockFetch } = getClient();
+    registerFailingLazyFormat();
+    mockFetch.post('/money', { value: 'bad' });
+
+    class GetMoney extends RESTMutation {
+      readonly path = '/money';
+      readonly method = 'POST' as const;
+      readonly result = { value: t.result(t.format('mutation-lazy-money')) };
+    }
+
+    await testWithClient(client, async () => {
+      const result = await getMutation(GetMoney).run(undefined);
+      expect(result.value).toEqual({ success: false, error: new Error('Invalid money') });
+    });
+  });
+
+  it('returns undefined when an optional field cannot be formatted', async () => {
+    const { client, mockFetch } = getClient();
+    registerFailingLazyFormat();
+    mockFetch.post('/money', { value: 'bad' });
+
+    class GetMoney extends RESTMutation {
+      readonly path = '/money';
+      readonly method = 'POST' as const;
+      readonly result = { value: t.optional(t.format('mutation-lazy-money')) };
+    }
+
+    await testWithClient(client, async () => {
+      const result = await getMutation(GetMoney).run(undefined);
+      expect(result.value).toBeUndefined();
+    });
+  });
+
+  it('rejects the mutation before running effects if a required field cannot be formatted', async () => {
+    const { client, mockFetch } = getClient();
+    const onEffects = vi.fn();
+    registerFailingLazyFormat();
+    mockFetch.post('/money', { value: 'bad' });
+
+    class GetMoney extends RESTMutation {
+      readonly path = '/money';
+      readonly method = 'POST' as const;
+      readonly result = { value: t.format('mutation-lazy-money') };
+
+      getEffects() {
+        onEffects();
+        return {};
+      }
+    }
+
+    await testWithClient(client, async () => {
+      await expect(getMutation(GetMoney).run(undefined)).rejects.toThrow('Invalid money');
+      expect(onEffects).not.toHaveBeenCalled();
+      expect(mockFetch.calls).toHaveLength(1);
     });
   });
 
