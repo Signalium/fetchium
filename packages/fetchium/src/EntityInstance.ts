@@ -1031,8 +1031,6 @@ function createProxy(
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
   const filterCache = new Map<string, NarrowedArray>();
-  // Only reactive methods resolve their scope through the proxy, so most proxies never need an owner.
-  let hasScopeOwner = false;
 
   const toJSON = () => ({ __entityRef: key });
 
@@ -1097,10 +1095,6 @@ function createProxy(
     }
 
     if (methods !== undefined && prop in methods) {
-      if (!hasScopeOwner) {
-        setScopeOwner(proxy, queryClient);
-        hasScopeOwner = true;
-      }
       return bindMethod(prop, methods, wrappedMethods, proxy, true);
     }
 
@@ -1181,5 +1175,8 @@ function createProxy(
     keys: entityKeys,
     readField,
   });
+  // Eager: `reactiveMethod(proxy, fn)` outside the class looks the owner up by identity, which no trap sees.
+  setScopeOwner(proxy, queryClient);
+
   return proxy;
 }
