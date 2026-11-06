@@ -197,6 +197,12 @@ This is common for `creates` effects, where the server assigns an `id` and possi
 Effects are processed _after_ the response is validated. If the mutation request fails, no effects are applied.
 {% /callout %}
 
+### Formatted fields
+
+Mutation results and `getEffects()` receive formatted values. Effect payloads use the same field types: pass a `Date` for a date field, not its JSON string. Fetchium uses the registered serializer when it applies the effect.
+
+By default, `client.applyMutationEvent()` accepts raw response data.
+
 ### How effects flow through the system
 
 When a mutation fires a `creates` event:

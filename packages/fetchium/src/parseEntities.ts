@@ -78,7 +78,8 @@ export class ParseContext {
    * Off for a fetch result or cached record, copied only where a value differs.
    */
   copyInput: boolean = true;
-  eagerFormats: boolean = false;
+  materializeFormats: boolean = false;
+  materializedInput: boolean = false;
 
   reset(
     queryClient: QueryClient | undefined,
@@ -92,7 +93,8 @@ export class ParseContext {
     this.isPartialEvent = isPartialEvent;
     this.trusted = undefined;
     this.copyInput = true;
-    this.eagerFormats = false;
+    this.materializeFormats = false;
+    this.materializedInput = false;
     if (queryClient !== undefined) {
       if (this.seen === undefined) {
         this.seen = new Map();
@@ -155,7 +157,7 @@ export function parseEntity(
 // Internal helpers
 // ======================================================
 
-export function unwrapFormattedValues(value: unknown): unknown {
+function unwrapFormattedValues(value: unknown): unknown {
   if (value instanceof FormattedValue) {
     return value.getValue();
   }
@@ -166,7 +168,6 @@ export function unwrapFormattedValues(value: unknown): unknown {
     return value;
   }
   if (typeof value === 'object' && value !== null) {
-    if (PROXY_ID.has(value)) return value;
     const obj = value as Record<string, unknown>;
     for (const key of Object.keys(obj)) {
       obj[key] = unwrapFormattedValues(obj[key]);
@@ -175,17 +176,15 @@ export function unwrapFormattedValues(value: unknown): unknown {
   return value;
 }
 
-function parseFormattedValue(
-  mask: number,
-  value: unknown,
-  ctx: ParseContext,
-  path: string,
-): FormattedValue | undefined {
+function parseFormattedValue(mask: number, value: unknown, ctx: ParseContext, path: string): unknown {
   const formatId = mask >> FORMAT_MASK_SHIFT;
-  const eager = ctx.eagerFormats || (mask & Mask.IS_EAGER_FORMAT) !== 0;
+  const eager = ctx.materializeFormats || ctx.materializedInput || (mask & Mask.IS_EAGER_FORMAT) !== 0;
   if (eager) {
     try {
-      return new FormattedValue(value, formatId, true);
+      const formatted = ctx.materializedInput
+        ? FormattedValue.fromValue(value, formatId)
+        : new FormattedValue(value, formatId, true);
+      return ctx.materializeFormats ? formatted.getValue() : formatted;
     } catch (e) {
       if ((mask & Mask.UNDEFINED) !== 0) {
         ctx.warn('Invalid formatted value for optional type, defaulting to undefined', {
@@ -223,6 +222,11 @@ function parseData(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: Parse
     if (value === undefined || value === null) return def;
     if (value !== def) throw typeError(path, def, value);
     return value;
+  }
+
+  const formatMask = typeof def === 'number' ? def : def.mask;
+  if (ctx.materializedInput && (formatMask & Mask.HAS_FORMAT) !== 0 && value !== null && value !== undefined) {
+    return parseFormattedValue(formatMask, value, ctx, path);
   }
 
   if (typeof def === 'number') {

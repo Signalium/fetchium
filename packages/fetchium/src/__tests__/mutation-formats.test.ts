@@ -15,6 +15,7 @@ declare global {
     interface FormatRegistry {
       'mutation-money': { amount: number };
       'mutation-lazy-money': { amount: number };
+      'mutation-price': number;
     }
   }
 }
@@ -235,49 +236,182 @@ describe('Formatted mutation results', () => {
     });
   });
 
-  it('updates the query and cached date without fetching again', async () => {
-    const { client, mockFetch, kv } = getClient();
-    class Payout extends Entity {
-      __typename = t.typename('MutationFormatPayout');
-      id = t.id;
-      date = t.format('date');
-    }
+  it.each(['frozen', 'cyclic', 'getter'] as const)('leaves undeclared %s data untouched', async kind => {
+    const { client } = getClient();
+    const read = vi.fn(() => 1);
+    const meta: Record<string, unknown> = {};
+    if (kind === 'frozen') Object.assign(meta, { value: 1 });
+    if (kind === 'frozen') Object.freeze(meta);
+    if (kind === 'cyclic') meta.self = meta;
+    if (kind === 'getter') Object.defineProperty(meta, 'value', { enumerable: true, get: read });
+    const response = { at: '2026-10-13', meta };
+    const adapter = client.getAdapter(RESTQueryAdapter) as RESTQueryAdapter;
+    vi.spyOn(adapter, 'sendMutation').mockResolvedValue(response);
+    const onEffects = vi.fn();
 
-    class GetPayout extends RESTQuery {
-      readonly path = '/payout';
-      readonly result = { payout: t.entity(Payout) };
-    }
-
-    class UpdatePayout extends RESTMutation {
-      readonly path = '/payout';
+    class GetDate extends RESTMutation {
+      readonly path = '/date';
       readonly method = 'POST' as const;
-      readonly result = {
-        payout: t.object({ __typename: t.string, id: t.id, date: t.string }),
-        settledAt: t.format('date-time'),
-      };
-      readonly effects = { updates: [[Payout, this.result.payout] as const] };
+      readonly result = { at: t.format('date') };
+
+      getEffects() {
+        onEffects(this.result.at);
+        return {};
+      }
     }
 
-    mockFetch.get('/payout', {
-      payout: { __typename: 'MutationFormatPayout', id: '1', date: '2026-10-12' },
+    await testWithClient(client, async () => {
+      const result = await getMutation(GetDate).run(undefined);
+      expect(result.at).toBeInstanceOf(Date);
+      expect((result as unknown as { meta: unknown }).meta).toBe(meta);
+      expect(response.at).toBe('2026-10-13');
+      expect(read).not.toHaveBeenCalled();
+      expect(onEffects).toHaveBeenCalledExactlyOnceWith(result.at);
     });
-    mockFetch.post('/payout', {
-      payout: { __typename: 'MutationFormatPayout', id: '1', date: '2026-10-13' },
-      settledAt: '2026-10-13T12:34:56.000Z',
+  });
+
+  it('filters array items that cannot be formatted', async () => {
+    const { client, mockFetch } = getClient();
+    const parse = vi.fn((value: string) => {
+      if (value === 'bad') throw new Error('Invalid money');
+      return { amount: Number(value) };
+    });
+    registerFormat('mutation-lazy-money', Mask.STRING, parse, value => String(value.amount), { eager: false });
+    mockFetch.post('/money', { values: ['125', 'bad'] });
+
+    class GetMoney extends RESTMutation {
+      readonly path = '/money';
+      readonly method = 'POST' as const;
+      readonly result = { values: t.array(t.format('mutation-lazy-money')) };
+    }
+
+    await testWithClient(client, async () => {
+      const result = await getMutation(GetMoney).run(undefined);
+      expect(result.values).toEqual([{ amount: 125 }]);
+      expect(parse).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('serializes custom format values in effects and still accepts raw external events', async () => {
+    const { client, mockFetch, kv } = getClient();
+    const parse = vi.fn((value: number) => value / 100);
+    registerFormat('mutation-price', Mask.NUMBER, parse, value => value * 100);
+
+    class Price extends Entity {
+      __typename = t.typename('MutationFormatPrice');
+      id = t.id;
+      amount = t.format('mutation-price');
+      history = t.array(t.format('mutation-price'));
+      rates = t.record(t.format('mutation-price'));
+      discount = t.nullable(t.format('mutation-price'));
+    }
+
+    class GetPrice extends RESTQuery {
+      readonly path = '/price';
+      readonly result = { price: t.entity(Price) };
+    }
+
+    class UpdatePrice extends RESTMutation {
+      readonly path = '/price';
+      readonly method = 'POST' as const;
+      readonly result = { price: t.entity(Price) };
+      readonly effects = { updates: [[Price, this.result.price] as const] };
+    }
+
+    mockFetch.get('/price', {
+      price: { __typename: 'MutationFormatPrice', id: '1', amount: 125, history: [], rates: {}, discount: null },
+    });
+    mockFetch.post('/price', {
+      price: {
+        __typename: 'MutationFormatPrice',
+        id: '1',
+        amount: 250,
+        history: [125, 250],
+        rates: { usd: 250 },
+        discount: null,
+      },
     });
 
     await testWithClient(client, async () => {
-      const query = fetchQuery(GetPayout);
-      const { payout } = await query;
-      const result = await getMutation(UpdatePayout).run(undefined);
+      const { price } = await fetchQuery(GetPrice);
+      expect(price.amount).toBe(1.25);
+      parse.mockClear();
+      const result = await getMutation(UpdatePrice).run(undefined);
+      expect(result.price.amount).toBe(2.5);
+      expect(price.amount).toBe(2.5);
+      expect(price.history).toEqual([1.25, 2.5]);
+      expect(price.rates.usd).toBe(2.5);
+      expect(price.discount).toBeNull();
+      expect(parse).toHaveBeenCalledTimes(4);
+      const stored = JSON.parse(kv.getString(valueKeyFor(hashValue(['MutationFormatPrice', '1'])))!);
+      expect(stored.amount).toBe(250);
+      expect(stored.history).toEqual([125, 250]);
+      expect(stored.rates).toEqual({ usd: 250 });
 
-      expect(result.settledAt).toBeInstanceOf(Date);
-      expect(query.value?.payout).toBe(payout);
-      expect(payout.date).toBeInstanceOf(Date);
-      expect(payout.date.valueOf()).toBe(Date.UTC(2026, 9, 13));
-      const stored = JSON.parse(kv.getString(valueKeyFor(hashValue(['MutationFormatPayout', '1'])))!);
-      expect(stored.date).toBe('2026-10-13');
-      expect(mockFetch.calls.map(call => call.options.method)).toEqual(['GET', 'POST']);
+      client.applyMutationEvent({ type: 'update', typename: 'MutationFormatPrice', data: { id: '1', amount: 375 } });
+      expect(price.amount).toBe(3.75);
+      expect(mockFetch.calls).toHaveLength(2);
     });
   });
+
+  it.each(['declarative', 'computed'] as const)(
+    'updates the query and cached date without fetching again (%s effects)',
+    async mode => {
+      const { client, mockFetch, kv } = getClient();
+      const onEffects = vi.fn();
+      class Payout extends Entity {
+        __typename = t.typename('MutationFormatPayout');
+        id = t.id;
+        date = t.format('date');
+      }
+
+      class GetPayout extends RESTQuery {
+        readonly path = '/payout';
+        readonly result = { payout: t.entity(Payout) };
+      }
+
+      class UpdatePayout extends RESTMutation {
+        readonly path = '/payout';
+        readonly method = 'POST' as const;
+        readonly result = {
+          payout: t.entity(Payout),
+          settledAt: t.format('date-time'),
+        };
+        readonly effects = { updates: [[Payout, this.result.payout] as const] };
+      }
+
+      class UpdatePayoutWithComputedEffects extends UpdatePayout {
+        getEffects() {
+          onEffects(this.result.payout.date.getTime());
+          return { updates: [[Payout, this.result.payout] as const] };
+        }
+      }
+
+      mockFetch.get('/payout', {
+        payout: { __typename: 'MutationFormatPayout', id: '1', date: '2026-10-12' },
+      });
+      mockFetch.post('/payout', {
+        payout: { __typename: 'MutationFormatPayout', id: '1', date: '2026-10-13' },
+        settledAt: '2026-10-13T12:34:56.000Z',
+      });
+
+      await testWithClient(client, async () => {
+        const query = fetchQuery(GetPayout);
+        const { payout } = await query;
+        const result = await getMutation(mode === 'computed' ? UpdatePayoutWithComputedEffects : UpdatePayout).run(
+          undefined,
+        );
+        if (mode === 'computed') expect(onEffects).toHaveBeenCalledExactlyOnceWith(Date.UTC(2026, 9, 13));
+
+        expect(result.settledAt).toBeInstanceOf(Date);
+        expect(result.payout.date).toBeInstanceOf(Date);
+        expect(query.value?.payout).toBe(payout);
+        expect(payout.date).toBeInstanceOf(Date);
+        expect(payout.date.valueOf()).toBe(Date.UTC(2026, 9, 13));
+        const stored = JSON.parse(kv.getString(valueKeyFor(hashValue(['MutationFormatPayout', '1'])))!);
+        expect(stored.date).toBe('2026-10-13');
+        expect(mockFetch.calls.map(call => call.options.method)).toEqual(['GET', 'POST']);
+      });
+    },
+  );
 });

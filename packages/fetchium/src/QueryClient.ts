@@ -745,7 +745,7 @@ export class QueryClient {
   // Mutation Events
   // ======================================================
 
-  applyMutationEvent(event: MutationEvent): void {
+  applyMutationEvent(event: MutationEvent, input: 'raw' | 'materialized' = 'raw'): void {
     const { type, typename } = event;
 
     const mergedDef = this.getMergedDef(typename);
@@ -782,6 +782,7 @@ export class QueryClient {
       const warn = this.context.log?.warn ?? (() => {});
       const parseCtx = this.mutationParseContext;
       parseCtx.reset(this, undefined, warn, /* isPartialEvent */ true);
+      parseCtx.materializedInput = input === 'materialized';
       const parsedData = parseEntity(data, mergedDef as unknown as EntityDef, parseCtx);
       applyEntityRefs(parseCtx, parsedData, existing !== undefined ? true : 'existing', false, created);
     } catch (e) {

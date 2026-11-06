@@ -4,7 +4,7 @@ import { ValidatorDef, getEntityDef } from './typeDefs.js';
 import { type QueryClient } from './QueryClient.js';
 import { MutationDefinition, type Mutation } from './mutation.js';
 import { resolveRetryConfig } from './query.js';
-import { parseEntities, ParseContext, unwrapFormattedValues } from './parseEntities.js';
+import { parseEntities, ParseContext } from './parseEntities.js';
 import { createExecutionContext, reifyValue } from './fieldRef.js';
 import { Entity } from './proxy.js';
 import { getFailedResponseStatus, withRetry } from './retry.js';
@@ -43,10 +43,7 @@ export class MutationResultImpl<Request, Result> {
 
           this.processEffects(request, parsedResponse);
 
-          // Keep format wrappers available to effects.
-          return (
-            this.def.responseShape instanceof ValidatorDef ? unwrapFormattedValues(parsedResponse) : parsedResponse
-          ) as Result;
+          return parsedResponse;
         } finally {
           this._inFlight = false;
         }
@@ -65,8 +62,7 @@ export class MutationResultImpl<Request, Result> {
     const warn = this.queryClient.getContext().log?.warn ?? (() => {});
     const ctx = new ParseContext();
     ctx.reset(undefined, undefined, warn);
-    // Validate lazy formats before effects run.
-    ctx.eagerFormats = true;
+    ctx.materializeFormats = true;
     return parseEntities(response, responseShape as ComplexTypeDef, ctx) as Result;
   }
 
@@ -157,7 +153,7 @@ function applyEffects(
   for (const [entityRef, data] of entries) {
     const typename = resolveTypename(entityRef);
     if (typename !== undefined) {
-      qc.applyMutationEvent({ type, typename, data: data as Record<string, unknown> });
+      qc.applyMutationEvent({ type, typename, data: data as Record<string, unknown> }, 'materialized');
     }
   }
 }
