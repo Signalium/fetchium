@@ -8,31 +8,22 @@ import { Entity } from './proxy.js';
 import { PROXY_ID } from './proxyId.js';
 import { NESTED_WRAPPERS } from './nestedNotifiers.js';
 import type { QueryClient } from './QueryClient.js';
-import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
+import { ValidatorDef, WrappedValue } from './typeDefs.js';
 import type { LiveCollectionBinding } from './LiveCollection.js';
 import { entitySatisfiesShape } from './parseEntities.js';
 
 // ======================================================
-// Nested proxy wrapping — transparently unwraps WRAPPED_VALUE items
+// Nested proxy wrapping — transparently unwraps WrappedValue items
 // (FormattedValue, LiveCollectionBinding) inside plain objects and arrays.
 // ======================================================
 
 const ObjectProto = Object.prototype;
 const nestedWrappers = NESTED_WRAPPERS;
 
-/** A `WRAPPED_VALUE` item. A live collection's value changes under its own notifier. */
-interface WrappedValue {
-  getValue(): unknown;
-  readonly _valueOwner?: Notifier;
-}
-
 /** `owner` is the live collection's notifier. Unowned wrappers consume nothing, and merges replace them. */
 function wrapValue(value: unknown, owner: Notifier | undefined): unknown {
   if (typeof value !== 'object' || value === null) return value;
-  if (WRAPPED_VALUE.has(value)) {
-    const wrapped = value as WrappedValue;
-    return wrapValue(wrapped.getValue(), wrapped._valueOwner ?? owner);
-  }
+  if (value instanceof WrappedValue) return wrapValue(value.getValue(), value._valueOwner ?? owner);
   if (PROXY_ID.has(value as object)) return value;
 
   if (Array.isArray(value)) {
@@ -245,7 +236,7 @@ function asPrevObject(prev: unknown): Record<string, unknown> | undefined {
 /** Mirrors Signalium's unexported array and object walks. A test asserts they match. */
 function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unknown {
   if (value === null || typeof value !== 'object') return value;
-  if (WRAPPED_VALUE.has(value)) return snapshotRawValue((value as { getValue(): unknown }).getValue(), prev, snap);
+  if (value instanceof WrappedValue) return snapshotRawValue(value.getValue(), prev, snap);
   if (PROXY_ID.has(value)) return snap(value, prev);
 
   if (Array.isArray(value)) {
