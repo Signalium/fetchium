@@ -1,5 +1,20 @@
 # fetchium
 
+## 1.2.0
+
+### Minor Changes
+
+- 7f40ee2: Add an `enabled` option to `useQuery`: `useQuery(Query, params, { enabled })`. It defaults to `true`. A disabled query never fetches or subscribes, but still reads the cache, like TanStack Query's `enabled: false`. With cached data, in memory or in the persistent store within `cacheTime`, it starts resolved with that data, even if stale. Without cached data it stays pending and sends no request. The cached value stays live: entity updates and fetches by enabled readers of the same query show up in it. Setting `enabled` to `true` activates the query with the current params, and doesn't refetch a cache that is still within `staleTime`. For queries without params, pass `undefined` as the second argument.
+
+### Patch Changes
+
+- b00c6d5: `ExtractType` keeps `Date` as `Date`, so `t.format('date-time')` and `t.format('date')` fields are assignable to `Date`.
+- 5b75e12: Fix mutation results to return the values produced by registered formats, including in nested fields. For example, date fields now return `Date` objects. You can also forward response objects from `getEffects()` to entity effects. Other effect payloads use raw values.
+
+  Array items that fail formatting are removed, including when a format uses `{ eager: false }`.
+
+- 73c55a5: Brand formatted values and live collection bindings with a shared base class instead of adding every instance to a `WeakSet`.
+
 ## 1.1.0
 
 ### Minor Changes
