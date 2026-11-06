@@ -4,7 +4,7 @@ import { ValidatorDef, getEntityDef } from './typeDefs.js';
 import { type QueryClient } from './QueryClient.js';
 import { MutationDefinition, type Mutation } from './mutation.js';
 import { resolveRetryConfig } from './query.js';
-import { parseEntities, ParseContext } from './parseEntities.js';
+import { parseMutationResponse, type ParsedMutationResponse } from './parseEntities.js';
 import { createExecutionContext, reifyValue } from './fieldRef.js';
 import { Entity } from './proxy.js';
 import { getFailedResponseStatus, withRetry } from './retry.js';
@@ -39,11 +39,11 @@ export class MutationResultImpl<Request, Result> {
         try {
           const response = await this.executeWithRetry(request);
 
-          const parsedResponse = this.validateResponse(response);
+          const parsed = this.validateResponse(response);
 
-          this.processEffects(request, parsedResponse);
+          this.processEffects(request, parsed.value, parsed.rawValues);
 
-          return parsedResponse;
+          return parsed.value;
         } finally {
           this._inFlight = false;
         }
@@ -52,24 +52,22 @@ export class MutationResultImpl<Request, Result> {
     );
   }
 
-  private validateResponse(response: unknown): Result {
+  private validateResponse(response: unknown): ParsedMutationResponse<Result> {
     const responseShape = this.def.responseShape;
 
     if (!(responseShape instanceof ValidatorDef)) {
-      return response as Result;
+      return { value: response as Result, rawValues: new WeakMap() };
     }
 
     const warn = this.queryClient.getContext().log?.warn ?? (() => {});
-    const ctx = new ParseContext();
-    ctx.reset(undefined, undefined, warn);
-    return parseEntities(response, responseShape as ComplexTypeDef, ctx) as Result;
+    return parseMutationResponse<Result>(response, responseShape as ComplexTypeDef, warn);
   }
 
   // ======================================================
   // Effects processing
   // ======================================================
 
-  private processEffects(request: Request, parsedResult: Result): void {
+  private processEffects(request: Request, parsedResult: Result, rawValues: WeakMap<object, unknown>): void {
     let effects: MutationEffects | undefined;
 
     if (this.def.hasGetEffects) {
@@ -81,16 +79,22 @@ export class MutationResultImpl<Request, Result> {
       (ctx as any).result = parsedResult;
       effects = (ctx as any).getEffects();
     } else if (this.def.effects !== undefined) {
-      const root = { params: request as Record<string, unknown>, result: parsedResult as Record<string, unknown> };
-      effects = reifyValue(this.def.effects, root as Record<string, unknown>) as MutationEffects;
+      const root = { params: request, result: rawValueFor(parsedResult, rawValues) };
+      const declared = this.def.effects;
+      effects = {
+        creates: reifyValue(declared.creates, root),
+        updates: reifyValue(declared.updates, root),
+        deletes: reifyValue(declared.deletes, root),
+        invalidates: reifyValue(declared.invalidates, { params: request, result: parsedResult }),
+      } as MutationEffects;
     }
 
     if (effects === undefined) return;
 
     const qc = this.queryClient;
-    applyEffects(effects.creates, 'create', qc);
-    applyEffects(effects.updates, 'update', qc);
-    applyEffects(effects.deletes, 'delete', qc);
+    applyEffects(effects.creates, 'create', qc, rawValues);
+    applyEffects(effects.updates, 'update', qc, rawValues);
+    applyEffects(effects.deletes, 'delete', qc, rawValues);
 
     if (effects.invalidates) {
       qc.invalidateQueries(effects.invalidates);
@@ -143,16 +147,21 @@ function resolveTypename(entityRef: EntityClassOrTypename): string | undefined {
   return def.typenameValue;
 }
 
+function rawValueFor(value: unknown, rawValues: WeakMap<object, unknown>): unknown {
+  return typeof value === 'object' && value !== null && rawValues.has(value) ? rawValues.get(value) : value;
+}
+
 function applyEffects(
   entries: ReadonlyArray<readonly [EntityClassOrTypename, unknown]> | undefined,
   type: 'create' | 'update' | 'delete',
   qc: QueryClient,
+  rawValues: WeakMap<object, unknown>,
 ): void {
   if (!entries) return;
   for (const [entityRef, data] of entries) {
     const typename = resolveTypename(entityRef);
     if (typename !== undefined) {
-      qc.applyMutationEvent({ type, typename, data: data as Record<string, unknown> });
+      qc.applyMutationEvent({ type, typename, data: rawValueFor(data, rawValues) as Record<string, unknown> });
     }
   }
 }

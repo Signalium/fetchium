@@ -78,6 +78,8 @@ export class ParseContext {
    * Off for a fetch result or cached record, copied only where a value differs.
    */
   copyInput: boolean = true;
+  eagerFormats: boolean = false;
+  parsedFields: WeakMap<object, readonly string[] | null> | undefined = undefined;
 
   reset(
     queryClient: QueryClient | undefined,
@@ -91,6 +93,8 @@ export class ParseContext {
     this.isPartialEvent = isPartialEvent;
     this.trusted = undefined;
     this.copyInput = true;
+    this.eagerFormats = false;
+    this.parsedFields = undefined;
     if (queryClient !== undefined) {
       if (this.seen === undefined) {
         this.seen = new Map();
@@ -120,6 +124,49 @@ export interface ParseResult {
  */
 export function parseEntities(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: ParseContext): unknown {
   return parseData(value, typeDef, ctx, '');
+}
+
+export interface ParsedMutationResponse<T> {
+  value: T;
+  rawValues: WeakMap<object, unknown>;
+}
+
+export function parseMutationResponse<T>(
+  value: unknown,
+  typeDef: TypeDef | ComplexTypeDef,
+  warn: WarnFn,
+): ParsedMutationResponse<T> {
+  const ctx = new ParseContext();
+  ctx.reset(undefined, undefined, warn);
+  ctx.eagerFormats = true;
+  ctx.parsedFields = new WeakMap();
+  const parsed = parseEntities(value, typeDef, ctx);
+  const rawValues = new WeakMap<object, unknown>();
+  return { value: materializeResponse(parsed, ctx.parsedFields, rawValues) as T, rawValues };
+}
+
+function materializeResponse(
+  value: unknown,
+  parsedFields: WeakMap<object, readonly string[] | null>,
+  rawValues: WeakMap<object, unknown>,
+): unknown {
+  if (value instanceof FormattedValue) {
+    return value.getValue();
+  }
+  if (typeof value !== 'object' || value === null) return value;
+  const fields = parsedFields.get(value);
+  if (fields === undefined) return value;
+
+  const data = value as Record<string, unknown>;
+  const result = (Array.isArray(value) ? value.slice() : { ...data }) as Record<string, unknown>;
+  rawValues.set(result, value);
+  // Only parser-owned fields can contain format wrappers.
+  for (const key of fields ?? Object.keys(value)) {
+    const parsed = data[key];
+    result[key] = materializeResponse(parsed, parsedFields, rawValues);
+    data[key] = parsed instanceof FormattedValue ? parsed._raw : parsed;
+  }
+  return result;
 }
 
 /**
@@ -179,7 +226,7 @@ function parseFormattedValue(
   path: string,
 ): FormattedValue | undefined {
   const formatId = mask >> FORMAT_MASK_SHIFT;
-  const eager = (mask & Mask.IS_EAGER_FORMAT) !== 0;
+  const eager = ctx.eagerFormats || (mask & Mask.IS_EAGER_FORMAT) !== 0;
   if (eager) {
     try {
       return new FormattedValue(value, formatId, true);
@@ -260,7 +307,9 @@ function parseData(value: unknown, typeDef: TypeDef | ComplexTypeDef, ctx: Parse
   if ((propMask & Mask.PARSE_RESULT) !== 0) {
     try {
       const innerResult = parseData(value, (def as unknown as ParseResultDef).shape as ComplexTypeDef, ctx, path);
-      return { success: true as const, value: innerResult };
+      const result = { success: true as const, value: innerResult };
+      ctx.parsedFields?.set(result, ['value']);
+      return result;
     } catch (e) {
       return { success: false as const, error: e instanceof Error ? e : new Error(String(e)) };
     }
@@ -411,6 +460,7 @@ function parseArrayData(array: unknown[], itemShape: ComplexTypeDef, ctx: ParseC
     }
   }
 
+  if (result !== undefined) ctx.parsedFields?.set(result, null);
   return result ?? array;
 }
 
@@ -429,6 +479,7 @@ function parseRecordData(
     else if (parsed !== value) (result = { ...record })[key] = parsed;
   }
 
+  if (result !== undefined) ctx.parsedFields?.set(result, Object.keys(record));
   return result ?? record;
 }
 
@@ -452,6 +503,7 @@ function parseObjectData(
     else if (parsed !== value || (value === undefined && !(key in obj))) (result = { ...obj })[key] = parsed;
   }
 
+  if (result !== undefined) ctx.parsedFields?.set(result, Object.keys(shape));
   return result ?? obj;
 }
 

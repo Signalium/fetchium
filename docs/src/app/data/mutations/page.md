@@ -197,6 +197,12 @@ This is common for `creates` effects, where the server assigns an `id` and possi
 Effects are processed _after_ the response is validated. If the mutation request fails, no effects are applied.
 {% /callout %}
 
+### Formatted fields
+
+Mutation results and `getEffects()` receive formatted values, such as `Date` objects. You can pass response objects directly to entity effects. Fetchium keeps their raw field values for the entity store.
+
+Other effect payloads use raw values, as does `client.applyMutationEvent()`.
+
 ### How effects flow through the system
 
 When a mutation fires a `creates` event:
