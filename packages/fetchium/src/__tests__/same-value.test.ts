@@ -8,7 +8,7 @@ import type { EntityInstance } from '../EntityInstance.js';
 
 const proxyLike = (key: number) => {
   const obj = {};
-  PROXY_ID.set(obj, key);
+  PROXY_ID.set(obj, { key });
   return obj;
 };
 

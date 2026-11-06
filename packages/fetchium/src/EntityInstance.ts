@@ -182,6 +182,8 @@ class OwnedObjectHandler implements ProxyHandler<Record<string, unknown>> {
 
 /** Trap-free access to one entity proxy's fields. */
 interface EntitySnapshotSource {
+  /** The entity key `PROXY_ID` brands the proxy with. */
+  readonly key: number;
   /** Identifies this proxy without retaining it. */
   readonly id: number;
   readonly instance: EntityInstance;
@@ -192,7 +194,8 @@ interface EntitySnapshotSource {
   readField(key: string): unknown;
 }
 
-const snapshotSources = new WeakMap<object, EntitySnapshotSource>();
+// Every entry is written below with a full source.
+const snapshotSources = PROXY_ID as WeakMap<object, EntitySnapshotSource>;
 
 let nextSnapshotSourceId = 1;
 
@@ -809,7 +812,7 @@ function filterEntityArray(
   const excluded: EntityInstance[] = [];
   for (const item of array) {
     if (typeof item !== 'object' || item === null) continue;
-    const entityKey = PROXY_ID.get(item);
+    const entityKey = PROXY_ID.get(item)?.key;
     if (entityKey === undefined) continue;
     const entityInstance = queryClient.entityMap.getEntity(entityKey);
     if (entityInstance === undefined) continue;
@@ -1028,6 +1031,8 @@ function createProxy(
 
   const wrappedMethods = new Map<string, (...args: unknown[]) => unknown>();
   const filterCache = new Map<string, NarrowedArray>();
+  // Only reactive methods resolve their scope through the proxy, so most proxies never need an owner.
+  let hasScopeOwner = false;
 
   const toJSON = () => ({ __entityRef: key });
 
@@ -1092,6 +1097,10 @@ function createProxy(
     }
 
     if (methods !== undefined && prop in methods) {
+      if (!hasScopeOwner) {
+        setScopeOwner(proxy, queryClient);
+        hasScopeOwner = true;
+      }
       return bindMethod(prop, methods, wrappedMethods, proxy, true);
     }
 
@@ -1163,8 +1172,8 @@ function createProxy(
 
   proxy = new Proxy<Record<string, unknown>>({} as Record<string, unknown>, handler);
 
-  PROXY_ID.set(proxy, key);
   snapshotSources.set(proxy, {
+    key,
     id: nextSnapshotSourceId++,
     instance,
     notifier: entityNotifier,
@@ -1172,7 +1181,5 @@ function createProxy(
     keys: entityKeys,
     readField,
   });
-  setScopeOwner(proxy, queryClient);
-
   return proxy;
 }
