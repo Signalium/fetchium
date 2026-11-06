@@ -153,7 +153,7 @@ export function parseEntity(
 // Internal helpers
 // ======================================================
 
-function unwrapFormattedValues(value: unknown): unknown {
+export function unwrapFormattedValues(value: unknown): unknown {
   if (value instanceof FormattedValue) {
     return value.getValue();
   }

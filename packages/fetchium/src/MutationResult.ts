@@ -4,7 +4,7 @@ import { ValidatorDef, getEntityDef } from './typeDefs.js';
 import { type QueryClient } from './QueryClient.js';
 import { MutationDefinition, type Mutation } from './mutation.js';
 import { resolveRetryConfig } from './query.js';
-import { parseEntities, ParseContext } from './parseEntities.js';
+import { parseEntities, ParseContext, unwrapFormattedValues } from './parseEntities.js';
 import { createExecutionContext, reifyValue } from './fieldRef.js';
 import { Entity } from './proxy.js';
 import { getFailedResponseStatus, withRetry } from './retry.js';
@@ -43,7 +43,10 @@ export class MutationResultImpl<Request, Result> {
 
           this.processEffects(request, parsedResponse);
 
-          return parsedResponse;
+          // Keep format wrappers available to effects.
+          return (
+            this.def.responseShape instanceof ValidatorDef ? unwrapFormattedValues(parsedResponse) : parsedResponse
+          ) as Result;
         } finally {
           this._inFlight = false;
         }
