@@ -20,6 +20,7 @@ import {
 } from './types.js';
 import { Prettify } from './type-utils.js';
 import { hashValue, registerCustomHash } from 'signalium/utils';
+import type { Notifier } from 'signalium';
 
 const entries = Object.entries;
 const isArray = Array.isArray;
@@ -802,15 +803,21 @@ const FORMAT_SERIALIZERS: ((value: unknown) => unknown)[] = [];
 const FORMAT_MAP = new Map<string, number>();
 const FORMAT_ID_TO_NAME: Map<number, string> | undefined = IS_DEV ? new Map<number, string>() : undefined;
 
-export const WRAPPED_VALUE = new WeakSet();
+/** A value read through `getValue()`: a formatted value or a live collection binding. */
+export abstract class WrappedValue {
+  /** A live collection's value changes under its own notifier. */
+  declare readonly _valueOwner?: Notifier;
+  abstract getValue(): unknown;
+}
 
-export class FormattedValue {
+export class FormattedValue extends WrappedValue {
   _raw: unknown;
   private _formatted: unknown;
   private _parsed: boolean;
   private _formatId: number;
 
   constructor(raw: unknown, formatId: number, eager: boolean) {
+    super();
     this._raw = raw;
     this._formatId = formatId;
     if (eager) {
@@ -819,7 +826,6 @@ export class FormattedValue {
     } else {
       this._parsed = false;
     }
-    WRAPPED_VALUE.add(this);
   }
 
   getValue(): unknown {

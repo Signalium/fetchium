@@ -10,7 +10,7 @@ import {
   type FieldPath,
   buildFieldPaths,
 } from './ConstraintMatcher.js';
-import { ValidatorDef, WRAPPED_VALUE } from './typeDefs.js';
+import { ValidatorDef, WrappedValue } from './typeDefs.js';
 
 /**
  * Pick the def matching the entity's variant tag. Returns a single
@@ -93,7 +93,7 @@ export interface LiveInstance {
 // LiveCollectionBinding — shared wrapper for constraint routing
 // ======================================================
 
-export class LiveCollectionBinding {
+export class LiveCollectionBinding extends WrappedValue {
   _queryClient: QueryClient;
   _parent: LiveCollectionParent;
   _constraintHashes: Map<string, number>;
@@ -111,6 +111,7 @@ export class LiveCollectionBinding {
     constraintHashes: Map<string, number>,
     instance: LiveInstance,
   ) {
+    super();
     this._queryClient = queryClient;
     this._parent = parent;
     this._constraintHashes = constraintHashes;
@@ -129,8 +130,6 @@ export class LiveCollectionBinding {
         }
       }
     }
-
-    WRAPPED_VALUE.add(this);
   }
 
   getValue(): unknown {
