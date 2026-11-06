@@ -199,9 +199,9 @@ Effects are processed _after_ the response is validated. If the mutation request
 
 ### Formatted fields
 
-Mutation results and `getEffects()` receive formatted values. Effect payloads use the same field types: pass a `Date` for a date field, not its JSON string. Fetchium uses the registered serializer when it applies the effect.
+Mutation results and `getEffects()` receive formatted values, such as `Date` objects. You can pass response objects directly to entity effects. Fetchium keeps their raw field values for the entity store.
 
-By default, `client.applyMutationEvent()` accepts raw response data.
+Other effect payloads use raw values, as does `client.applyMutationEvent()`.
 
 ### How effects flow through the system
 

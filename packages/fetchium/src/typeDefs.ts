@@ -822,13 +822,6 @@ export class FormattedValue {
     WRAPPED_VALUE.add(this);
   }
 
-  static fromValue(value: unknown, formatId: number): FormattedValue {
-    const formatted = new FormattedValue(FORMAT_SERIALIZERS[formatId](value), formatId, false);
-    formatted._formatted = value;
-    formatted._parsed = true;
-    return formatted;
-  }
-
   getValue(): unknown {
     if (!this._parsed) {
       this._formatted = FORMAT_PARSERS[this._formatId](this._raw);

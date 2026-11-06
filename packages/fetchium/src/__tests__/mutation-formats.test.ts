@@ -292,10 +292,14 @@ describe('Formatted mutation results', () => {
     });
   });
 
-  it('serializes custom format values in effects and still accepts raw external events', async () => {
+  it('preserves custom formats in effects and raw external events', async () => {
     const { client, mockFetch, kv } = getClient();
-    const parse = vi.fn((value: number) => value / 100);
-    registerFormat('mutation-price', Mask.NUMBER, parse, value => value * 100);
+    registerFormat(
+      'mutation-price',
+      Mask.NUMBER,
+      value => value / 100,
+      value => value * 100,
+    );
 
     class Price extends Entity {
       __typename = t.typename('MutationFormatPrice');
@@ -335,14 +339,12 @@ describe('Formatted mutation results', () => {
     await testWithClient(client, async () => {
       const { price } = await fetchQuery(GetPrice);
       expect(price.amount).toBe(1.25);
-      parse.mockClear();
       const result = await getMutation(UpdatePrice).run(undefined);
       expect(result.price.amount).toBe(2.5);
       expect(price.amount).toBe(2.5);
       expect(price.history).toEqual([1.25, 2.5]);
       expect(price.rates.usd).toBe(2.5);
       expect(price.discount).toBeNull();
-      expect(parse).toHaveBeenCalledTimes(4);
       const stored = JSON.parse(kv.getString(valueKeyFor(hashValue(['MutationFormatPrice', '1'])))!);
       expect(stored.amount).toBe(250);
       expect(stored.history).toEqual([125, 250]);
