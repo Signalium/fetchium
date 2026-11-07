@@ -7,7 +7,11 @@ import { QueryClient, QueryClientContext } from '../../QueryClient.js';
 import { t } from '../../typeDefs.js';
 import { Entity } from '../../proxy.js';
 import { sleep } from '../../__tests__/utils.js';
-import { useQuery, __debug_thunkAllocations, __debug_resetThunkAllocations } from '../use-query.js';
+import * as useQueryModule from '../use-query.js';
+import * as useQueriesModule from '../use-queries.js';
+import { useQueries } from '../use-queries.js';
+import type { Query } from '../../query.js';
+import type { QueryPromise } from '../../types.js';
 import { TopicQuery } from '../../topic/TopicQuery.js';
 import { TopicQueryAdapter } from '../../topic/TopicQueryAdapter.js';
 
@@ -57,7 +61,32 @@ class TopicPrice extends Entity {
   value = t.number;
 }
 
-describe('useQuery thunk identity', () => {
+interface HookUnderTest {
+  useOne: <T extends Query>(QueryClass: new () => T, params: Record<string, unknown>) => QueryPromise<T>;
+  reset: () => void;
+  allocations: () => number;
+}
+
+const hooks: [string, HookUnderTest][] = [
+  [
+    'useQuery',
+    {
+      useOne: (QueryClass, params) => useQueryModule.useQuery(QueryClass as never, params as never),
+      reset: useQueryModule.__debug_resetThunkAllocations,
+      allocations: () => useQueryModule.__debug_thunkAllocations,
+    },
+  ],
+  [
+    'useQueries (single entry)',
+    {
+      useOne: (QueryClass, params) => useQueries([{ query: QueryClass, params }] as never)[0] as never,
+      reset: useQueriesModule.__debug_resetQueriesThunkAllocations,
+      allocations: () => useQueriesModule.__debug_queriesThunkAllocations,
+    },
+  ],
+];
+
+describe.each(hooks)('%s thunk identity', (_hookName, hook) => {
   let client: QueryClient;
   let stream: MockStream;
 
@@ -81,12 +110,12 @@ describe('useQuery thunk identity', () => {
       result = { items: t.array(t.entity(TopicPrice)) };
     }
 
-    __debug_resetThunkAllocations();
+    hook.reset();
     let bump!: () => void;
 
     function Component(): React.ReactNode {
       // Fresh inline literal each render, deeply-equal across renders.
-      const q = useQuery(GetPrices, { walletId: 'w1' });
+      const q = hook.useOne(GetPrices, { walletId: 'w1' });
       const [, setN] = useState(0);
       bump = () => setN(v => v + 1);
       return <div data-testid="probe">{q.isReady ? 'r' : 'l'}</div>;
@@ -99,7 +128,7 @@ describe('useQuery thunk identity', () => {
     );
     await sleep(20);
 
-    const afterMount = __debug_thunkAllocations;
+    const afterMount = hook.allocations();
 
     for (let i = 0; i < 20; i++) {
       bump();
@@ -107,7 +136,7 @@ describe('useQuery thunk identity', () => {
     }
     await sleep(20);
 
-    expect(__debug_thunkAllocations - afterMount).toBe(0);
+    expect(hook.allocations() - afterMount).toBe(0);
   });
 
   it('re-allocates the thunk when args change structurally', async () => {
@@ -118,13 +147,13 @@ describe('useQuery thunk identity', () => {
       result = { items: t.array(t.entity(TopicPrice)) };
     }
 
-    __debug_resetThunkAllocations();
+    hook.reset();
     let setWalletId!: (id: string) => void;
 
     function Component(): React.ReactNode {
       const [walletId, setId] = useState('w1');
       setWalletId = setId;
-      const q = useQuery(GetByWallet, { walletId });
+      const q = hook.useOne(GetByWallet, { walletId });
       return <div data-testid="probe">{q.isReady ? 'r' : 'l'}</div>;
     }
 
@@ -135,13 +164,13 @@ describe('useQuery thunk identity', () => {
     );
     await sleep(20);
 
-    const afterMount = __debug_thunkAllocations;
+    const afterMount = hook.allocations();
 
     setWalletId('w2');
     await sleep(20);
     setWalletId('w3');
     await sleep(20);
 
-    expect(__debug_thunkAllocations - afterMount).toBe(2);
+    expect(hook.allocations() - afterMount).toBe(2);
   });
 });
