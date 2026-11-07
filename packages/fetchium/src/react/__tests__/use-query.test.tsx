@@ -10,7 +10,8 @@ import { RESTQuery } from '../../rest/index.js';
 import { fetchQuery } from '../../query.js';
 import { createMockFetch, sleep } from '../../__tests__/utils.js';
 import { createRenderCounter } from './utils.js';
-import { useQuery } from '../use-query.js';
+import { useQuery as useQueryHook } from '../use-query.js';
+import { useQueries } from '../use-queries.js';
 import { QueryPromise } from '../../types.js';
 import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
 
@@ -22,7 +23,15 @@ import { RESTQueryAdapter } from '../../rest/RESTQueryAdapter.js';
  * This is critical for React.memo and useMemo to work correctly.
  */
 
-describe('useQuery Hook', () => {
+// The suite runs against useQuery and against a single-entry useQueries, so
+// every useQuery scenario also covers useQueries.
+const useQueryViaQueries = ((QueryClass, ...args) =>
+  useQueries([{ query: QueryClass, params: args[0], enabled: args[1]?.enabled }] as never)[0]) as typeof useQueryHook;
+
+describe.each([
+  ['useQuery', useQueryHook],
+  ['useQueries (single entry)', useQueryViaQueries],
+] as const)('useQuery Hook (%s)', (_hookName, useQuery) => {
   let client: QueryClient;
   let mockFetch: ReturnType<typeof createMockFetch>;
 
