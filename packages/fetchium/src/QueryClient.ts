@@ -723,7 +723,7 @@ export class QueryClient {
     const result = applyEntityRefs(parseResult.ctx, parseResult.data, persist, appendMode);
 
     // Discover the root entity from the returned proxy
-    const proxyKey = PROXY_ID.get(result.data as object);
+    const proxyKey = PROXY_ID.get(result.data as object)?.key;
     return this.entityMap.getEntity(proxyKey!)!;
   }
 
