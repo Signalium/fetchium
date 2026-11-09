@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { sameValue, sameRefs, sameKeys } from '../applyEntities.js';
 import { FormattedValue } from '../typeDefs.js';
 import { PROXY_ID } from '../proxyId.js';
-import type { EntityInstance } from '../EntityInstance.js';
+import type { EntityInstance, EntitySnapshotSource } from '../EntityInstance.js';
 
 // A wrong `true` drops an update, so anything uncertain must compare unequal.
 
 const proxyLike = (key: number) => {
   const obj = {};
-  PROXY_ID.set(obj, key);
+  // `sameValue` only checks membership, so the record is never read.
+  PROXY_ID.set(obj, { key } as EntitySnapshotSource);
   return obj;
 };
 

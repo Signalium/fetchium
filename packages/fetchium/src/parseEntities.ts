@@ -726,7 +726,7 @@ function valueSatisfiesDef(value: unknown, fieldDef: unknown, queryClient: Query
       if (itemDef === undefined || typeof itemDef === 'number') return true;
       return arraySatisfies(value, itemDef, queryClient, visiting);
     }
-    const entityKey = PROXY_ID.get(value as object);
+    const entityKey = PROXY_ID.get(value as object)?.key;
     const typename =
       entityKey !== undefined
         ? queryClient.entityMap.getEntity(entityKey)?.typename
@@ -779,7 +779,7 @@ function entitySatisfies(
   queryClient: QueryClient,
   visiting: TrustMemo,
 ): boolean {
-  const entityKey = PROXY_ID.get(value);
+  const entityKey = PROXY_ID.get(value)?.key;
   if (entityKey === undefined) return false;
   const child = queryClient.entityMap.getEntity(entityKey);
   if (child === undefined) return true;

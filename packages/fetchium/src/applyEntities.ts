@@ -197,7 +197,7 @@ function applyEntity(
       if (!Array.isArray(raw)) continue;
       for (const item of raw) {
         if (typeof item !== 'object' || item === null) continue;
-        const itemKey = PROXY_ID.get(item as object);
+        const itemKey = PROXY_ID.get(item as object)?.key;
         if (itemKey === undefined) continue;
         const child = queryClient.entityMap.getEntity(itemKey);
         if (child !== undefined) {
