@@ -181,7 +181,7 @@ class OwnedObjectHandler implements ProxyHandler<Record<string, unknown>> {
 // ======================================================
 
 /** Trap-free access to one entity proxy's fields. */
-interface EntitySnapshotSource {
+export interface EntitySnapshotSource {
   /** The entity key `PROXY_ID` brands the proxy with. */
   readonly key: number;
   /** Identifies this proxy without retaining it. */
@@ -193,9 +193,6 @@ interface EntitySnapshotSource {
   /** `proxy[key]` before read-only wrapping. */
   readField(key: string): unknown;
 }
-
-// Every entry is written below with a full source.
-const snapshotSources = PROXY_ID as WeakMap<object, EntitySnapshotSource>;
 
 let nextSnapshotSourceId = 1;
 
@@ -259,7 +256,7 @@ function snapshotRawValue(value: unknown, prev: unknown, snap: SnapshotFn): unkn
     for (let i = 0; i < value.length; i++) {
       const item = value[i];
       let prevItem = prevArr !== undefined ? prevArr[i] : undefined;
-      const itemSource = item !== null && typeof item === 'object' ? snapshotSources.get(item) : undefined;
+      const itemSource = item !== null && typeof item === 'object' ? PROXY_ID.get(item) : undefined;
       if (prevArr !== undefined && itemSource !== undefined) {
         if (prevBySource !== undefined) {
           prevItem = prevBySource.get(itemSource.id);
@@ -365,7 +362,7 @@ function walkFields(
   }
 }
 
-/** For proxies from a previous instance of this module (hot reload), absent from `snapshotSources`. */
+/** For proxies from a previous instance of this module (hot reload), absent from `PROXY_ID`. */
 function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn): unknown {
   const obj = current as Record<string, unknown>;
   const keys = Object.keys(obj);
@@ -383,10 +380,10 @@ function snapshotProxyByWalking(current: object, prev: unknown, snap: SnapshotFn
 }
 
 const snapshotEntity = (current: object, prev: unknown, snap: SnapshotFn): unknown => {
-  const source = snapshotSources.get(current);
+  const source = PROXY_ID.get(current);
   if (source === undefined) {
     // Hot-reloaded proxy. Returning it as-is would stop React re-rendering on its changes.
-    if (PROXY_ID.has(current) || typeof (current as { toJSON?: unknown }).toJSON === 'function') {
+    if (typeof (current as { toJSON?: unknown }).toJSON === 'function') {
       return snapshotProxyByWalking(current, prev, snap);
     }
     // A bare `Entity` has no fields to read, only the shape's type defs.
@@ -1166,7 +1163,7 @@ function createProxy(
 
   proxy = new Proxy<Record<string, unknown>>({} as Record<string, unknown>, handler);
 
-  snapshotSources.set(proxy, {
+  PROXY_ID.set(proxy, {
     key,
     id: nextSnapshotSourceId++,
     instance,

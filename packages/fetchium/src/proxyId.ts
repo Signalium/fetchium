@@ -1,8 +1,7 @@
-/**
- * Brands entity proxies with their numeric key. EntityInstance writes the record, with its snapshot
- * source, so each proxy costs one entry here instead of one per registry.
- */
-export const PROXY_ID = new WeakMap<object, { readonly key: number }>();
+import type { EntitySnapshotSource } from './EntityInstance.js';
+
+/** Each entity proxy's snapshot source, which carries its entity key, so a proxy costs one entry here. */
+export const PROXY_ID = new WeakMap<object, EntitySnapshotSource>();
 
 export function getProxyId(object: Record<string, unknown>): number | undefined {
   return PROXY_ID.get(object)?.key;
