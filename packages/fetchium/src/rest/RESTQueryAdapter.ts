@@ -218,6 +218,10 @@ export class RESTQueryAdapter extends QueryAdapter {
 
     restCtx.response = fetchResponse as unknown as Response;
 
+    if (fetchResponse.status === 204) {
+      return {};
+    }
+
     return fetchResponse.json();
   }
 }
