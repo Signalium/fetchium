@@ -1,5 +1,12 @@
 # fetchium
 
+## 1.2.1
+
+### Patch Changes
+
+- 19c292d: Key each entity proxy into two `WeakMap`s instead of three. The proxy's id now lives in its snapshot-source record.
+- 3d79bcc: A disabled `useQuery` whose Signal params moved to another cached key no longer loses an `invalidateQueries` call made while that cache read was pending. Enabling it again now refetches instead of treating the cache as fresh.
+
 ## 1.2.0
 
 ### Minor Changes
