@@ -118,6 +118,8 @@ export class QueryInstance<T extends Query> {
   private lastPushAt: number | undefined = undefined;
   /** Lets a queued reactivation refetch detect that another fetch overtook it. */
   private fetchStarts: number = 0;
+  /** Bumped by `markStale()`, so a cache read that settles later can't make the query fresh. */
+  private invalidations: number = 0;
   private reactivationQueuedAt: number = -1;
 
   // Invalidates on any signal consumed by getConfig() (such as
@@ -434,7 +436,7 @@ export class QueryInstance<T extends Query> {
 
     if (loadCache) {
       this.peekLoadedKey = storageKey;
-      const { destroyCount, fetchStarts, initialized } = this;
+      const { destroyCount, fetchStarts, initialized, invalidations } = this;
       const apply = (cached: CachedQuery | undefined): void => {
         if (cached === undefined || this.stoppedByDestroy() || this.destroyCount !== destroyCount) {
           return;
@@ -454,7 +456,10 @@ export class QueryInstance<T extends Query> {
           const value = this.applyData(cached.value, false, false, cached.preloadedEntities);
           if (initialized) {
             // The inactive relay takes these params' data, so reactivating refetches only if stale.
-            this.updatedAt = cached.updatedAt;
+            // An invalidation during the read left updatedAt at 0. Keep it.
+            if (this.invalidations === invalidations) {
+              this.updatedAt = cached.updatedAt;
+            }
             this.relayState.value = value;
           }
         } catch (error) {
@@ -1073,6 +1078,7 @@ export class QueryInstance<T extends Query> {
 
   markStale(): void {
     this.updatedAt = 0;
+    this.invalidations++;
     if (this._isActive && !this.isPaused) {
       this.runDebounced({ nextTask: true });
     }

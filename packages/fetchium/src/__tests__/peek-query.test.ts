@@ -423,4 +423,57 @@ describe('peekQuery', () => {
     expect(client.queryInstances.has(queryKeyForClass(GetCollected, undefined))).toBe(false);
     expect(client.entityMap.getEntity(hashValue(['PeekCollected', '1']))).toBeUndefined();
   });
+
+  it('keeps an invalidation made while a cache read for new Signal params is pending', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-fresh/1', { name: 'One' });
+    mockFetch.get('/peek-fresh/2', { name: 'Two' });
+    mockFetch.get('/peek-fresh/2', { name: 'Two refetched' });
+    await persist(kv, mockFetch, GetFreshItem, { id: '1' });
+    await persist(kv, mockFetch, GetFreshItem, { id: '2' });
+    expect(mockFetch.calls).toHaveLength(2);
+
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [0, 30]) });
+    const params = { id: signal('1') };
+    const fetched = inContext(client, () => fetchQuery(GetFreshItem, params));
+    const disposeEnabled = activate(client, () => fetched.value);
+    expect((await fetched).name).toBe('One');
+
+    const peeked = inContext(client, () => peekQuery(GetFreshItem, params));
+    const disposePeek = activate(client, () => peeked.value?.name);
+    disposeEnabled();
+    await sleep(10);
+    params.id.value = '2';
+    await sleep(5);
+    client.invalidateQueries([GetFreshItem]);
+    await expect.poll(() => peeked.value?.name).toBe('Two');
+
+    // The cache is within staleTime, but the invalidation still forces a fetch.
+    activate(client, () => fetched.value);
+    disposePeek();
+    await expect.poll(() => fetched.value?.name).toBe('Two refetched');
+    expect(mockFetch.calls).toHaveLength(3);
+  });
+
+  it('keeps an invalidation made while a never-enabled query reads its cache', async () => {
+    const kv = new MemoryPersistentStore();
+    const mockFetch = createMockFetch();
+    mockFetch.get('/peek-fresh/1', { name: 'One' });
+    mockFetch.get('/peek-fresh/1', { name: 'One refetched' });
+    await persist(kv, mockFetch, GetFreshItem, { id: '1' });
+
+    const client = makeClient(kv, mockFetch, { store: asyncReads(new SyncQueryStore(kv), [30, 0]) });
+    const peeked = inContext(client, () => peekQuery(GetFreshItem, { id: '1' }));
+    const disposePeek = activate(client, () => peeked.value?.name);
+    await sleep(5);
+    client.invalidateQueries([GetFreshItem]);
+    await expect.poll(() => peeked.value?.name).toBe('One');
+
+    const fetched = inContext(client, () => fetchQuery(GetFreshItem, { id: '1' }));
+    activate(client, () => fetched.value);
+    disposePeek();
+    await expect.poll(() => fetched.value?.name).toBe('One refetched');
+    expect(mockFetch.calls).toHaveLength(2);
+  });
 });
