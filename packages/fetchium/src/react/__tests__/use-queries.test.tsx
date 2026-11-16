@@ -182,10 +182,11 @@ describe('useQueries', () => {
     expect(paths()).toEqual(['/items/1', '/items/2']);
   });
 
-  it('keeps an unchanged entry result identity when another entry updates', async () => {
+  it('keeps unchanged entry results stable across data and list changes', async () => {
     mockFetch.get('/items/1', { name: 'One' });
     mockFetch.get('/items/2', { name: 'Two' });
     mockFetch.get('/items/2', { name: 'Two again' });
+    mockFetch.get('/items/3', { name: 'Three' });
 
     const renders: Record<string, number> = {};
     const Row = memo(function Row({ result }: { result: QueryPromise<GetItem> }) {
@@ -195,18 +196,18 @@ describe('useQueries', () => {
     });
 
     let results: QueryPromise<GetItem>[] = [];
-    function Rows(): React.ReactNode {
-      results = useQueries(['1', '2'].map(id => ({ query: GetItem, params: { id } })));
+    function Rows({ ids }: { ids: string[] }): React.ReactNode {
+      results = useQueries(ids.map(id => ({ query: GetItem, params: { id } })));
       return (
         <div data-testid="rows">
           {results.map((result, i) => (
-            <Row key={i} result={result} />
+            <Row key={ids[i]} result={result} />
           ))}
         </div>
       );
     }
 
-    const { getByTestId } = render(withClient(<Rows />));
+    const { getByTestId, rerender } = render(withClient(<Rows ids={['1', '2']} />));
     await expect.element(getByTestId('rows')).toHaveTextContent('OneTwo');
     const first = results[0];
     const rendersOfOne = renders['One'];
@@ -216,6 +217,22 @@ describe('useQueries', () => {
 
     expect(results[0]).toBe(first);
     expect(renders['One']).toBe(rendersOfOne);
+
+    const second = results[1];
+    const rendersOfTwo = renders['Two again'];
+    const changes = [
+      { ids: ['3', '1', '2'], text: 'ThreeOneTwo again' }, // insert and shift indices
+      { ids: ['2', '3', '1'], text: 'Two againThreeOne' }, // reorder
+      { ids: ['2', '1'], text: 'Two againOne' }, // remove
+    ];
+    for (const { ids, text } of changes) {
+      rerender(withClient(<Rows ids={ids} />));
+      await expect.element(getByTestId('rows')).toHaveTextContent(text);
+      expect(results[ids.indexOf('1')]).toBe(first);
+      expect(results[ids.indexOf('2')]).toBe(second);
+      expect(renders['One']).toBe(rendersOfOne);
+      expect(renders['Two again']).toBe(rendersOfTwo);
+    }
   });
 
   it('switches an entry to another query with the same params', async () => {

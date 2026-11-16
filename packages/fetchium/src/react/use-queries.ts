@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { useReactive } from 'signalium/react';
-import { hashValue } from 'signalium/utils';
+import { useReactiveShallow } from 'signalium/react';
+import { hashValue, snapshot } from 'signalium/utils';
 import { ExtractType, QueryPromise } from '../types.js';
 import { fetchQuery, getQueryDefinition, peekQuery, Query } from '../query.js';
 import { HasRequiredKeys, Optionalize, Signalize } from '../type-utils.js';
@@ -49,6 +49,9 @@ export function useQueries<const E extends readonly { query: new () => Query }[]
   entries: E & CheckedEntries<E>,
 ): QueriesResults<E> {
   const list = entries as readonly QueriesEntry<Query>[];
+  // Keep snapshot history by query promise, across thunk changes and reordering.
+  // Weak keys let removed queries be collected with the client's query cache.
+  const snapshots = useMemo(() => new WeakMap<QueryPromise<Query>, unknown>(), []);
   // Keyed on content, not the array, so a new array with the same entries
   // keeps the thunk (and every query's subscription) across renders.
   const key = hashValue(
@@ -63,16 +66,18 @@ export function useQueries<const E extends readonly { query: new () => Query }[]
       }
       return () => {
         return list.map(entry => {
-          if (entry.enabled ?? true) {
-            return fetchQuery(entry.query, entry.params as QueryParamsOf<Query>);
-          } else {
-            return peekQuery(entry.query, entry.params as QueryParamsOf<Query>);
-          }
+          const query =
+            (entry.enabled ?? true)
+              ? fetchQuery(entry.query, entry.params as QueryParamsOf<Query>)
+              : peekQuery(entry.query, entry.params as QueryParamsOf<Query>);
+          const result = snapshot(query, snapshots.get(query));
+          snapshots.set(query, result);
+          return result;
         });
       };
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [key],
+    [key, snapshots],
   );
-  return useReactive(thunk) as unknown as QueriesResults<E>;
+  return useReactiveShallow(thunk) as unknown as QueriesResults<E>;
 }
