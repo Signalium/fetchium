@@ -8,7 +8,7 @@ description: API reference for the fetchium React integration.
 React hooks for using Fetchium queries in React components. Built on top of Signalium's `useReactive` hook.
 
 ```ts
-import { useQuery, useSuspenseQuery } from 'fetchium/react';
+import { useQuery, useQueries, useSuspenseQuery } from 'fetchium/react';
 ```
 
 ---
@@ -166,6 +166,54 @@ The cached value stays reactive. Entity updates and fetches by enabled consumers
 - Fetchium registers a custom snapshot for entity proxies so the snapshot walks into entities (instead of returning them by reference), giving you correct re-rendering on entity field changes.
 - The snapshot is a plain-object copy of the query result to prevent accidental mutation of the entity cache. Treat it as read-only: in development builds the snapshot and every nested object and array in it are frozen, so an in-place `sort()`, a `push()` or an assignment in render throws a `TypeError` at that line. Production snapshots are not frozen, and a mutation there is carried forward until the entity changes. Sort a copy (`[...items].sort()`) or use `draft()` from `fetchium` if you need a mutable copy for mutations.
 - `useQuery` never suspends. Reading `.value` while pending returns `undefined`. Use [`useSuspenseQuery`](#usesuspensequery) to suspend on a cold miss.
+
+---
+
+### `useQueries`
+
+```ts
+function useQueries<E extends readonly QueriesEntry<Query>[]>(
+  entries: E,
+): QueriesResults<E>;
+
+type QueriesEntry<T extends Query> = {
+  query: new () => T;
+  params?: ExtractQueryParams<T>; // required when the query has required params
+  enabled?: boolean;
+};
+```
+
+`useQuery` for a list of queries whose length or contents change between renders, where calling `useQuery` in a loop would break the rules of hooks. Each entry takes the same query, params and `enabled` option as `useQuery`. The result is an array with one `useQuery`-shaped result per entry, in the same order. For a fixed list of different queries the result is a typed tuple. Each entry's `params` are checked against its own query.
+
+```tsx
+function UserList({ ids }: { ids: string[] }) {
+  const users = useQueries(
+    ids.map((id) => ({ query: GetUser, params: { id } })),
+  );
+
+  return (
+    <ul>
+      {users.map((user, i) => (
+        <li key={ids[i]}>{user.isReady ? user.value.name : 'Loading...'}</li>
+      ))}
+    </ul>
+  );
+}
+
+const [user, posts] = useQueries([
+  { query: GetUser, params: { id } },
+  { query: GetPosts },
+]);
+```
+
+#### Behavior
+
+- **Entries are independent.** Each query fetches, refetches, fails and updates on its own. Adding, removing or reordering entries doesn't refetch the ones that stay.
+- **Stable results.** Passing a new array with the same entries on every render is fine: the hook compares entries by query, params and `enabled`. An entry whose data didn't change keeps its result identity, so memoized children re-render only for the entries that changed.
+- **Removed entries** are released like an unmounted `useQuery`: their subscriptions stop and they are collected after `gcTime`.
+- **`enabled: false`** works per entry as in `useQuery`: the entry never fetches or subscribes, and shows cached data when there is some.
+- **Signal params** work per entry, as in `useQuery`.
+- `useQueries` never suspends. There is no suspense variant yet.
 
 ---
 
