@@ -64,7 +64,7 @@ Map write operations to Mutation classes:
   - **Creates**: which entity type is created? Does the server return the new entity?
   - **Updates**: which entity fields change? Can effects be declared statically from params, or do they need `getEffects()` (server response dependent)?
   - **Deletes**: which entity is removed?
-- Note if optimistic updates are appropriate (simple, predictable changes)
+- Note if optimistic updates are appropriate (simple, predictable changes). They need static `effects` entries that read only `params`; `getEffects()` and `this.result` entries never apply optimistically
 - Note if `invalidates` is needed (complex server-side logic, bulk operations)
 
 ### 5. Flag issues

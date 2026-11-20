@@ -168,14 +168,14 @@ Base class for mutation definitions.
 
 #### Instance properties
 
-| Property            | Type                                 | Description                                                               |
-| ------------------- | ------------------------------------ | ------------------------------------------------------------------------- |
-| `params`            | `TypeDefShape \| undefined`          | Shape definition for mutation input parameters.                           |
-| `result`            | `TypeDefShape \| undefined`          | Shape definition for the mutation response.                               |
-| `optimisticUpdates` | `boolean \| undefined`               | When `true`, applies effects optimistically before the server responds.   |
-| `config`            | `MutationConfigOptions \| undefined` | Mutation configuration (retry settings).                                  |
-| `effects`           | `MutationEffects \| undefined`       | Static entity effects (creates, updates, deletes) and query invalidation. |
-| `context`           | `QueryContext`                       | The query context provided by the `QueryClient`.                          |
+| Property            | Type                                 | Description                                                                                                                                               |
+| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `params`            | `TypeDefShape \| undefined`          | Shape definition for mutation input parameters.                                                                                                           |
+| `result`            | `TypeDefShape \| undefined`          | Shape definition for the mutation response.                                                                                                               |
+| `optimisticUpdates` | `boolean \| undefined`               | When `true`, applies the `effects` entries that read only `params` before the request, and rolls them back if it fails. Allows overlapping `run()` calls. |
+| `config`            | `MutationConfigOptions \| undefined` | Mutation configuration (retry settings).                                                                                                                  |
+| `effects`           | `MutationEffects \| undefined`       | Static entity effects (creates, updates, deletes) and query invalidation.                                                                                 |
+| `context`           | `QueryContext`                       | The query context provided by the `QueryClient`.                                                                                                          |
 
 #### Methods
 

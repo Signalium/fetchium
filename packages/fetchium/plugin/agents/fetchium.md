@@ -119,7 +119,7 @@ class UpdateUser extends RESTMutation {
 - **Prefer entity effects** (`creates`, `updates`, `deletes`) over `invalidates`. Entity effects are precise and work with optimistic updates and live data.
 - Use `getEffects()` when effects depend on the **server response** (e.g., server-assigned IDs on create).
 - Use `invalidates: [QueryClass]` only as an escape hatch for complex server-side logic.
-- `optimisticUpdates = true` for simple, predictable changes (toggling booleans, updating text). Effects apply immediately and roll back on failure.
+- `optimisticUpdates = true` for simple, predictable changes (toggling booleans, updating text). Only static `effects` entries that read just `this.params` apply before the request; entries reading `this.result`, and `getEffects()`, apply on success. A failure rolls back fields that still hold the optimistic value. Overlapping `run()` calls are allowed and each rolls back only its own changes.
 - Default HTTP method for `RESTMutation` is `POST`.
 
 ## React + Hooks Usage

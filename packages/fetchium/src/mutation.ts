@@ -2,7 +2,13 @@ import { getContext, ReactiveTask } from 'signalium';
 import { ExtractType, InternalTypeDef, MutationEffects, TypeDef, RetryConfig, TypeDefShape } from './types.js';
 import { QueryClientContext, type QueryContext } from './QueryClient.js';
 import { ValidatorDef, t } from './typeDefs.js';
-import { createDefinitionProxy, extractDefinition, type CapturedDefinition } from './fieldRef.js';
+import {
+  createDefinitionProxy,
+  extractDefinition,
+  getFieldRefPath,
+  isFieldRef,
+  type CapturedDefinition,
+} from './fieldRef.js';
 import type { QueryAdapter, QueryAdapterClass } from './QueryAdapter.js';
 
 // ================================
@@ -19,6 +25,8 @@ export interface MutationDefinition<Request, Response> {
   responseShape: InternalTypeDef | undefined;
   captured: CapturedDefinition<Mutation>;
   optimisticUpdates: boolean;
+  /** The declared `creates`/`updates`/`deletes` that read only `params`. */
+  optimisticEffects: MutationEffects | undefined;
   config?: MutationConfigOptions;
   effects?: MutationEffects;
   hasGetEffects: boolean;
@@ -107,15 +115,22 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
       );
     }
 
+    const optimisticUpdates = fields.optimisticUpdates ?? false;
+    const hasGetEffects = typeof captured.methods.getEffects === 'function';
+
     mutationDefinition = {
       id,
       requestShape,
       responseShape,
       captured,
-      optimisticUpdates: fields.optimisticUpdates ?? false,
+      optimisticUpdates,
+      optimisticEffects:
+        optimisticUpdates && !hasGetEffects && fields.effects !== undefined
+          ? paramsOnlyEffects(fields.effects)
+          : undefined,
       config: fields.config,
       effects: fields.effects,
-      hasGetEffects: typeof captured.methods.getEffects === 'function',
+      hasGetEffects,
       adapterClass,
     };
 
@@ -124,6 +139,24 @@ function buildMutationDefinition(MutationClass: new () => Mutation): () => Mutat
 
   mutationDefCache.set(MutationClass, getter);
   return getter;
+}
+
+function paramsOnlyEffects(effects: MutationEffects): MutationEffects | undefined {
+  const creates = effects.creates?.filter(([, data]) => !readsResult(data));
+  const updates = effects.updates?.filter(([, data]) => !readsResult(data));
+  const deletes = effects.deletes?.filter(([, data]) => !readsResult(data));
+  if (!creates?.length && !updates?.length && !deletes?.length) return undefined;
+  return { creates, updates, deletes };
+}
+
+function readsResult(value: unknown): boolean {
+  if (isFieldRef(value)) return getFieldRefPath(value)[0] === 'result';
+  if (typeof value === 'string') return /\[result[.\]]/.test(value);
+  if (Array.isArray(value)) return value.some(readsResult);
+  if (typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.values(value).some(readsResult);
+  }
+  return false;
 }
 
 // ================================
