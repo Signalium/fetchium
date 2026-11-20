@@ -7,6 +7,7 @@ import type { FetchNextConfig } from '../query-types.js';
 import type { RESTQuery } from './RESTQuery.js';
 import type { RESTMutation } from './RESTMutation.js';
 import type { QueryRequestInit, BaseUrlValue, QueryRequestOptions } from '../types.js';
+import { RESTResponseError } from './RESTResponseError.js';
 
 // ================================
 // ResolvedFetchNext
@@ -217,6 +218,11 @@ export class RESTQueryAdapter extends QueryAdapter {
     });
 
     restCtx.response = fetchResponse as unknown as Response;
+
+    // An app's `fetch` may return error responses instead of throwing; a mutation must not resolve with one.
+    if (!fetchResponse.ok) {
+      throw new RESTResponseError(fetchResponse);
+    }
 
     if (fetchResponse.status === 204) {
       return {};

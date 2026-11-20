@@ -76,7 +76,7 @@ describe('Optimistic mutations', () => {
     }
 
     mockFetch.get('/post', { post });
-    mockFetch.post('/edit', {}, { error: new Error('offline'), delay: 10 });
+    mockFetch.post('/edit', { message: 'failed' }, { status: 500, delay: 10 });
 
     await testWithClient(client, async () => {
       const { post: entity } = await fetchQuery(GetOptPost);

@@ -142,6 +142,8 @@ The `ReactiveTask` object exposes properties for tracking the mutation state:
 
 Because the task is reactive, reading `isPending`, `isResolved`, or `value` inside a reactive context (a `component()` or `reactive()` function) will automatically re-render when the mutation state changes. This makes it straightforward to show loading spinners, disable buttons, or display success/error states.
 
+A `RESTMutation` whose response is not 2xx rejects with a `RESTResponseError` (from `fetchium/rest`), even when your `fetch` returns error responses instead of throwing. The error carries `status` and the unread `response`, so you can read the body yourself. Effects run only on success.
+
 ---
 
 ## Declaring Effects

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getMutation } from '../mutation.js';
 import { fetchQuery } from '../query.js';
-import { RESTMutation, RESTQuery, RESTQueryAdapter } from '../rest/index.js';
+import { RESTMutation, RESTQuery, RESTQueryAdapter, RESTResponseError } from '../rest/index.js';
 import { setupTestClient, testWithClient } from './utils.js';
 
 describe('REST mutation response parsing', () => {
@@ -29,6 +29,37 @@ describe('REST mutation response parsing', () => {
       expect(mutation.isResolved).toBe(true);
       expect(mutation.value).toEqual({});
       expect(json).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([400, 500])('rejects %i mutations with the status, leaving the body unread', async status => {
+    response = new Response(JSON.stringify({ message: 'failed' }), { status });
+    const json = vi.spyOn(response, 'json');
+    const { client } = getClient();
+
+    await testWithClient(client, async () => {
+      const mutation = getMutation(UpdateItem);
+
+      const error = await mutation.run({}).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(RESTResponseError);
+      expect((error as RESTResponseError).status).toBe(status);
+      expect((error as RESTResponseError).response.bodyUsed).toBe(false);
+      expect(json).not.toHaveBeenCalled();
+    });
+  });
+
+  it('passes a failed response status to shouldRetry', async () => {
+    response = new Response('{}', { status: 422 });
+    const shouldRetry = vi.fn(() => false);
+    const { client } = getClient();
+
+    class RetriedUpdate extends UpdateItem {
+      config = { retry: { retries: 1, retryDelay: () => 0, shouldRetry } };
+    }
+
+    await testWithClient(client, async () => {
+      await expect(getMutation(RetriedUpdate).run({})).rejects.toBeInstanceOf(RESTResponseError);
+      expect(shouldRetry).toHaveBeenCalledWith(expect.any(RESTResponseError), 0, 422);
     });
   });
 
