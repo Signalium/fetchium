@@ -142,6 +142,8 @@ The `ReactiveTask` object exposes properties for tracking the mutation state:
 
 Because the task is reactive, reading `isPending`, `isResolved`, or `value` inside a reactive context (a `component()` or `reactive()` function) will automatically re-render when the mutation state changes. This makes it straightforward to show loading spinners, disable buttons, or display success/error states.
 
+A `RESTMutation` whose response is not 2xx rejects with a `RESTResponseError` (from `fetchium/rest`), even when your `fetch` returns error responses instead of throwing. The error carries `status` and the unread `response`, so you can read the body yourself. Effects run only on success.
+
 ---
 
 ## Declaring Effects
@@ -309,21 +311,43 @@ class ToggleLike extends RESTMutation {
 }
 ```
 
-When you execute this mutation:
+When you run this mutation:
 
-1. The effects are applied to the entity store _immediately_ --- the UI updates before any network request
-2. The network request is sent in the background
-3. If the request succeeds, the optimistic data is replaced with the real server response
-4. If the request fails, the optimistic changes are _rolled back_ to the previous state
+1. Effects that read only `this.params` are applied to the entity store in a microtask after `run()`, before the request is sent and before the next paint.
+2. The request is sent.
+3. On success, every effect is applied from the response, as for any mutation, so the server's values replace the optimistic ones. `invalidates` runs only now.
+4. On failure (after retries), the optimistic changes are rolled back and the task rejects.
 
-Optimistic updates work _because_ effects are declarative. Fetchium knows exactly what data was changed (the entity, the fields, the values), so it can snapshot the previous state and restore it on failure. This would not be possible with an imperative cache manipulation API.
+Effects are declarative, so Fetchium knows which entities and fields a call changed, and can restore exactly those.
+
+| Effect                                   | Applied optimistically | On failure                                                  |
+| ---------------------------------------- | ---------------------- | ----------------------------------------------------------- |
+| `updates` entry that reads only `params` | Yes                    | Each changed field returns to its previous value            |
+| `creates` entry that reads only `params` | Yes                    | The entity is removed from live arrays it was added to      |
+| `deletes` entry that reads only `params` | Yes                    | The entity is added back to live arrays it was removed from |
+| Entry that reads `this.result`           | No, applied on success | Nothing to undo                                             |
+| `getEffects()`                           | No, applied on success | Nothing to undo                                             |
+
+If no effect can be applied before the response, Fetchium logs a warning when the mutation is first used.
+
+### Rollback and concurrent writes
+
+A rollback restores a field only while it still holds the value this call wrote. If a stream update, a refetch, or another call changed the field in the meantime, the newer value stays.
+
+Optimistic mutations can be run again while a call is in flight, for example a like button tapped twice. Each call's changes are tracked separately:
+
+- When a call fails, its fields return to the value of the latest call still in flight, or to the last confirmed value if none is.
+- When an earlier call succeeds while a later one is still in flight, the later call's value stays visible. The confirmed value becomes what the field returns to if the later call fails.
+- The task's `value`, `error` and pending state follow the most recent call.
+
+Mutations without `optimisticUpdates` still reject a second `run()` while one is in flight.
 
 {% callout type="warning" %}
 Optimistic updates work best for simple, predictable changes --- toggling a boolean, incrementing a counter, updating a text field. For complex mutations where the server may transform the data significantly (e.g., generating slugs, computing derived fields), consider waiting for the real response instead.
 {% /callout %}
 
 {% callout type="warning" %}
-If a mutation with optimistic updates fails, the rollback restores the entity to its previous state. Make sure your UI handles the error case gracefully --- for example, by showing a toast notification or retry button.
+Fields that hold live arrays or live values are not rolled back. Make sure your UI handles a failed optimistic mutation gracefully --- for example, by showing a toast notification or retry button.
 {% /callout %}
 
 ---

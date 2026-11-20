@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { QueryClient } from '../QueryClient.js';
 import { SyncQueryStore, MemoryPersistentStore } from '../stores/sync.js';
-import { RESTQuery, RESTMutation } from '../rest/index.js';
+import { RESTQuery, RESTMutation, RESTResponseError } from '../rest/index.js';
 import { RESTQueryAdapter } from '../rest/RESTQueryAdapter.js';
 import { fetchQuery } from '../query.js';
 import { getMutation } from '../mutation.js';
@@ -328,7 +328,7 @@ describe('shouldRetry', () => {
       expect(mockFetch.calls).toHaveLength(1);
     });
 
-    it('passes the status of a mutation 4xx whose body is not JSON', async () => {
+    it('passes the status of a mutation 4xx without parsing its body', async () => {
       const statuses: Array<number | undefined> = [];
       client.destroy();
       client = createClient((error, attempt, status) => {
@@ -339,7 +339,7 @@ describe('shouldRetry', () => {
 
       await testWithClient(client, async () => {
         const mut = getMutation(CreateUser);
-        await expect(mut.run({ name: 'Test' })).rejects.toBeInstanceOf(SyntaxError);
+        await expect(mut.run({ name: 'Test' })).rejects.toBeInstanceOf(RESTResponseError);
       });
 
       expect(mockFetch.calls).toHaveLength(1);

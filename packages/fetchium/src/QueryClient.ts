@@ -38,6 +38,7 @@ import {
 import { SyncQueryStore, MemoryPersistentStore } from './stores/sync.js';
 import type { ExtractType } from './types.js';
 import type { Optionalize, Signalize } from './type-utils.js';
+import { OptimisticLayers } from './optimistic.js';
 
 /** Options for `new QueryClient(config)`. Every key also reaches queries and mutations as `this.context`. */
 export interface QueryClientConfig {
@@ -142,6 +143,8 @@ export class QueryClient {
   entityMap: EntityStore;
   queryInstances = new Map<number, QueryInstance<any>>();
   mutationInstances = new Map<string, MutationResultImpl<unknown, unknown>>();
+  /** @internal */
+  readonly optimisticLayers: OptimisticLayers = new OptimisticLayers(this);
   gcManager: GcManager | NoOpGcManager;
   networkManager: NetworkManager | NoOpNetworkManager;
   isServer: boolean;
@@ -1036,6 +1039,16 @@ export class QueryClient {
         matcher.unregisterBinding(binding, typename);
       }
     }
+  }
+
+  /**
+   * Routes an in-memory entity to live arrays as if just created. A delete event
+   * changes no entity data, so this undoes one.
+   * @internal
+   */
+  rerouteAsCreated(typename: string, key: number): void {
+    const entity = this.entityMap.getEntity(key);
+    if (entity !== undefined) this.routeEvent(typename, entity.data, key, 'create', undefined);
   }
 
   private routeEvent(

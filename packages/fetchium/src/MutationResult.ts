@@ -1,5 +1,6 @@
 import { task, type ReactiveTask } from 'signalium';
-import { ComplexTypeDef, MutationEffects, EntityClassOrTypename } from './types.js';
+import { ComplexTypeDef, MutationEffects, EntityClassOrTypename, type MutationEvent } from './types.js';
+import type { OptimisticUndo } from './optimistic.js';
 import { ValidatorDef, getEntityDef } from './typeDefs.js';
 import { type QueryClient } from './QueryClient.js';
 import { MutationDefinition, type Mutation } from './mutation.js';
@@ -27,29 +28,79 @@ export class MutationResultImpl<Request, Result> {
     this.def = def;
     this.queryClient = queryClient;
     this.task = this.createTask();
+    if (def.optimisticUpdates && def.optimisticEffects === undefined) {
+      queryClient
+        .getContext()
+        .log?.warn?.(
+          `Mutation "${def.id}" sets optimisticUpdates, but none of its effects can be applied before the response: ` +
+            'only `effects` entries that read just `params` are applied optimistically, and `getEffects()` never is.',
+        );
+    }
   }
 
   private createTask(): ReactiveTask<Result, [Request]> {
     return task(
       async (request: Request): Promise<Result> => {
-        if (this._inFlight) {
-          throw new Error('A mutation is already in progress. Await the previous call before starting a new one.');
+        if (!this.def.optimisticUpdates) {
+          if (this._inFlight) {
+            throw new Error('A mutation is already in progress. Await the previous call before starting a new one.');
+          }
+          this._inFlight = true;
+          try {
+            const response = await this.executeWithRetry(request);
+
+            const parsed = this.validateResponse(response);
+
+            this.processEffects(request, parsed.value, parsed.rawValues);
+
+            return parsed.value;
+          } finally {
+            this._inFlight = false;
+          }
         }
-        this._inFlight = true;
+
+        // `run()` can be called from a reactive function that read these entities, which
+        // must not be written during that synchronous run.
+        await undefined;
+        const layers = this.queryClient.optimisticLayers;
+        const owner = {};
+        const undos = this.applyOptimisticEffects(owner, request);
+        let parsed: ParsedMutationResponse<Result>;
         try {
-          const response = await this.executeWithRetry(request);
-
-          const parsed = this.validateResponse(response);
-
-          this.processEffects(request, parsed.value, parsed.rawValues);
-
-          return parsed.value;
-        } finally {
-          this._inFlight = false;
+          parsed = this.validateResponse(await this.executeWithRetry(request));
+        } catch (e) {
+          layers.rollback(owner, undos);
+          throw e;
         }
+        try {
+          this.processEffects(request, parsed.value, parsed.rawValues, owner);
+        } finally {
+          layers.release(owner, undos);
+        }
+        return parsed.value;
       },
       { desc: `Mutation(${this.def.id})` },
     );
+  }
+
+  private applyOptimisticEffects(owner: object, request: Request): OptimisticUndo[] {
+    const undos: OptimisticUndo[] = [];
+    const declared = this.def.optimisticEffects;
+    if (declared === undefined) return undos;
+    const root = { params: request };
+    const layers = this.queryClient.optimisticLayers;
+    const apply = (entries: MutationEffects['creates'], type: 'create' | 'update' | 'delete') => {
+      for (const [entityRef, data] of (reifyValue(entries, root) as MutationEffects['creates']) ?? []) {
+        const typename = resolveTypename(entityRef);
+        if (typename === undefined) continue;
+        const undo = layers.apply(owner, { type, typename, data: data as Record<string, unknown> });
+        if (undo !== undefined) undos.push(undo);
+      }
+    };
+    apply(declared.creates, 'create');
+    apply(declared.updates, 'update');
+    apply(declared.deletes, 'delete');
+    return undos;
   }
 
   private validateResponse(response: unknown): ParsedMutationResponse<Result> {
@@ -67,7 +118,12 @@ export class MutationResultImpl<Request, Result> {
   // Effects processing
   // ======================================================
 
-  private processEffects(request: Request, parsedResult: Result, rawValues: WeakMap<object, unknown>): void {
+  private processEffects(
+    request: Request,
+    parsedResult: Result,
+    rawValues: WeakMap<object, unknown>,
+    owner?: object,
+  ): void {
     let effects: MutationEffects | undefined;
 
     if (this.def.hasGetEffects) {
@@ -92,9 +148,9 @@ export class MutationResultImpl<Request, Result> {
     if (effects === undefined) return;
 
     const qc = this.queryClient;
-    applyEffects(effects.creates, 'create', qc, rawValues);
-    applyEffects(effects.updates, 'update', qc, rawValues);
-    applyEffects(effects.deletes, 'delete', qc, rawValues);
+    applyEffects(effects.creates, 'create', qc, rawValues, owner);
+    applyEffects(effects.updates, 'update', qc, rawValues, owner);
+    applyEffects(effects.deletes, 'delete', qc, rawValues, owner);
 
     if (effects.invalidates) {
       qc.invalidateQueries(effects.invalidates);
@@ -156,12 +212,14 @@ function applyEffects(
   type: 'create' | 'update' | 'delete',
   qc: QueryClient,
   rawValues: WeakMap<object, unknown>,
+  owner: object | undefined,
 ): void {
   if (!entries) return;
   for (const [entityRef, data] of entries) {
     const typename = resolveTypename(entityRef);
     if (typename !== undefined) {
-      qc.applyMutationEvent({ type, typename, data: rawValueFor(data, rawValues) as Record<string, unknown> });
+      const event: MutationEvent = { type, typename, data: rawValueFor(data, rawValues) as Record<string, unknown> };
+      qc.applyMutationEvent(owner === undefined ? event : qc.optimisticLayers.confirm(owner, event));
     }
   }
 }
